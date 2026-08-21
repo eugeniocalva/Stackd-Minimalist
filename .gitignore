@@ -1,0 +1,12 @@
+# OS / editor cruft
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+
+# Node (only if you later add tooling — there are no deps today)
+node_modules/
+npm-debug.log*
+
+# Local Claude Code session state
+.claude/settings.local.json
