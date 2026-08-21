@@ -1,0 +1,23 @@
+{
+  "name": "stackd-minimalist",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stack'd — a minimalist todo PWA, wrapped with Capacitor for iOS/Android.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-www.mjs",
+    "sync": "npm run build && cap sync",
+    "ios": "npm run build && cap sync ios && cap open ios",
+    "android": "npm run build && cap sync android && cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.0"
+  }
+}

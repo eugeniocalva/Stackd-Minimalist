@@ -15,6 +15,12 @@ npx http-server -p 8123 -c-1 .
 Then open http://localhost:8123. (Opening `index.html` directly also works,
 but the service worker / install features need http(s).)
 
+## Live
+
+**https://eugeniocalva.github.io/Stackd-Minimalist/** — deployed by GitHub Pages
+from `main`, so every push to `main` publishes. Bump `VERSION` in `sw.js` when
+app files change, or installed clients keep the old cached shell.
+
 ## Platforms
 
 Stack'd is a **PWA** — one codebase for all three platforms:
@@ -30,9 +36,7 @@ Archivo font at runtime, so the installed app works with no connection. Data
 stays in localStorage on-device. When you change app files, bump `VERSION` in
 `sw.js` so installed clients pick up the update.
 
-To distribute through the App Store / Play Store instead, wrap this same code
-with [Capacitor](https://capacitorjs.com) (Play Store also accepts PWAs
-directly via a Trusted Web Activity) — no code changes needed.
+To distribute through the App Store instead, see **iOS / App Store** below.
 
 Note: deploying to any static host (GitHub Pages, Netlify, Cloudflare Pages…)
 is enough; HTTPS is required for install + service worker on real devices.
@@ -67,3 +71,51 @@ is enough; HTTPS is required for install + service worker on real devices.
 - `manifest.webmanifest` — PWA install metadata (name, colors, icons)
 - `sw.js` — service worker: offline app shell + font caching
 - `icons/` — app icons (192/512, maskable, apple-touch-icon)
+
+## iOS / App Store
+
+The same web code is wrapped with [Capacitor](https://capacitorjs.com) and
+built in the cloud by [Codemagic](https://codemagic.io) — no Mac required.
+
+    npm install          # one time
+    npm run build        # copies web assets into www/
+    npx cap sync ios     # needs macOS
+
+Layout:
+
+- `capacitor.config.json` — app id `com.eugeniocalva.stackd`, name `Stack'd`
+- `scripts/build-www.mjs` — copies the root web files into `www/`, the clean
+  asset root Capacitor wraps. Source stays at the root so GitHub Pages keeps
+  serving it directly; `www/` is generated and git-ignored.
+- `assets/` — 1024px icon + light/dark splash sources. Opaque (no alpha
+  channel), which App Store validation requires. `@capacitor/assets`
+  generates every native size from these during the build.
+- `codemagic.yaml` — two workflows:
+  - `ios-release` — signed `.ipa` to TestFlight. Triggered by pushing a
+    `v*` tag (e.g. `git tag v1.0.0 && git push --tags`).
+  - `ios-debug` — unsigned compile check, for verifying the build works.
+
+`ios/` and `android/` are git-ignored and generated in CI, so no Xcode project
+is committed. Once you have a Mac and need to customize `Info.plist`,
+entitlements, or capabilities, drop those lines from `.gitignore` and commit
+`ios/` instead.
+
+### Before the first Codemagic build
+
+1. App Store Connect: create the bundle id `com.eugeniocalva.stackd`.
+2. Codemagic > Integrations > App Store Connect: add an API key named
+   **`StackdAppStoreKey`** (the name `codemagic.yaml` refers to).
+3. Push a `v*` tag. Codemagic issues the certificate and provisioning
+   profile itself — no manual signing setup.
+
+`submit_to_app_store` is deliberately `false`; it ships to TestFlight only
+until the store listing is complete.
+
+### Note on App Store review
+
+Apple's Guideline 4.2 (Minimum Functionality) rejects apps that are only a
+repackaged website. Offline support helps, but the strongest fix is real
+native capability — the highest-value one here is wiring the task
+**Reminder** field to actual local notifications
+(`@capacitor/local-notifications`). It is currently a stored label only, with
+no scheduling behind it.
