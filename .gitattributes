@@ -3,3 +3,6 @@
 
 # Binary assets — never touch
 *.png binary
+
+# Windows batch files need CRLF to run reliably
+*.cmd text eol=crlf

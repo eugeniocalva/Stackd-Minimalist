@@ -12,14 +12,22 @@ the release QA pass is in [`docs/qa-report.md`](docs/qa-report.md).
 
 ## Run
 
-Any static server works — no build step, no runtime dependencies:
+**Windows: double-click `start-stackd.cmd`.** It serves the folder on
+http://localhost:8123 and opens the app in your default browser. Close the
+window to stop it. It needs [Node.js](https://nodejs.org); if port 8123 is
+taken, run it as `set STACKD_PORT=8124 & start-stackd.cmd`.
+
+Opening `index.html` directly does **not** work: the app is ES modules,
+which browsers refuse to load from `file://`, so the page stays blank.
+
+Anywhere else, any static server works — no build step, no runtime
+dependencies:
 
 ```bash
 npx http-server -p 8123 -c-1 .
 ```
 
-Then open http://localhost:8123. (Opening `index.html` directly does not work:
-the app is ES modules, which browsers refuse to load from `file://`.)
+Then open http://localhost:8123.
 
 Checks (Node only, no test framework):
 
@@ -104,6 +112,7 @@ is enough; HTTPS is required for install + service worker on real devices.
 
 ## Files
 
+- `start-stackd.cmd` — Windows double-click launcher (local server + browser)
 - `index.html` — shell (loads `app.js` as an ES module)
 - `app.js` — entry point: `render()`, routing, global listeners
 - `src/store.js` — state, v1 → v2 migration, selectors, every mutation
