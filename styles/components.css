@@ -262,7 +262,7 @@
 .dialog p { color: var(--text-secondary); font-size: var(--text-sm); }
 .dialog-actions { display: flex; gap: 10px; margin-top: var(--space-2); }
 .dialog-actions .btn { flex: 1; }
-.btn-danger { background: var(--color-danger); color: #fff; }
+.btn-danger { background: var(--color-danger-solid); color: var(--text-on-danger); }
 
 /* ── Notice (folder disclaimer) ──────────────────────────────────────── */
 .notice {
@@ -318,7 +318,7 @@
 }
 .cal-day:active { transform: scale(0.9); }
 .cal-day:hover { background: var(--bg-surface-sunken); }
-.cal-day.dim { color: var(--text-placeholder); }
+.cal-day.dim { color: var(--text-tertiary); font-weight: 500; }
 .cal-day.today { color: var(--color-accent); font-weight: 800; }
 .cal-day.today::after { content: ''; position: absolute; bottom: 5px; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
 .cal-day.in-range { background: var(--color-primary-bg); border-radius: 0; }
@@ -340,3 +340,13 @@
 .tag .repeat { width: 11px; height: 11px; margin-left: 1px; }
 .kv-val svg + svg { margin-left: -2px; }
 .kv-note { font-size: var(--text-xs); color: var(--text-tertiary); padding: 0 0 var(--space-2); margin-top: -6px; border-bottom: 1px solid var(--color-border); }
+
+/* ── Phase 5: calendar block, read-only detail, folder rows ──────────── */
+.cal { display: flex; flex-direction: column; gap: 4px; }
+.cal-day:focus-visible { outline-offset: -2px; }
+.notice-neutral { background: var(--bg-surface-sunken); color: var(--text-secondary); }
+.kv-val.static { cursor: default; color: var(--text-primary); font-weight: 600; }
+.icon-btn-spacer { width: 40px; height: 40px; flex: none; }
+.is-readonly .detail-head .t-meta { padding-left: calc(26px + var(--space-3)); }
+.is-readonly .dialog-actions { margin-top: var(--space-2); }
+.is-readonly .dialog-actions .btn svg { width: 18px; height: 18px; }

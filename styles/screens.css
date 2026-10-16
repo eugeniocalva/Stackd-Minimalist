@@ -7,6 +7,7 @@
   padding: var(--space-4) var(--gutter) var(--nav-clearance);
 }
 .scroll-area > .hint { display: block; text-align: center; margin-top: var(--space-2); }
+.scroll-area > .list-hint { text-align: left; margin: 0 var(--space-1) var(--space-3); }
 
 /* ── Onboarding ──────────────────────────────────────────────────────── */
 .onboarding {
@@ -36,7 +37,7 @@
 .t-title { font-size: var(--text-base); font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
 .t-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .t-sub { font-size: var(--text-xs); color: var(--text-tertiary); white-space: nowrap; }
-.grip { color: var(--text-placeholder); flex: none; cursor: grab; touch-action: none; align-self: center; display: flex; padding: 4px; }
+.grip { color: var(--text-tertiary); flex: none; cursor: grab; touch-action: none; align-self: center; display: flex; padding: 4px; }
 .grip svg { width: 18px; height: 18px; }
 
 /* ── Board: kanban ───────────────────────────────────────────────────── */
@@ -100,9 +101,9 @@
 .subrow.done { opacity: 0.5; }
 .subrow.done .s-title { text-decoration: line-through; }
 .subrow .s-title { font-size: var(--text-sm); flex: 1; }
-.s-del { width: 32px; height: 32px; border-radius: 50%; color: var(--text-placeholder); display: flex; align-items: center; justify-content: center; }
+.s-del { width: 32px; height: 32px; border-radius: 50%; color: var(--text-tertiary); display: flex; align-items: center; justify-content: center; }
 .s-del svg { width: 16px; height: 16px; }
-.s-del:hover { color: var(--color-danger); background: var(--bg-surface-sunken); }
+.s-del:hover { color: var(--color-danger-text); background: var(--bg-surface-sunken); }
 .addsub-dot { width: 18px; height: 18px; flex: none; border-radius: 50%; border: 2px dashed var(--text-placeholder); }
 .addsub-input { border: 0; background: none; font-size: var(--text-sm); flex: 1; min-height: 36px; color: var(--text-primary); caret-color: var(--color-accent); outline: none; }
 .addsub-input::placeholder { color: var(--text-tertiary); }
@@ -180,3 +181,6 @@
 .list-label { display: block; margin: var(--space-2) var(--space-1) var(--space-3); }
 .side-item > svg { width: 16px; height: 16px; color: var(--text-tertiary); flex: none; }
 .side-item.active > svg { color: var(--color-accent); }
+.frow { cursor: pointer; }
+.frow-open { text-align: left; padding: 0; color: var(--text-primary); }
+.frow-open:hover { text-decoration: underline; text-underline-offset: 3px; }

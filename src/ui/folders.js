@@ -1,17 +1,17 @@
 /* Folders screen: Archived and Deleted tabs. Deleted keeps tasks for
    RETENTION_DAYS, then purgeDeleted() drops them (run on boot and whenever
-   this tab opens). */
+   this tab opens). Tapping a row opens the task read-only. */
 
 import {
   UI, RETENTION_DAYS, listById, laneName, folderTasks, purgeDeleted,
-  softDelete, deleteForever, emptyDeleted, rerender,
+  deleteForever, emptyDeleted, rerender,
 } from '../store.js';
 import { fmtRelative, daysLeft } from '../dates.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
-import { taskMetaHTML, bindScrollShadow } from './board.js';
-import { confirmDialog, toast } from './primitives.js';
-import { restoreWithToast } from './actions.js';
+import { taskMetaHTML, bindScrollShadow, openDetail } from './board.js';
+import { confirmDialog } from './primitives.js';
+import { restoreWithToast, deleteWithUndo } from './actions.js';
 
 export function openFolder(tab) {
   if (tab === 'deleted') purgeDeleted();
@@ -26,16 +26,19 @@ function originLabel(t) {
   return `${board} · ${laneName(o.lane)}`;
 }
 
+function whenLabel(t, tab) {
+  if (tab === 'archived') return `Archived ${fmtRelative(t.archivedAt)}`;
+  const left = daysLeft(t.deletedAt, RETENTION_DAYS);
+  return left === 0 ? 'Removed today' : `Removed in ${left} day${left === 1 ? '' : 's'}`;
+}
+
 function rowHTML(t, tab) {
-  const when = tab === 'archived'
-    ? `Archived ${fmtRelative(t.archivedAt)}`
-    : `Removed in ${daysLeft(t.deletedAt, RETENTION_DAYS)} days`;
   return `
   <div class="row frow" data-id="${t.id}">
     <div class="t-main">
-      <span class="t-title">${esc(t.title)}</span>
+      <button class="t-title frow-open" data-open="${t.id}">${esc(t.title)}</button>
       ${taskMetaHTML(t)}
-      <span class="frow-origin">${esc(originLabel(t))} · ${when.replace('in 0 days', 'today')}</span>
+      <span class="frow-origin">${esc(originLabel(t))} · ${whenLabel(t, tab)}</span>
       <div class="frow-actions">
         <button class="btn btn-sm btn-secondary" data-restore="${t.id}">${icon('undo', 16)}Restore</button>
         <button class="btn btn-sm btn-ghost danger" data-delete="${t.id}">${tab === 'archived' ? 'Delete' : 'Delete forever'}</button>
@@ -57,8 +60,8 @@ export function foldersHTML() {
         <span class="kicker">${ts.length} ${tab}</span>
       </div>
       <div class="segmented" role="tablist">
-        <button class="seg ${tab === 'archived' ? 'active' : ''}" data-tab="archived">Archived · ${archived.length}</button>
-        <button class="seg ${tab === 'deleted' ? 'active' : ''}" data-tab="deleted">Deleted · ${deleted.length}</button>
+        <button class="seg ${tab === 'archived' ? 'active' : ''}" data-tab="archived" role="tab" aria-selected="${tab === 'archived'}">Archived · ${archived.length}</button>
+        <button class="seg ${tab === 'deleted' ? 'active' : ''}" data-tab="deleted" role="tab" aria-selected="${tab === 'deleted'}">Deleted · ${deleted.length}</button>
       </div>
     </header>
     <div class="scroll-area">
@@ -81,12 +84,18 @@ export function bindFolders() {
   bindScrollShadow();
   app.querySelectorAll('[data-tab]').forEach((b) =>
     b.addEventListener('click', () => openFolder(b.dataset.tab)));
+  /* the title is the keyboard target; a tap anywhere else on the row works too */
+  app.querySelectorAll('.frow').forEach((row) =>
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('[data-restore],[data-delete]')) return;
+      openDetail(row.dataset.id);
+    }));
   app.querySelectorAll('[data-restore]').forEach((b) =>
     b.addEventListener('click', () => restoreWithToast(b.dataset.restore)));
   app.querySelectorAll('[data-delete]').forEach((b) =>
     b.addEventListener('click', async () => {
       const id = b.dataset.delete;
-      if (UI.folder === 'archived') { softDelete(id); toast('Moved to Deleted'); return; }
+      if (UI.folder === 'archived') { deleteWithUndo(id); return; }
       if (await confirmDialog('Delete forever?', 'This task cannot be recovered afterwards.', { confirmLabel: 'Delete forever', danger: true })) {
         deleteForever(id);
       }

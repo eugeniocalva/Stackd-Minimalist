@@ -129,13 +129,16 @@ Stackd Minimalist/
 ├─ src/
 │  ├─ store.js                 state, migrate, selectors, mutations, purge
 │  ├─ dates.js                 todayISO, addDays, nextOccurrence, fmtDue, fmtRelative
+│  ├─ util.js                  uid, esc, app root
 │  └─ ui/
-│     ├─ primitives.js         toast(), confirm(), openSheet(), openPopover(), menu()
+│     ├─ primitives.js         toast(), confirmDialog(), openMenu()
+│     ├─ actions.js            archive / delete / restore / move / complete + their toasts
 │     ├─ shell.js              mobile header + bottom nav + FAB, desktop sidebar
 │     ├─ board.js              list rows, kanban, desktop table, gestures (moved from app.js)
-│     ├─ detail.js             detail screen, field rows, ⋯ menu, inline title
+│     ├─ detail.js             detail screen, field rows, ⋯ menu, inline title, read-only view
 │     ├─ movecopy.js           Board/Lane sheet used by Move and Copy
-│     ├─ schedule.js           Schedule popover: month grid + fields + validation
+│     ├─ tagpicker.js          tag picker sheet
+│     ├─ schedule.js           Schedule popover: month grid + fields + validation + keyboard
 │     ├─ folders.js            Archived / Deleted screens
 │     ├─ addsheet.js           add-task sheet (moved from app.js)
 │     └─ icons.js              inline SVG strings (Finance set: home, list, archive, trash, …)
@@ -143,14 +146,23 @@ Stackd Minimalist/
 │  ├─ variables.css            Finance tokens (light + dark), trimmed to what is used
 │  ├─ base.css                 reset + global (from Finance reset/global, trimmed)
 │  ├─ components.css           buttons, chips, sheets, nav pill, calendar, toast
-│  └─ screens.css              board / detail / folders / onboarding layouts
+│  ├─ screens.css              board / detail / folders / onboarding layouts
+│  └─ fonts.css                @font-face for the self-hosted fonts
 ├─ fonts/                      inter-latin(.ext).woff2, manrope-latin(.ext).woff2
-├─ docs/                       prd.md, architecture.md
+├─ docs/                       prd.md, architecture.md, qa-report.md
 ├─ sw.js                       SHELL += src/**, styles/**, fonts/**
-└─ scripts/build-www.mjs       ASSETS += 'src', 'styles', 'fonts'
+└─ scripts/
+   ├─ build-www.mjs            ASSETS += 'src', 'styles', 'fonts'
+   ├─ check-dates.mjs          date maths assertions (npm run check)
+   └─ check-shell.mjs          SHELL list ↔ files on disk (npm run check)
 ```
 
-`ds.css` and `app.css` are deleted at the end of Phase 1.
+`ds.css` and `app.css` are deleted at the end of Phase 1. As built (1.1.0),
+the tree matches the above; `util.js`, `actions.js`, `tagpicker.js` and the
+two check scripts were added during implementation. Instead of deriving
+SHELL and ASSETS from one array (risk table, §8), `check-shell.mjs` fails
+`npm run check` when SHELL drifts from the files on disk; ASSETS copies
+whole folders, so it cannot drift.
 
 ---
 

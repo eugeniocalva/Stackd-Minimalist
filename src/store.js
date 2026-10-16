@@ -161,12 +161,13 @@ export const allTags = () =>
 
 export function sortedTasks(listId) {
   const rank = { high: 3, medium: 2, low: 1, none: 0 };
+  const when = (t) => `${t.due} ${t.dueTime || '24:00'}`; // untimed tasks sort after timed ones that day
   const ts = tasksOf(listId).slice();
   ts.sort((a, b) => {
     if (a.done !== b.done) return a.done ? 1 : -1; // completed sink to the bottom
     if (S.sort === 'due') {
       if (!!a.due !== !!b.due) return a.due ? -1 : 1;
-      if (a.due !== b.due) return (a.due || '') < (b.due || '') ? -1 : 1;
+      if (a.due && when(a) !== when(b)) return when(a) < when(b) ? -1 : 1;
     } else if (S.sort === 'priority') {
       if (rank[a.priority] !== rank[b.priority]) return rank[b.priority] - rank[a.priority];
     }
@@ -293,9 +294,11 @@ export function undoRollForward(id, prev) {
 }
 
 /** Move to another board and/or lane; the task lands at the end of the
-    target lane and the moved-to board becomes the current one. */
+    target lane and the moved-to board becomes the current one. A recurring
+    task never enters Done: it keeps its lane (callers roll it forward). */
 export function moveTask(id, listId, lane) {
   const t = taskById(id); if (!t || !listById(listId)) return;
+  if (lane === 'done' && t.recur !== 'none' && t.due) lane = t.lane;
   if (t.listId === listId && t.lane === lane) return;
   t.listId = listId; t.lane = lane; t.order = nextOrder();
   t.done = lane === 'done';
@@ -341,11 +344,21 @@ export function archiveTask(id) {
   leaveDetail(id); touch(t); commit();
 }
 
+/** Returns the status and archivedAt it had, so Undo can put it back. */
 export function softDelete(id) {
-  const t = taskById(id); if (!t || t.status === 'deleted') return;
+  const t = taskById(id); if (!t || t.status === 'deleted') return null;
+  const prev = { status: t.status, archivedAt: t.archivedAt };
   snapshotOrigin(t);
   t.status = 'deleted'; t.deletedAt = Date.now(); t.archivedAt = null;
   leaveDetail(id); touch(t); commit();
+  return prev;
+}
+
+/** Undo for a task deleted from the Archived folder: back into Archived. */
+export function returnToArchive(id, archivedAt) {
+  const t = taskById(id); if (!t || t.status !== 'deleted') return;
+  t.status = 'archived'; t.archivedAt = archivedAt; t.deletedAt = null;
+  touch(t); commit();
 }
 
 /** Back to the origin board + lane. keepPosition restores the old order

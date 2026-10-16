@@ -4,7 +4,7 @@ Scope of this PRD: task fields in the detail screen, task actions menu
 (move / copy / archive / delete), Archived and Deleted folders, a Trello-style
 schedule popover with recurrence, and a design refresh towards Stack'd Finance.
 
-Status: **draft for approval** — see §07 for the decisions needed before build.
+Status: **approved 2026-10-16** (all §07 recommendations accepted) and **implemented in 1.1.0**. QA results: `docs/qa-report.md`. US-10 (notifications) is deferred.
 Companion document: `docs/architecture.md` (data model, modules, phases).
 
 ---
@@ -83,25 +83,25 @@ light and dark mode, and survive a reload (localStorage).
 *As a user, I want to see and change the due date, priority and tags of an
 existing task so that I never have to delete and recreate it.*
 
-- [ ] AC-01.1 The detail screen shows one row per field, in this order:
+- [x] AC-01.1 The detail screen shows one row per field, in this order:
       **Due date · Priority · Tags · Move · Reminder**. Each row shows the
       current value or a placeholder ("Set date", "None", "Add tags…",
       "Work · Backlog", "None").
-- [ ] AC-01.2 **Priority**: the row exposes chips None / Low / Medium / High.
+- [x] AC-01.2 **Priority**: the row exposes chips None / Low / Medium / High.
       Selecting one saves immediately, the row and the task's chips in list,
       kanban and desktop table update, and priority sort reflects it.
-- [ ] AC-01.3 **Tags**: existing tags show as chips with a remove (✕) control.
+- [x] AC-01.3 **Tags**: existing tags show as chips with a remove (✕) control.
       "+ Add tag" asks for a name; the name is trimmed, a leading `#` is
       stripped, and duplicates (case-insensitive) are ignored. Tags used
       anywhere in the app are offered as suggestions. Changes save
       immediately.
-- [ ] AC-01.4 **Due date** and **Reminder** rows both open the Schedule
+- [x] AC-01.4 **Due date** and **Reminder** rows both open the Schedule
       popover (US-07). After saving, the Due row shows e.g. "Fri, Oct 16 ·
       23:30" (time only if set) with a ↻ mark when repeating; the Reminder row
       shows e.g. "1 day before" or "None".
-- [ ] AC-01.5 (Should) The title is editable inline: tap → text input;
+- [x] AC-01.5 (Should) The title is editable inline: tap → text input;
       Enter or blur saves; an empty title reverts to the previous one.
-- [ ] AC-01.6 The add-task sheet is unchanged except for the group label
+- [x] AC-01.6 The add-task sheet is unchanged except for the group label
       ("Board" if Q1 is approved) and "Pick date…" opening the new calendar
       (Should).
 
@@ -109,46 +109,46 @@ existing task so that I never have to delete and recreate it.*
 *As a user, I want to move a task to another board, or to another lane of the
 same board, from the task itself.*
 
-- [ ] AC-02.1 The **Move** row shows "‹Board› · ‹Lane›". Tapping it (or
+- [x] AC-02.1 The **Move** row shows "‹Board› · ‹Lane›". Tapping it (or
       choosing Move in the ⋯ menu) opens a sheet with two chip groups,
       **Board** (all boards) and **Lane** (Backlog / In Progress / Done), the
       current values pre-selected, and a primary **Move** button.
-- [ ] AC-02.2 Confirming updates the task's board and lane. The task is
+- [x] AC-02.2 Confirming updates the task's board and lane. The task is
       appended at the end of the target lane (manual order). Moving into Done
       marks the task done; moving out of Done marks it not done.
-- [ ] AC-02.3 The Move button is disabled while the selection equals the
+- [x] AC-02.3 The Move button is disabled while the selection equals the
       current board + lane.
-- [ ] AC-02.4 After moving, the detail stays open with the new location, the
+- [x] AC-02.4 After moving, the detail stays open with the new location, the
       back link points to the new board, and a toast reads "Moved to Personal
       · In Progress".
-- [ ] AC-02.5 Board counts in the lists menu / sidebar update immediately.
+- [x] AC-02.5 Board counts in the lists menu / sidebar update immediately.
 
 ### US-03 — Task actions menu (⋯)
 *As a user, I want the ⋯ control on an open task to give me Move, Copy,
 Archive and Delete.*
 
-- [ ] AC-03.1 The ⋯ in the top-right of the detail screen is a real button
+- [x] AC-03.1 The ⋯ in the top-right of the detail screen is a real button
       (≥ 44 × 44 px target) that opens a menu with exactly four items in this
       order: **Move, Copy, Archive, Delete**. Delete is styled destructive and
       sits last, separated by a divider.
-- [ ] AC-03.2 Mobile: the menu is a bottom action sheet. Desktop: a popover
+- [x] AC-03.2 Mobile: the menu is a bottom action sheet. Desktop: a popover
       anchored under the button. Tap outside or Esc closes it.
-- [ ] AC-03.3 Each item starts the matching flow (US-02, US-04, US-05, US-06).
-- [ ] AC-03.4 The old "Delete task" footer button is removed; Delete lives
+- [x] AC-03.3 Each item starts the matching flow (US-02, US-04, US-05, US-06).
+- [x] AC-03.4 The old "Delete task" footer button is removed; Delete lives
       only in the menu (long-press on rows still deletes, see US-06).
 
 ### US-04 — Copy a task
 *As a user, I want to duplicate a task into any board/lane so that repeated
 work starts from a template.*
 
-- [ ] AC-04.1 Copy opens the same Board/Lane sheet titled **Copy to**, current
+- [x] AC-04.1 Copy opens the same Board/Lane sheet titled **Copy to**, current
       board + lane pre-selected, primary button **Copy**. Same board + lane is
       allowed (it duplicates in place).
-- [ ] AC-04.2 The copy is a new task with: a new id; the same title, due,
+- [x] AC-04.2 The copy is a new task with: a new id; the same title, due,
       time, start, repeat, reminder, priority and tags; subtasks copied with
       their done state reset; `done` false (true only if the target lane is
       Done); appended at the end of the target lane; `createdAt` now.
-- [ ] AC-04.3 The original is untouched and stays open. A toast reads
+- [x] AC-04.3 The original is untouched and stays open. A toast reads
       "Copied to Work · Backlog" with an **Open** action that navigates to the
       copy.
 
@@ -156,29 +156,29 @@ work starts from a template.*
 *As a user, I want to archive tasks I am done with but want to keep, with all
 their fields and where they came from.*
 
-- [ ] AC-05.1 Archive (from ⋯) sets the task's status to `archived`, records
+- [x] AC-05.1 Archive (from ⋯) sets the task's status to `archived`, records
       `archivedAt` and its origin (board + lane), removes it from every board
       view and count, closes the detail back to the board, and shows a toast
       "Archived · Undo" (5 s). Undo restores it exactly where it was,
       including its position.
-- [ ] AC-05.2 A **Folders** section lists **Archived** and **Deleted** with
+- [x] AC-05.2 A **Folders** section lists **Archived** and **Deleted** with
       live counts: at the bottom of the desktop sidebar, and at the bottom of
       the mobile Boards menu (plus a Folders item in the mobile bottom nav if
       Q3 is approved).
-- [ ] AC-05.3 The Archived folder lists archived tasks newest first. Each row
+- [x] AC-05.3 The Archived folder lists archived tasks newest first. Each row
       shows: title, its chips (due / priority / tags), origin "Work · In
       Progress", and "Archived 3 days ago". Row actions: **Restore** and
       **Delete**.
-- [ ] AC-05.4 Restore returns the task to its origin board + lane at the end
+- [x] AC-05.4 Restore returns the task to its origin board + lane at the end
       of the order, keeping its done state. If the origin board no longer
       exists it goes to the first board's Backlog and the toast says so.
-- [ ] AC-05.5 Delete from Archived moves the task to the Deleted folder
+- [x] AC-05.5 Delete from Archived moves the task to the Deleted folder
       (US-06); the origin is preserved.
-- [ ] AC-05.6 (Should) Tapping an archived row opens the detail read-only,
+- [x] AC-05.6 (Should) Tapping an archived row opens the detail read-only,
       with only Restore and Delete available.
-- [ ] AC-05.7 Empty state: "Nothing archived yet. Archive tasks you are done
+- [x] AC-05.7 Empty state: "Nothing archived yet. Archive tasks you are done
       with but want to keep."
-- [ ] AC-05.8 Archived tasks never appear in sorting, kanban, board counts,
+- [x] AC-05.8 Archived tasks never appear in sorting, kanban, board counts,
       tag suggestions still include their tags, and recurrence never fires
       for them.
 
@@ -186,22 +186,22 @@ their fields and where they came from.*
 *As a user, I want deleted tasks to be recoverable for 30 days, and to be told
 clearly that they are removed after that.*
 
-- [ ] AC-06.1 Every delete entry point (⋯ Delete, long-press on a row,
+- [x] AC-06.1 Every delete entry point (⋯ Delete, long-press on a row,
       Delete in the Archived folder) performs a soft delete: status
       `deleted`, `deletedAt` now, origin recorded. No confirm dialog; instead a
       toast "Deleted · Undo" (5 s). (Q4)
-- [ ] AC-06.2 The Deleted folder uses the Archived row layout plus a
+- [x] AC-06.2 The Deleted folder uses the Archived row layout plus a
       countdown "Removed in 27 days" (ceil of 30 − days elapsed; "Removed
       today" at 0). Row actions: **Restore** and **Delete forever** (confirm).
       A header action **Empty folder** (confirm) removes everything.
-- [ ] AC-06.3 A disclaimer sits at the top of the Deleted folder: *"Tasks
+- [x] AC-06.3 A disclaimer sits at the top of the Deleted folder: *"Tasks
       stay here for 30 days, then they are removed permanently."*
-- [ ] AC-06.4 Purge runs at app start and whenever the Deleted folder is
+- [x] AC-06.4 Purge runs at app start and whenever the Deleted folder is
       opened: any task with `deletedAt` older than 30 × 24 h is removed from
       storage for good.
-- [ ] AC-06.5 Restore returns the task to its origin board + lane (never back
+- [x] AC-06.5 Restore returns the task to its origin board + lane (never back
       to Archived), with the same fallback as AC-05.4.
-- [ ] AC-06.6 Empty state: "Nothing in Deleted." with the disclaimer still
+- [x] AC-06.6 Empty state: "Nothing in Deleted." with the disclaimer still
       visible.
 
 ### US-07 — Schedule popover (calendar, start/due, time, repeat, reminder)
@@ -209,11 +209,11 @@ clearly that they are removed after that.*
 can set a start date, a due date with time, a repeat rule and a reminder, like
 Trello's date popover.*
 
-- [ ] AC-07.1 Entry points: the Due date row, the Reminder row (US-01), and
+- [x] AC-07.1 Entry points: the Due date row, the Reminder row (US-01), and
       "Pick date…" in the add-task sheet (Should). Mobile: bottom sheet;
       desktop: popover / centred dialog. Esc or tap outside closes without
       saving.
-- [ ] AC-07.2 Layout, top to bottom: month header with ‹ › (month) and
+- [x] AC-07.2 Layout, top to bottom: month header with ‹ › (month) and
       « » (year); weekday row starting **Monday**; a 6-row day grid where
       adjacent-month days are dimmed and today is marked; **Start date**
       (checkbox + date field); **Due date** (checkbox + date field + time
@@ -221,22 +221,22 @@ Trello's date popover.*
       **Reminder** select: None / At time of due / 10 minutes before / 1 hour
       before / 1 day before / 2 days before; helper text "You will be reminded
       on this device"; **Save** (primary) and **Remove** (secondary).
-- [ ] AC-07.3 Tapping a day in the grid sets the date field that was last
+- [x] AC-07.3 Tapping a day in the grid sets the date field that was last
       focused (Due by default). When both Start and Due are set, the days
       between them are highlighted as a range with rounded ends.
-- [ ] AC-07.4 Validation: Start must be ≤ Due, otherwise Save is disabled
+- [x] AC-07.4 Validation: Start must be ≤ Due, otherwise Save is disabled
       with the hint "Start must be on or before the due date". Repeat and
       Reminder are disabled until a due date is set. Time is optional.
-- [ ] AC-07.5 Save writes `start`, `due`, `dueTime`, `recur`, `reminder` in
+- [x] AC-07.5 Save writes `start`, `due`, `dueTime`, `recur`, `reminder` in
       one go. Remove clears all five without a confirm. Opening the popover
       again shows the saved values.
-- [ ] AC-07.6 Chips: list / kanban / table chips show "Today 23:30" when a
+- [x] AC-07.6 Chips: list / kanban / table chips show "Today 23:30" when a
       time is set; "Overdue" is computed against date + time (end of day when
       no time); a ↻ glyph is appended when the task repeats. "Starts Oct 20"
       is shown in the detail only.
-- [ ] AC-07.7 (Should) The popover traps focus and is fully keyboard
+- [x] AC-07.7 (Should) The popover traps focus and is fully keyboard
       operable (arrow keys move across days, Enter selects).
-- [ ] AC-07.8 Existing data is migrated: `reminder: 'None'` → `null`; the
+- [x] AC-07.8 Existing data is migrated: `reminder: 'None'` → `null`; the
       three preset labels become a due time (09:00 / 12:00 / 18:00) with
       reminder "At time of due" when the task has a due date, otherwise they
       are dropped.
@@ -245,67 +245,67 @@ Trello's date popover.*
 *As a user, I want a repeating task to come back with its next date when I
 complete it, in the same lane, instead of moving to Done.*
 
-- [ ] AC-08.1 Completing a task whose `recur` ≠ Never (checkbox, double-tap,
+- [x] AC-08.1 Completing a task whose `recur` ≠ Never (checkbox, double-tap,
       drag to Done, Move to Done) does **not** mark it done and does **not**
       change its lane. Instead the due date (and the start date, shifted by
       the same number of days) advances to the next occurrence; subtasks are
       reset to not done; `completedCount` increments and `lastCompletedAt` is
       set.
-- [ ] AC-08.2 Next occurrence rules, computed from the current due date:
+- [x] AC-08.2 Next occurrence rules, computed from the current due date:
       daily +1 day; weekly +7 days; monthly same day next month (clamped to
       the last day of a shorter month, e.g. Jan 31 → Feb 28/29); yearly same
       date next year (Feb 29 → Feb 28). The step repeats until the result is
       later than today, so an overdue weekly task jumps to the next future
       week rather than to another past week. (Q2)
-- [ ] AC-08.3 The row shows the completed state for ~400 ms, then re-renders
+- [x] AC-08.3 The row shows the completed state for ~400 ms, then re-renders
       with the new date. A toast reads "Done · next Fri, Oct 23 · Undo"; Undo
       restores the previous dates, subtasks and counters.
-- [ ] AC-08.4 Dragging a recurring card onto the Done lane triggers the same
+- [x] AC-08.4 Dragging a recurring card onto the Done lane triggers the same
       roll-forward and the card snaps back to its lane; the toast explains.
-- [ ] AC-08.5 Setting Repeat back to Never makes it a normal task (it can be
+- [x] AC-08.5 Setting Repeat back to Never makes it a normal task (it can be
       completed and goes to Done as today).
-- [ ] AC-08.6 Recurrence only applies to active tasks (not archived or
+- [x] AC-08.6 Recurrence only applies to active tasks (not archived or
       deleted).
 
 ### US-09 — Design refresh towards Stack'd Finance
 *As a user of both apps, I want Stack'd Minimalist to look like part of the
 same family as Stack'd Finance.*
 
-- [ ] AC-09.1 **Tokens**: the Finance `variables.css` palette, spacing, radii
+- [x] AC-09.1 **Tokens**: the Finance `variables.css` palette, spacing, radii
       (8 / 12 / 20 / 28 px), shadows, motion tokens and safe-area variables
       replace `ds.css`. Light: base `#f4f7f9`, surface `#ffffff`, primary
       `#111111`. Dark: base `#0b0f19`, surface `#161e2e`, accent `#38bdf8`.
       Theme follows the system as today (manual toggle is a Could).
-- [ ] AC-09.2 **Fonts**: Inter (body) and Manrope (display) self-hosted from
+- [x] AC-09.2 **Fonts**: Inter (body) and Manrope (display) self-hosted from
       the Finance woff2 files; no Google Fonts request; works offline and
       inside Capacitor.
-- [ ] AC-09.3 **Mobile shell** (Q3): a sticky frosted header (board title in
+- [x] AC-09.3 **Mobile shell** (Q3): a sticky frosted header (board title in
       Manrope, kicker count, segmented List ∕ Kanban control, sort) and a
       floating glass bottom-nav pill with **Boards · Tasks · Folders** plus a
       separate round **+** FAB, exactly the Finance layout. The old footer
       hint + square FAB are removed; gesture hints move to a one-line
       `.hint` under the header.
-- [ ] AC-09.4 **Rows and cards**: task rows become flush rows with hairline
+- [x] AC-09.4 **Rows and cards**: task rows become flush rows with hairline
       dividers inside a surface card; kanban cards use surface, 1 px border,
       radius 12 and the soft shadow; the round completion control stays.
       Chips are pills with semantic colours: overdue / High → red tokens; due
       ≤ 3 days / Medium → amber tokens; completed → emerald; tags and Low →
       sunken neutral.
-- [ ] AC-09.5 **Detail**: sticky top bar (back + ⋯), Manrope title, field
+- [x] AC-09.5 **Detail**: sticky top bar (back + ⋯), Manrope title, field
       rows as flush rows with the label left and the value + chevron right,
       progress bar in primary, subtasks unchanged in behaviour.
-- [ ] AC-09.6 **Sheets / popovers**: the Finance "premium sheet" (32 px top
+- [x] AC-09.6 **Sheets / popovers**: the Finance "premium sheet" (32 px top
       radius, drag handle, spring transition, blurred backdrop) for the add
       sheet, Move/Copy sheet, ⋯ action sheet and Schedule popover.
-- [ ] AC-09.7 **Desktop**: sidebar on the surface colour with an active pill
+- [x] AC-09.7 **Desktop**: sidebar on the surface colour with an active pill
       item, Folders section at the bottom, table with hairline dividers, the
       same chips.
-- [ ] AC-09.8 Dark mode parity on every screen and component; text contrast
+- [x] AC-09.8 Dark mode parity on every screen and component; text contrast
       ≥ 4.5 : 1; `prefers-reduced-motion` disables the transitions.
-- [ ] AC-09.9 The red brand accent is retired from structural UI and kept
+- [x] AC-09.9 The red brand accent is retired from structural UI and kept
       only for the brand mark and app icon; red now means overdue / High.
       (Q5)
-- [ ] AC-09.10 Nothing is left in the old style: onboarding, lists menu,
+- [x] AC-09.10 Nothing is left in the old style: onboarding, lists menu,
       list, kanban, detail, add sheet, desktop table and kanban are all
       restyled.
 

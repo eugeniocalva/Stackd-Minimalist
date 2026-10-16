@@ -102,6 +102,7 @@ export function mobileListHTML() {
   const body = S.view === 'kanban' ? kanbanHTML() : `
     <div class="scroll-area">
       ${ts.length ? `
+      <span class="hint list-hint">Double-tap to complete · long-press to delete</span>
       <div class="card list-card">
         ${ts.map((t) => `
         <div class="row trow ${t.done ? 'done' : ''}" data-id="${t.id}">
@@ -112,8 +113,7 @@ export function mobileListHTML() {
           </div>
           ${t.done ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
         </div>`).join('')}
-      </div>
-      <span class="hint">Double-tap to complete · long-press to delete</span>`
+      </div>`
       : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
     </div>`;
   return `

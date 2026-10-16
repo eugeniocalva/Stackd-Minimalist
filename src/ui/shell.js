@@ -143,7 +143,10 @@ export function desktopHTML() {
       ${S.view === 'kanban' ? `<button class="btn btn-primary btn-sm" data-add>${icon('plus', 18)}Add task</button>` : ''}
     </header>
     ${S.view === 'kanban' ? kanbanHTML({ desktop: true }) : desktopTableHTML()}`;
-  const onBoard = UI.screen !== 'folders';
+  /* a read-only (archived / deleted) detail belongs to the Folders section */
+  const inFolders = UI.screen === 'folders'
+    || (UI.screen === 'detail' && taskById(UI.detailId)?.status !== 'active');
+  const onBoard = !inFolders;
   return `
   <div class="shell">
     <aside class="sidebar">
