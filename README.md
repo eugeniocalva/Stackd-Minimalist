@@ -138,8 +138,16 @@ is enough; HTTPS is required for install + service worker on real devices.
     when the app is closed. Pending notifications are kept in step with the
     tasks after every change, at launch and on resume (soonest 60, iOS keeps
     64). Notifications are silent banners for now (no sound set).
-- **Dark mode** — follows the system (`prefers-color-scheme`); all text meets
-  WCAG AA contrast (4.5:1) in both themes
+- **Settings** — sidebar (desktop) or Boards menu (mobile):
+  - *Appearance:* Light / Dark / System theme, applied before the first paint;
+    all text meets WCAG AA contrast (4.5:1) in both themes
+  - *Priorities:* rename, recolour (red, amber, green, blue, violet, gray),
+    reorder (drives Sort by priority), add or delete levels; deleting one
+    leaves its tasks with no priority
+  - *Labels:* every tag in use plus ones created here; rename across all
+    tasks (renaming onto an existing label merges them), add, delete
+  - *Automations:* the built-in "completed tasks move to Done" rule; custom
+    rules are a placeholder for now (kanban "Edit rules" opens this section)
 - **Gestures** — double-tap / double-click completes, long-press deletes,
   drag rows to reprioritize in manual sort, drag kanban cards between lanes
   (hold-and-drag on touch)
@@ -167,6 +175,7 @@ is enough; HTTPS is required for install + service worker on real devices.
 - `src/notify.js` — reminders on the device: permission, the web clock and
   service-worker notifications, the iOS LocalNotifications sync
 - `src/util.js` — ids, HTML escaping, app root
+- `src/theme.js` — resolves the theme preference to `data-theme` on `<html>`
 - `src/ui/` — one module per screen or overlay:
   - `shell.js` — onboarding, Boards menu, bottom nav, desktop sidebar
   - `board.js` — list, table, kanban, chips, gestures
@@ -175,6 +184,7 @@ is enough; HTTPS is required for install + service worker on real devices.
   - `schedule.js` — the dates dialog
   - `movecopy.js` — board + lane picker for Move and Copy
   - `tagpicker.js` — tag picker
+  - `settings.js` — Settings: theme, priorities, labels, automations
   - `addsheet.js` — add-task sheet
   - `actions.js` — archive / delete / restore / move / complete, with toasts
   - `primitives.js` — toast, confirm dialog, context menu

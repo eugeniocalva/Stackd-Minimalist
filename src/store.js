@@ -18,8 +18,15 @@ export const LANES = [
   { id: 'done', name: 'Done' },
 ];
 export const laneName = (id) => LANES.find((l) => l.id === id)?.name || id;
-export const PRIORITIES = ['high', 'medium', 'low', 'none'];
-export const PRIORITY_LABEL = { high: 'High', medium: 'Med', low: 'Low' };
+/* Priority levels are user-configurable (Settings): S.priorities, highest
+   first. 'none' is implicit and always sorts last. */
+export const PRIORITY_COLORS = ['red', 'amber', 'green', 'blue', 'violet', 'gray'];
+const defaultPriorities = () => [
+  { id: 'high', name: 'High', color: 'red' },
+  { id: 'medium', name: 'Medium', color: 'amber' },
+  { id: 'low', name: 'Low', color: 'gray' },
+];
+export const THEMES = ['light', 'dark', 'system'];
 /* reminder = minutes before the due time; null = none */
 export const REMINDER_OPTIONS = [
   [null, 'None'], [0, 'At time of due'], [10, '10 minutes before'],
@@ -37,7 +44,7 @@ export let S = migrate();
 
 /* transient UI state (not persisted) */
 export const UI = {
-  screen: 'list',        // 'lists' | 'list' | 'detail' | 'folders'
+  screen: 'list',        // 'lists' | 'list' | 'detail' | 'folders' | 'settings'
   folder: 'archived',    // which tab the folders screen shows
   detailId: null,
   sortMenu: false,
@@ -63,10 +70,18 @@ export function commit() { save(); renderer(); afterCommit(); }
 
 function migrate() {
   const v2 = read(STORE_KEY);
-  if (v2) return v2;
+  if (v2) return withSettings(v2);
   const v1 = read(LEGACY_KEY);
-  const state = v1 ? upgradeV1(v1) : seed();
+  const state = withSettings(v1 ? upgradeV1(v1) : seed());
   localStorage.setItem(STORE_KEY, JSON.stringify(state)); // v1 key is left for rollback
+  return state;
+}
+
+/** Settings fields added after v2 shipped, at their defaults. */
+function withSettings(state) {
+  state.theme ??= 'system';
+  state.priorities ??= defaultPriorities();
+  state.labels ??= [];   // labels created in Settings; tags on tasks count too
   return state;
 }
 
@@ -164,10 +179,21 @@ export function folderTasks(status) {
 }
 
 export const allTags = () =>
-  [...new Set(S.tasks.filter((t) => t.status !== 'deleted').flatMap((t) => t.tags))];
+  normalizeTags([...S.labels, ...S.tasks.filter((t) => t.status !== 'deleted').flatMap((t) => t.tags)]);
+
+const sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
+/** Non-deleted tasks carrying the tag (case-insensitive). */
+export const tagUseCount = (name) =>
+  S.tasks.filter((t) => t.status !== 'deleted' && t.tags.some((x) => sameTag(x, name))).length;
+
+export const priorityById = (id) => S.priorities.find((p) => p.id === id);
+export const priorityName = (id) => priorityById(id)?.name || 'None';
+export const priorityUseCount = (id) =>
+  S.tasks.filter((t) => t.status !== 'deleted' && t.priority === id).length;
 
 export function sortedTasks(listId) {
-  const rank = { high: 3, medium: 2, low: 1, none: 0 };
+  const n = S.priorities.length;
+  const rank = (p) => { const i = S.priorities.findIndex((x) => x.id === p); return i === -1 ? 0 : n - i; };
   const when = (t) => `${t.due} ${t.dueTime || '24:00'}`; // untimed tasks sort after timed ones that day
   const ts = tasksOf(listId).slice();
   ts.sort((a, b) => {
@@ -176,7 +202,7 @@ export function sortedTasks(listId) {
       if (!!a.due !== !!b.due) return a.due ? -1 : 1;
       if (a.due && when(a) !== when(b)) return when(a) < when(b) ? -1 : 1;
     } else if (S.sort === 'priority') {
-      if (rank[a.priority] !== rank[b.priority]) return rank[b.priority] - rank[a.priority];
+      if (rank(a.priority) !== rank(b.priority)) return rank(b.priority) - rank(a.priority);
     }
     return a.order - b.order;
   });
@@ -363,6 +389,69 @@ export function newList() {
   S.lists.push(list);
   S.currentList = list.id;
   UI.screen = 'list';
+  commit();
+}
+
+/* — settings: theme, priority levels, labels — */
+
+export function setTheme(theme) {
+  if (!THEMES.includes(theme) || S.theme === theme) return;
+  S.theme = theme; commit();
+}
+
+export function addPriority(name) {
+  name = name.trim(); if (!name) return;
+  S.priorities.push({ id: uid(), name, color: 'gray' });
+  commit();
+}
+
+export function updatePriority(id, { name, color }) {
+  const p = priorityById(id); if (!p) return;
+  if (name !== undefined && name.trim()) p.name = name.trim();
+  if (color !== undefined && PRIORITY_COLORS.includes(color)) p.color = color;
+  commit();
+}
+
+/** dir -1 = up (higher), +1 = down (lower). */
+export function movePriority(id, dir) {
+  const i = S.priorities.findIndex((p) => p.id === id), j = i + dir;
+  if (i === -1 || j < 0 || j >= S.priorities.length) return;
+  [S.priorities[i], S.priorities[j]] = [S.priorities[j], S.priorities[i]];
+  commit();
+}
+
+/** Tasks at this level (any status) drop to no priority. */
+export function deletePriority(id) {
+  S.priorities = S.priorities.filter((p) => p.id !== id);
+  S.tasks.forEach((t) => { if (t.priority === id) { t.priority = 'none'; touch(t); } });
+  commit();
+}
+
+export function addLabel(name) {
+  const [label] = normalizeTags([name]);
+  if (!label || allTags().some((x) => sameTag(x, label))) return;
+  S.labels.push(label);
+  commit();
+}
+
+/** Renames the tag on every task (any status); renaming onto an existing
+    label merges the two. */
+export function renameLabel(from, to) {
+  const [label] = normalizeTags([to]);
+  if (!label || label === from) return;
+  const swap = (tags) => normalizeTags(tags.map((x) => (sameTag(x, from) ? label : x)));
+  S.labels = swap(S.labels);
+  S.tasks.forEach((t) => {
+    if (t.tags.some((x) => sameTag(x, from))) { t.tags = swap(t.tags); touch(t); }
+  });
+  commit();
+}
+
+export function deleteLabel(name) {
+  S.labels = S.labels.filter((x) => !sameTag(x, name));
+  S.tasks.forEach((t) => {
+    if (t.tags.some((x) => sameTag(x, name))) { t.tags = t.tags.filter((x) => !sameTag(x, name)); touch(t); }
+  });
   commit();
 }
 

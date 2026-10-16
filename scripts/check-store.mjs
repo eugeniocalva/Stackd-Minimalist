@@ -97,6 +97,34 @@ assert.equal(copy.reminderFiredAt, null);
 store.addTask({ listId: 'work', title: 'New with past reminder', priority: 'none', tags: [], due: new Date(recent).toLocaleDateString('sv'), dueTime: hhmm(recent), reminder: 0 });
 assert.ok(typeof find('New with past reminder').reminderFiredAt === 'number');
 
+// settings: priority levels drive sorting; deleting one clears it from tasks
+assert.deepEqual(S.priorities.map((p) => p.id), ['high', 'medium', 'low']);
+assert.equal(S.theme, 'system');
+S.sort = 'priority';
+store.addTask({ listId: 'prio', title: 'P-low', priority: 'low', tags: [] });
+store.addTask({ listId: 'prio', title: 'P-high', priority: 'high', tags: [] });
+store.addTask({ listId: 'prio', title: 'P-none', priority: 'none', tags: [] });
+store.addTask({ listId: 'prio', title: 'P-medium', priority: 'medium', tags: [] });
+const prioOrder = () => store.sortedTasks('prio').filter((x) => x.priority !== 'none').map((x) => x.priority);
+assert.deepEqual([...new Set(prioOrder())], ['high', 'medium', 'low']);
+store.movePriority('low', -1); store.movePriority('low', -1);
+assert.deepEqual([...new Set(prioOrder())], ['low', 'high', 'medium']);
+store.deletePriority('low');
+assert.equal(find('P-low').priority, 'none');
+assert.equal(store.priorityName('low'), 'None');
+
+// settings: labels rename across tasks, merge on collision, delete everywhere
+store.addLabel('#Errands ');
+assert.ok(S.labels.includes('Errands'));
+store.addLabel('errands'); // duplicate (case-insensitive) is ignored
+assert.equal(S.labels.length, 1);
+store.renameLabel('team', 'Q3');            // merges into the existing q3 tag
+assert.deepEqual(find('Book 1:1s for next sprint').tags, ['Q3']);
+assert.ok(!store.allTags().some((x) => x === 'team'));
+store.deleteLabel('q3');
+assert.equal(store.tagUseCount('Q3'), 0);
+assert.deepEqual(find('Prepare Q3 review deck').tags, []);
+
 // v1 migration arms migrated reminders (fresh module instance, v1 store only)
 mem.clear();
 mem.set('stackd-v1', JSON.stringify({

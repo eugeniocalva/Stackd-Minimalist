@@ -7,6 +7,7 @@ import {
   S, UI, isDesktop, setRenderer, setAfterCommit, rerender, commit, purgeDeleted, taskById,
 } from './src/store.js';
 import { initReminders, syncReminders } from './src/notify.js';
+import { applyTheme, systemDark } from './src/theme.js';
 import { app } from './src/util.js';
 import {
   onboardingHTML, bindOnboarding, listsMenuHTML, bindListsMenu,
@@ -15,8 +16,10 @@ import {
 import { mobileListHTML, bindMobileList } from './src/ui/board.js';
 import { detailHTML, bindDetail } from './src/ui/detail.js';
 import { foldersHTML, bindFolders } from './src/ui/folders.js';
+import { settingsHTML, bindSettings } from './src/ui/settings.js';
 
 function render() {
+  applyTheme();
   const focusAddsub = document.activeElement?.classList?.contains('addsub-input');
   if (!S.onboarded) { app.innerHTML = onboardingHTML(); bindOnboarding(); return; }
 
@@ -27,12 +30,14 @@ function render() {
     const screen = UI.screen === 'lists' ? listsMenuHTML()
       : UI.screen === 'detail' ? detailHTML()
       : UI.screen === 'folders' ? foldersHTML()
+      : UI.screen === 'settings' ? settingsHTML()
       : mobileListHTML();
     const withNav = UI.screen !== 'detail';
     app.innerHTML = screen + (withNav ? mobileNavHTML() : '');
     if (UI.screen === 'lists') bindListsMenu();
     else if (UI.screen === 'detail') bindDetail();
     else if (UI.screen === 'folders') bindFolders();
+    else if (UI.screen === 'settings') bindSettings();
     else bindMobileList();
     if (withNav) bindMobileNav();
   }
@@ -62,5 +67,6 @@ document.addEventListener('click', (e) => {
   if (UI.sortMenu && !e.target.closest('.sortwrap')) { UI.sortMenu = false; rerender(); }
 });
 isDesktop.addEventListener('change', render);
+systemDark.addEventListener('change', render); // theme 'system' follows the OS live
 render();
 initReminders({ openTask });

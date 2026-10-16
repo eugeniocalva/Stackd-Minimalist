@@ -3,7 +3,7 @@
    tasks open read-only with Restore and Delete only (PRD AC-05.6). */
 
 import {
-  S, UI, PRIORITIES, RETENTION_DAYS, reminderLabel, laneName,
+  S, UI, RETENTION_DAYS, priorityName, reminderLabel, laneName,
   taskById, listById, setPriority, setTags, setTitle, setSchedule, clearSchedule,
   copyTask, deleteForever, commit, rerender,
 } from '../store.js';
@@ -17,7 +17,6 @@ import { openSchedule } from './schedule.js';
 import { openMoveCopy } from './movecopy.js';
 import { openTagPicker } from './tagpicker.js';
 
-const PRIORITY_NAME = { none: 'None', low: 'Low', medium: 'Medium', high: 'High' };
 
 function scheduleNote(t) {
   return [
@@ -86,7 +85,7 @@ export function detailHTML() {
         <div class="kv-row kv-stack">
           <span class="kv-label">Priority</span>
           <div class="chip-row" data-priority>
-            ${[...PRIORITIES].reverse().map((p) => `<button class="chip sm ${t.priority === p ? 'on' : ''} ${p !== 'none' && t.priority === p ? `chip-${p}` : ''}" data-val="${p}" aria-pressed="${t.priority === p}">${PRIORITY_NAME[p]}</button>`).join('')}
+            ${[{ id: 'none', name: 'None' }, ...[...S.priorities].reverse()].map((p) => `<button class="chip sm ${t.priority === p.id ? `on ${p.color ? `pc pc-${p.color}` : ''}` : ''}" data-val="${p.id}" aria-pressed="${t.priority === p.id}">${esc(p.name)}</button>`).join('')}
           </div>
         </div>
         <div class="kv-row kv-stack">
@@ -245,7 +244,7 @@ function readOnlyHTML(t) {
       <div class="card">
         ${row(`${icon('calendar', 16)}Due date`, t.due ? esc(fmtDateLong(t.due, t.dueTime)) : '—')}
         ${note ? `<div class="kv-note">${esc(note)}</div>` : ''}
-        ${row('Priority', PRIORITY_NAME[t.priority])}
+        ${row('Priority', esc(priorityName(t.priority)))}
         ${row(`${icon('tag', 16)}Tags`, t.tags.length ? t.tags.map((x) => `#${esc(x)}`).join(' ') : '—')}
         ${row(`${icon('move', 16)}From`, esc(from))}
         ${row('Reminder', esc(reminderLabel(t.reminder)))}

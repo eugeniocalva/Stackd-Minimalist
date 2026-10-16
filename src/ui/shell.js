@@ -11,6 +11,7 @@ import {
 import { detailHTML, bindDetail } from './detail.js';
 import { foldersHTML, bindFolders, openFolder } from './folders.js';
 import { openSheet } from './addsheet.js';
+import { settingsHTML, bindSettings, openSettings } from './settings.js';
 
 /* — onboarding — */
 
@@ -50,6 +51,7 @@ const folderEntries = () => [
 function bindFolderLinks() {
   app.querySelectorAll('[data-open-folder]').forEach((el) =>
     el.addEventListener('click', () => openFolder(el.dataset.openFolder)));
+  app.querySelector('[data-open-settings]')?.addEventListener('click', () => openSettings());
 }
 
 /* — mobile: Boards menu — */
@@ -84,6 +86,13 @@ export function listsMenuHTML() {
           <span class="lname">${f.label}</span>
           <span class="lcount num">${f.count}</span>
         </div>`).join('')}
+      </div>
+      <div class="card list-card">
+        <div class="lrow" data-open-settings>
+          <span class="lrow-icon">${icon('settings', 18)}</span>
+          <span class="lname">Settings</span>
+          ${icon('chevronRight', 18)}
+        </div>
       </div>
       <span class="hint">Synced 2 min ago · free account</span>
     </div>
@@ -136,6 +145,7 @@ export function desktopHTML() {
   const list = listById(S.currentList);
   const main = UI.screen === 'detail' ? detailHTML()
     : UI.screen === 'folders' ? foldersHTML()
+    : UI.screen === 'settings' ? settingsHTML()
     : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
@@ -146,7 +156,7 @@ export function desktopHTML() {
   /* a read-only (archived / deleted) detail belongs to the Folders section */
   const inFolders = UI.screen === 'folders'
     || (UI.screen === 'detail' && taskById(UI.detailId)?.status !== 'active');
-  const onBoard = !inFolders;
+  const onBoard = !inFolders && UI.screen !== 'settings';
   return `
   <div class="shell">
     <aside class="sidebar">
@@ -160,11 +170,15 @@ export function desktopHTML() {
       <div class="side-newlist"><button class="btn btn-secondary" data-newlist>${icon('plus', 16)}New board</button></div>
       <span class="section-title side-label">Folders</span>
       ${folderEntries().map((f) => `
-      <div class="side-item ${!onBoard && UI.folder === f.tab ? 'active' : ''}" data-open-folder="${f.tab}">
+      <div class="side-item ${inFolders && UI.folder === f.tab ? 'active' : ''}" data-open-folder="${f.tab}">
         ${icon(f.icon, 16)}
         <span class="name">${f.label}</span>
         <span class="count num">${f.count}</span>
       </div>`).join('')}
+      <div class="side-item side-settings ${UI.screen === 'settings' ? 'active' : ''}" data-open-settings>
+        ${icon('settings', 16)}
+        <span class="name">Settings</span>
+      </div>
       <div class="side-user">
         <span class="who">Alex Rivera</span>
         <span class="sub">Synced across 3 devices</span>
@@ -183,6 +197,7 @@ export function bindDesktop() {
   bindFolderLinks();
   if (UI.screen === 'detail') { bindDetail(); return; }
   if (UI.screen === 'folders') { bindFolders(); return; }
+  if (UI.screen === 'settings') { bindSettings(); return; }
   bindViewbar();
   bindChecks();
   app.querySelector('[data-add]')?.addEventListener('click', () => openSheet());

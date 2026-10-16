@@ -74,9 +74,10 @@ export function confirmDialog(title, body, { confirmLabel = 'Confirm', danger = 
 
 const itemHTML = (it, i) => it.divider
   ? '<div class="menu-divider"></div>'
-  : `<button class="menu-item ${it.danger ? 'danger' : ''}" data-i="${i}">${it.icon ? icon(it.icon) : ''}<span>${esc(it.label)}</span></button>`;
+  : `<button class="menu-item ${it.danger ? 'danger' : ''}" data-i="${i}">${it.icon ? icon(it.icon) : ''}${
+    it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ''}<span>${esc(it.label)}</span></button>`;
 
-/** items: [{ label, icon?, danger?, onClick }, { divider: true }, …] */
+/** items: [{ label, icon?, swatch?, danger?, onClick }, { divider: true }, …] */
 export function openMenu(anchorEl, items) {
   const bind = (root, close) => {
     root.querySelectorAll('.menu-item').forEach((b) =>
@@ -100,7 +101,9 @@ export function openMenu(anchorEl, items) {
   document.body.append(back, pop);
   const r = anchorEl.getBoundingClientRect();
   pop.style.top = `${r.bottom + 6}px`;
-  pop.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+  /* open away from the nearer screen edge */
+  if (r.left < window.innerWidth / 2) pop.style.left = `${r.left}px`;
+  else pop.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
   const close = () => { back.remove(); pop.remove(); document.removeEventListener('keydown', onKey); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   back.addEventListener('click', close);

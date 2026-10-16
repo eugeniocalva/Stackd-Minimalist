@@ -3,7 +3,7 @@
    drag to reorder (manual sort), hold-and-drag kanban cards between lanes. */
 
 import {
-  S, UI, LANES, PRIORITY_LABEL,
+  S, UI, LANES, priorityById,
   listById, taskById, tasksOf, openCount, sortedTasks,
   reorderTask, moveToLane, commit, rerender,
 } from '../store.js';
@@ -12,6 +12,7 @@ import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import { openSheet } from './addsheet.js';
 import { deleteWithUndo, completeTask } from './actions.js';
+import { openSettings } from './settings.js';
 
 /* — shared partials — */
 
@@ -35,10 +36,16 @@ export function viewbarHTML() {
   </div>`;
 }
 
+/** Priority chip in the level's colour; '' for none or a deleted level. */
+export function priorityTagHTML(t) {
+  const p = priorityById(t.priority);
+  return p ? `<span class="tag pc pc-${p.color}">${esc(p.name)}</span>` : '';
+}
+
 export function taskMetaHTML(t) {
   const bits = [];
   if (t.due) bits.push(dueChipHTML(t, { prefix: true }));
-  if (t.priority !== 'none') bits.push(`<span class="tag tag-${t.priority}">${PRIORITY_LABEL[t.priority]}</span>`);
+  if (priorityById(t.priority)) bits.push(priorityTagHTML(t));
   t.tags.forEach((tag) => bits.push(`<span class="tag">#${esc(tag)}</span>`));
   if (t.subtasks.length) {
     const done = t.subtasks.filter((s) => s.done).length;
@@ -165,7 +172,7 @@ export function desktopTableHTML() {
         <span class="t-title">${esc(t.title)}</span>
         ${t.done ? '<span></span><span></span><span></span>' : `
         ${t.due ? dueChipHTML(t) : '<span class="cell-muted">—</span>'}
-        ${t.priority !== 'none' ? `<span class="tag tag-${t.priority}">${PRIORITY_LABEL[t.priority]}</span>` : '<span class="cell-muted">—</span>'}
+        ${priorityTagHTML(t) || '<span class="cell-muted">—</span>'}
         ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
       </div>`;
     }).join('')}
@@ -208,8 +215,7 @@ export function bindKanban() {
   app.querySelectorAll('.kcard').forEach((card) => bindCard(card, taskById(card.dataset.id)));
   app.querySelectorAll('[data-lane-add]').forEach((b) =>
     b.addEventListener('click', () => openSheet({ lane: b.dataset.laneAdd })));
-  app.querySelector('[data-editrules]')?.addEventListener('click', () =>
-    alert('One automation is active:\n\nMarking a task complete moves its card to Done.\n\nCustom rules are on the roadmap.'));
+  app.querySelector('[data-editrules]')?.addEventListener('click', () => openSettings('automations'));
 }
 
 /* ── Gestures ────────────────────────────────────────────────────────── */

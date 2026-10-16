@@ -255,8 +255,13 @@
     { id: "done", name: "Done" }
   ];
   var laneName = (id) => LANES.find((l) => l.id === id)?.name || id;
-  var PRIORITIES = ["high", "medium", "low", "none"];
-  var PRIORITY_LABEL = { high: "High", medium: "Med", low: "Low" };
+  var PRIORITY_COLORS = ["red", "amber", "green", "blue", "violet", "gray"];
+  var defaultPriorities = () => [
+    { id: "high", name: "High", color: "red" },
+    { id: "medium", name: "Medium", color: "amber" },
+    { id: "low", name: "Low", color: "gray" }
+  ];
+  var THEMES = ["light", "dark", "system"];
   var REMINDER_OPTIONS = [
     [null, "None"],
     [0, "At time of due"],
@@ -270,7 +275,7 @@
   var S = migrate();
   var UI = {
     screen: "list",
-    // 'lists' | 'list' | 'detail' | 'folders'
+    // 'lists' | 'list' | 'detail' | 'folders' | 'settings'
     folder: "archived",
     // which tab the folders screen shows
     detailId: null,
@@ -308,10 +313,16 @@
   }
   function migrate() {
     const v2 = read(STORE_KEY);
-    if (v2) return v2;
+    if (v2) return withSettings(v2);
     const v1 = read(LEGACY_KEY);
-    const state = v1 ? upgradeV1(v1) : seed();
+    const state = withSettings(v1 ? upgradeV1(v1) : seed());
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    return state;
+  }
+  function withSettings(state) {
+    state.theme ??= "system";
+    state.priorities ??= defaultPriorities();
+    state.labels ??= [];
     return state;
   }
   function upgradeV1(v1) {
@@ -422,9 +433,18 @@
     const key = status === "archived" ? "archivedAt" : "deletedAt";
     return S.tasks.filter((t) => t.status === status).sort((a, b) => b[key] - a[key]);
   }
-  var allTags = () => [...new Set(S.tasks.filter((t) => t.status !== "deleted").flatMap((t) => t.tags))];
+  var allTags = () => normalizeTags([...S.labels, ...S.tasks.filter((t) => t.status !== "deleted").flatMap((t) => t.tags)]);
+  var sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
+  var tagUseCount = (name) => S.tasks.filter((t) => t.status !== "deleted" && t.tags.some((x) => sameTag(x, name))).length;
+  var priorityById = (id) => S.priorities.find((p) => p.id === id);
+  var priorityName = (id) => priorityById(id)?.name || "None";
+  var priorityUseCount = (id) => S.tasks.filter((t) => t.status !== "deleted" && t.priority === id).length;
   function sortedTasks(listId) {
-    const rank = { high: 3, medium: 2, low: 1, none: 0 };
+    const n = S.priorities.length;
+    const rank = (p) => {
+      const i = S.priorities.findIndex((x) => x.id === p);
+      return i === -1 ? 0 : n - i;
+    };
     const when = (t) => `${t.due} ${t.dueTime || "24:00"}`;
     const ts = tasksOf(listId).slice();
     ts.sort((a, b) => {
@@ -433,7 +453,7 @@
         if (!!a.due !== !!b.due) return a.due ? -1 : 1;
         if (a.due && when(a) !== when(b)) return when(a) < when(b) ? -1 : 1;
       } else if (S.sort === "priority") {
-        if (rank[a.priority] !== rank[b.priority]) return rank[b.priority] - rank[a.priority];
+        if (rank(a.priority) !== rank(b.priority)) return rank(b.priority) - rank(a.priority);
       }
       return a.order - b.order;
     });
@@ -649,6 +669,69 @@
     S.lists.push(list);
     S.currentList = list.id;
     UI.screen = "list";
+    commit();
+  }
+  function setTheme(theme) {
+    if (!THEMES.includes(theme) || S.theme === theme) return;
+    S.theme = theme;
+    commit();
+  }
+  function addPriority(name) {
+    name = name.trim();
+    if (!name) return;
+    S.priorities.push({ id: uid(), name, color: "gray" });
+    commit();
+  }
+  function updatePriority(id, { name, color }) {
+    const p = priorityById(id);
+    if (!p) return;
+    if (name !== void 0 && name.trim()) p.name = name.trim();
+    if (color !== void 0 && PRIORITY_COLORS.includes(color)) p.color = color;
+    commit();
+  }
+  function movePriority(id, dir) {
+    const i = S.priorities.findIndex((p) => p.id === id), j = i + dir;
+    if (i === -1 || j < 0 || j >= S.priorities.length) return;
+    [S.priorities[i], S.priorities[j]] = [S.priorities[j], S.priorities[i]];
+    commit();
+  }
+  function deletePriority(id) {
+    S.priorities = S.priorities.filter((p) => p.id !== id);
+    S.tasks.forEach((t) => {
+      if (t.priority === id) {
+        t.priority = "none";
+        touch(t);
+      }
+    });
+    commit();
+  }
+  function addLabel(name) {
+    const [label] = normalizeTags([name]);
+    if (!label || allTags().some((x) => sameTag(x, label))) return;
+    S.labels.push(label);
+    commit();
+  }
+  function renameLabel(from, to) {
+    const [label] = normalizeTags([to]);
+    if (!label || label === from) return;
+    const swap = (tags) => normalizeTags(tags.map((x) => sameTag(x, from) ? label : x));
+    S.labels = swap(S.labels);
+    S.tasks.forEach((t) => {
+      if (t.tags.some((x) => sameTag(x, from))) {
+        t.tags = swap(t.tags);
+        touch(t);
+      }
+    });
+    commit();
+  }
+  function deleteLabel(name) {
+    S.labels = S.labels.filter((x) => !sameTag(x, name));
+    S.tasks.forEach((t) => {
+      if (t.tags.some((x) => sameTag(x, name))) {
+        t.tags = t.tags.filter((x) => !sameTag(x, name));
+        touch(t);
+      }
+    });
     commit();
   }
   function snapshotOrigin(t) {
@@ -913,6 +996,18 @@
     }
   }
 
+  // src/theme.js
+  var systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+  var resolvedTheme = () => S.theme === "light" || S.theme === "dark" ? S.theme : systemDark.matches ? "dark" : "light";
+  function applyTheme() {
+    const theme = resolvedTheme();
+    if (document.documentElement.dataset.theme === theme) return;
+    document.documentElement.dataset.theme = theme;
+    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+      m.content = theme === "dark" ? "#0b0f19" : "#f4f7f9";
+    });
+  }
+
   // src/ui/icons.js
   var PATHS = {
     grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -936,7 +1031,14 @@
     move: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
     copy: '<rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
     calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
-    tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>'
+    tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
+    chevronUp: '<path d="m18 15-6-6-6 6"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+    moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+    monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+    flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
+    zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+    settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>'
   };
   function icon(name, size = 20) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PATHS[name]}</svg>`;
@@ -1011,7 +1113,7 @@
       ov.querySelector("[data-ok]").focus();
     });
   }
-  var itemHTML = (it, i) => it.divider ? '<div class="menu-divider"></div>' : `<button class="menu-item ${it.danger ? "danger" : ""}" data-i="${i}">${it.icon ? icon(it.icon) : ""}<span>${esc(it.label)}</span></button>`;
+  var itemHTML = (it, i) => it.divider ? '<div class="menu-divider"></div>' : `<button class="menu-item ${it.danger ? "danger" : ""}" data-i="${i}">${it.icon ? icon(it.icon) : ""}${it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ""}<span>${esc(it.label)}</span></button>`;
   function openMenu(anchorEl, items) {
     const bind = (root, close2) => {
       root.querySelectorAll(".menu-item").forEach((b) => b.addEventListener("click", () => {
@@ -1037,7 +1139,8 @@
     document.body.append(back, pop);
     const r = anchorEl.getBoundingClientRect();
     pop.style.top = `${r.bottom + 6}px`;
-    pop.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+    if (r.left < window.innerWidth / 2) pop.style.left = `${r.left}px`;
+    else pop.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
     const close = () => {
       back.remove();
       pop.remove();
@@ -1352,7 +1455,7 @@
     <div class="chip-group">
       <span class="microlabel">Priority</span>
       <div class="chip-row" data-priority>
-        ${PRIORITIES.map((p) => `<button class="chip ${p === "none" ? "on" : ""}" data-val="${p}">${p === "none" ? "None" : { high: "High", medium: "Medium", low: "Low" }[p]}</button>`).join("")}
+        ${[...S.priorities, { id: "none", name: "None" }].map((p) => `<button class="chip ${p.id === "none" ? "on" : ""}" data-val="${p.id}">${esc(p.name)}</button>`).join("")}
       </div>
     </div>
     <div class="chip-group">
@@ -1513,6 +1616,184 @@
     }, 400);
   }
 
+  // src/ui/settings.js
+  var THEME_LABEL = { light: "Light", dark: "Dark", system: "System" };
+  var THEME_ICON = { light: "sun", dark: "moon", system: "monitor" };
+  var COLOR_NAME = { red: "Red", amber: "Amber", green: "Green", blue: "Blue", violet: "Violet", gray: "Gray" };
+  var plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  var sameTag2 = (a, b) => a.toLowerCase() === b.toLowerCase();
+  function openSettings(section) {
+    UI.screen = "settings";
+    rerender();
+    if (section) app.querySelector(`#settings-${section}`)?.scrollIntoView({ block: "start" });
+  }
+  var themeSub = () => S.theme === "system" ? `Following the system · ${resolvedTheme()} now` : `${THEME_LABEL[S.theme]} mode on`;
+  function priorityRowHTML(p, i, n) {
+    return `
+  <div class="set-row" data-prio="${p.id}">
+    <button class="lrow-icon pc pc-${p.color}" data-color aria-label="Colour: ${COLOR_NAME[p.color]}" title="Change colour">${icon("flag", 18)}</button>
+    <div class="set-text">
+      <input class="set-input" data-name value="${esc(p.name)}" maxlength="24" autocomplete="off" aria-label="Priority name">
+      <span class="set-sub">${plural(priorityUseCount(p.id), "task")}</span>
+    </div>
+    <div class="set-actions">
+      <button class="set-btn" data-move="-1" aria-label="Move ${esc(p.name)} up" ${i === 0 ? "disabled" : ""}>${icon("chevronUp", 18)}</button>
+      <button class="set-btn" data-move="1" aria-label="Move ${esc(p.name)} down" ${i === n - 1 ? "disabled" : ""}>${icon("chevronDown", 18)}</button>
+      <button class="set-btn danger" data-delete aria-label="Delete ${esc(p.name)}">${icon("trash", 18)}</button>
+    </div>
+  </div>`;
+  }
+  function labelRowHTML(name) {
+    return `
+  <div class="set-row" data-label="${esc(name)}">
+    <span class="lrow-icon">${icon("tag", 18)}</span>
+    <div class="set-text">
+      <input class="set-input" data-name value="${esc(name)}" maxlength="32" autocomplete="off" autocapitalize="none" aria-label="Label name">
+      <span class="set-sub">${plural(tagUseCount(name), "task")}</span>
+    </div>
+    <div class="set-actions">
+      <button class="set-btn danger" data-delete aria-label="Delete label ${esc(name)}">${icon("trash", 18)}</button>
+    </div>
+  </div>`;
+  }
+  var addRowHTML = (attr, label) => `
+  <div class="set-row set-add">
+    <span class="lrow-icon dashed">${icon("plus", 18)}</span>
+    <input class="set-input" ${attr} placeholder="${label}" maxlength="32" autocomplete="off" aria-label="${label}">
+  </div>`;
+  function settingsHTML() {
+    const labels = allTags().sort((a, b) => a.localeCompare(b, void 0, { sensitivity: "base" }));
+    const n = S.priorities.length;
+    return `
+  <div class="screen settings-screen">
+    <header class="page-head">
+      <div class="page-title-row">
+        <h1 class="page-title-text">Settings</h1>
+        <span class="kicker">Stack'd</span>
+      </div>
+    </header>
+    <div class="scroll-area">
+      <span class="section-title list-label" id="settings-appearance">Appearance</span>
+      <div class="card list-card">
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon(THEME_ICON[S.theme], 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Theme</span>
+            <span class="set-sub">${themeSub()}</span>
+          </div>
+          <div class="segmented solid" role="radiogroup" aria-label="Theme">
+            ${THEMES.map((t) => `<button class="seg ${S.theme === t ? "active" : ""}" role="radio" aria-checked="${S.theme === t}" data-theme-opt="${t}">${THEME_LABEL[t]}</button>`).join("")}
+          </div>
+        </div>
+      </div>
+
+      <span class="section-title list-label" id="settings-priorities">Priorities</span>
+      <div class="card list-card" data-priorities>
+        ${S.priorities.map((p, i) => priorityRowHTML(p, i, n)).join("")}
+        ${addRowHTML("data-add-priority", "Add priority")}
+      </div>
+      <p class="hint set-hint">Highest first: Sort by priority follows this order, and tasks with no priority come last.</p>
+
+      <span class="section-title list-label" id="settings-labels">Labels</span>
+      <div class="card list-card" data-labels>
+        ${labels.map(labelRowHTML).join("")}
+        ${addRowHTML("data-add-label", "Add label")}
+      </div>
+      <p class="hint set-hint">Renaming a label updates every task that has it; renaming it to an existing label merges the two.</p>
+
+      <span class="section-title list-label" id="settings-automations">Automations</span>
+      <div class="card list-card">
+        <div class="set-row">
+          <span class="lrow-icon">${icon("zap", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Completed tasks move to Done</span>
+            <span class="set-sub">Built in · repeating tasks roll to their next date instead</span>
+          </div>
+          <span class="tag pc pc-green">On</span>
+        </div>
+        <div class="set-row is-disabled" aria-disabled="true">
+          <span class="lrow-icon dashed">${icon("plus", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">New automation</span>
+            <span class="set-sub">Custom rules are coming soon</span>
+          </div>
+          <span class="tag">Soon</span>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  }
+  function bindName(input, save2) {
+    const original = input.value;
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") input.blur();
+      else if (e.key === "Escape") {
+        input.value = original;
+        input.blur();
+      }
+    });
+    input.addEventListener("change", () => {
+      const v = input.value.trim();
+      if (!v || v === original) {
+        input.value = original;
+        return;
+      }
+      save2(v);
+    });
+  }
+  function bindAdd(selector, add) {
+    const input = app.querySelector(selector);
+    const take = () => {
+      const v = input.value.trim();
+      input.value = "";
+      if (v) add(v);
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      take();
+      app.querySelector(selector)?.focus();
+    });
+    input.addEventListener("change", take);
+  }
+  function bindSettings() {
+    bindScrollShadow();
+    app.querySelectorAll("[data-theme-opt]").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.themeOpt)));
+    app.querySelectorAll("[data-prio]").forEach((row) => {
+      const id = row.dataset.prio;
+      const p = S.priorities.find((x) => x.id === id);
+      bindName(row.querySelector("[data-name]"), (name) => updatePriority(id, { name }));
+      row.querySelector("[data-color]").addEventListener("click", (e) => openMenu(e.currentTarget, PRIORITY_COLORS.map((c) => ({
+        label: COLOR_NAME[c] + (c === p.color ? " ✓" : ""),
+        swatch: c,
+        onClick: () => updatePriority(id, { color: c })
+      }))));
+      row.querySelectorAll("[data-move]").forEach((b) => b.addEventListener("click", () => movePriority(id, +b.dataset.move)));
+      row.querySelector("[data-delete]").addEventListener("click", async () => {
+        const used = priorityUseCount(id);
+        if (used && !await confirmDialog(`Delete “${p.name}”?`, `${plural(used, "task")} will have no priority.`, { confirmLabel: "Delete", danger: true })) return;
+        deletePriority(id);
+      });
+    });
+    bindAdd("[data-add-priority]", addPriority);
+    app.querySelectorAll("[data-label]").forEach((row) => {
+      const name = row.dataset.label;
+      bindName(row.querySelector("[data-name]"), async (next) => {
+        const target = allTags().find((x) => sameTag2(x, next) && !sameTag2(x, name));
+        if (target && !await confirmDialog(`Merge #${name} into #${target}?`, `Every task with #${name} gets #${target} instead.`, { confirmLabel: "Merge" })) {
+          rerender();
+          return;
+        }
+        renameLabel(name, target || next);
+      });
+      row.querySelector("[data-delete]").addEventListener("click", async () => {
+        const used = tagUseCount(name);
+        if (used && !await confirmDialog(`Delete #${name}?`, `It is removed from ${plural(used, "task")}.`, { confirmLabel: "Delete", danger: true })) return;
+        deleteLabel(name);
+      });
+    });
+    bindAdd("[data-add-label]", addLabel);
+  }
+
   // src/ui/board.js
   function viewbarHTML() {
     const sortLabels = { manual: "Sort", due: "Due date", priority: "Priority" };
@@ -1533,10 +1814,14 @@
     </span>
   </div>`;
   }
+  function priorityTagHTML(t) {
+    const p = priorityById(t.priority);
+    return p ? `<span class="tag pc pc-${p.color}">${esc(p.name)}</span>` : "";
+  }
   function taskMetaHTML(t) {
     const bits = [];
     if (t.due) bits.push(dueChipHTML(t, { prefix: true }));
-    if (t.priority !== "none") bits.push(`<span class="tag tag-${t.priority}">${PRIORITY_LABEL[t.priority]}</span>`);
+    if (priorityById(t.priority)) bits.push(priorityTagHTML(t));
     t.tags.forEach((tag) => bits.push(`<span class="tag">#${esc(tag)}</span>`));
     if (t.subtasks.length) {
       const done = t.subtasks.filter((s) => s.done).length;
@@ -1651,7 +1936,7 @@
         <span class="t-title">${esc(t.title)}</span>
         ${t.done ? "<span></span><span></span><span></span>" : `
         ${t.due ? dueChipHTML(t) : '<span class="cell-muted">—</span>'}
-        ${t.priority !== "none" ? `<span class="tag tag-${t.priority}">${PRIORITY_LABEL[t.priority]}</span>` : '<span class="cell-muted">—</span>'}
+        ${priorityTagHTML(t) || '<span class="cell-muted">—</span>'}
         ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
       </div>`;
     }).join("")}
@@ -1690,7 +1975,7 @@
   function bindKanban() {
     app.querySelectorAll(".kcard").forEach((card) => bindCard(card, taskById(card.dataset.id)));
     app.querySelectorAll("[data-lane-add]").forEach((b) => b.addEventListener("click", () => openSheet({ lane: b.dataset.laneAdd })));
-    app.querySelector("[data-editrules]")?.addEventListener("click", () => alert("One automation is active:\n\nMarking a task complete moves its card to Done.\n\nCustom rules are on the roadmap."));
+    app.querySelector("[data-editrules]")?.addEventListener("click", () => openSettings("automations"));
   }
   function bindRowGestures(el, task) {
     let clickTimer = null, lpTimer = null, lpFired = false, sx = 0, sy = 0;
@@ -1972,7 +2257,6 @@
   var chipHTML = (name, on) => `<button class="chip ${on ? "on" : ""}" data-val="${esc(name)}">#${esc(name)}</button>`;
 
   // src/ui/detail.js
-  var PRIORITY_NAME = { none: "None", low: "Low", medium: "Medium", high: "High" };
   function scheduleNote(t) {
     return [
       t.start ? `Starts ${fmtDateLong(t.start)}` : "",
@@ -2041,7 +2325,7 @@
         <div class="kv-row kv-stack">
           <span class="kv-label">Priority</span>
           <div class="chip-row" data-priority>
-            ${[...PRIORITIES].reverse().map((p) => `<button class="chip sm ${t.priority === p ? "on" : ""} ${p !== "none" && t.priority === p ? `chip-${p}` : ""}" data-val="${p}" aria-pressed="${t.priority === p}">${PRIORITY_NAME[p]}</button>`).join("")}
+            ${[{ id: "none", name: "None" }, ...[...S.priorities].reverse()].map((p) => `<button class="chip sm ${t.priority === p.id ? `on ${p.color ? `pc pc-${p.color}` : ""}` : ""}" data-val="${p.id}" aria-pressed="${t.priority === p.id}">${esc(p.name)}</button>`).join("")}
           </div>
         </div>
         <div class="kv-row kv-stack">
@@ -2199,7 +2483,7 @@
       <div class="card">
         ${row(`${icon("calendar", 16)}Due date`, t.due ? esc(fmtDateLong(t.due, t.dueTime)) : "—")}
         ${note ? `<div class="kv-note">${esc(note)}</div>` : ""}
-        ${row("Priority", PRIORITY_NAME[t.priority])}
+        ${row("Priority", esc(priorityName(t.priority)))}
         ${row(`${icon("tag", 16)}Tags`, t.tags.length ? t.tags.map((x) => `#${esc(x)}`).join(" ") : "—")}
         ${row(`${icon("move", 16)}From`, esc(from))}
         ${row("Reminder", esc(reminderLabel(t.reminder)))}
@@ -2356,6 +2640,7 @@
   ];
   function bindFolderLinks() {
     app.querySelectorAll("[data-open-folder]").forEach((el) => el.addEventListener("click", () => openFolder(el.dataset.openFolder)));
+    app.querySelector("[data-open-settings]")?.addEventListener("click", () => openSettings());
   }
   function listsMenuHTML() {
     return `
@@ -2387,6 +2672,13 @@
           <span class="lname">${f.label}</span>
           <span class="lcount num">${f.count}</span>
         </div>`).join("")}
+      </div>
+      <div class="card list-card">
+        <div class="lrow" data-open-settings>
+          <span class="lrow-icon">${icon("settings", 18)}</span>
+          <span class="lname">Settings</span>
+          ${icon("chevronRight", 18)}
+        </div>
       </div>
       <span class="hint">Synced 2 min ago · free account</span>
     </div>
@@ -2433,7 +2725,7 @@
   }
   function desktopHTML() {
     const list = listById(S.currentList);
-    const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : `
+    const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
       ${viewbarHTML()}
@@ -2441,7 +2733,7 @@
     </header>
     ${S.view === "kanban" ? kanbanHTML({ desktop: true }) : desktopTableHTML()}`;
     const inFolders = UI.screen === "folders" || UI.screen === "detail" && taskById(UI.detailId)?.status !== "active";
-    const onBoard = !inFolders;
+    const onBoard = !inFolders && UI.screen !== "settings";
     return `
   <div class="shell">
     <aside class="sidebar">
@@ -2455,11 +2747,15 @@
       <div class="side-newlist"><button class="btn btn-secondary" data-newlist>${icon("plus", 16)}New board</button></div>
       <span class="section-title side-label">Folders</span>
       ${folderEntries().map((f) => `
-      <div class="side-item ${!onBoard && UI.folder === f.tab ? "active" : ""}" data-open-folder="${f.tab}">
+      <div class="side-item ${inFolders && UI.folder === f.tab ? "active" : ""}" data-open-folder="${f.tab}">
         ${icon(f.icon, 16)}
         <span class="name">${f.label}</span>
         <span class="count num">${f.count}</span>
       </div>`).join("")}
+      <div class="side-item side-settings ${UI.screen === "settings" ? "active" : ""}" data-open-settings>
+        ${icon("settings", 16)}
+        <span class="name">Settings</span>
+      </div>
       <div class="side-user">
         <span class="who">Alex Rivera</span>
         <span class="sub">Synced across 3 devices</span>
@@ -2482,6 +2778,10 @@
     }
     if (UI.screen === "folders") {
       bindFolders();
+      return;
+    }
+    if (UI.screen === "settings") {
+      bindSettings();
       return;
     }
     bindViewbar();
@@ -2508,6 +2808,7 @@
 
   // app.js
   function render() {
+    applyTheme();
     const focusAddsub = document.activeElement?.classList?.contains("addsub-input");
     if (!S.onboarded) {
       app.innerHTML = onboardingHTML();
@@ -2518,12 +2819,13 @@
       app.innerHTML = desktopHTML();
       bindDesktop();
     } else {
-      const screen = UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : mobileListHTML();
+      const screen = UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : mobileListHTML();
       const withNav = UI.screen !== "detail";
       app.innerHTML = screen + (withNav ? mobileNavHTML() : "");
       if (UI.screen === "lists") bindListsMenu();
       else if (UI.screen === "detail") bindDetail();
       else if (UI.screen === "folders") bindFolders();
+      else if (UI.screen === "settings") bindSettings();
       else bindMobileList();
       if (withNav) bindMobileNav();
     }
@@ -2550,6 +2852,7 @@
     }
   });
   isDesktop.addEventListener("change", render);
+  systemDark.addEventListener("change", render);
   render();
   initReminders({ openTask });
 })();

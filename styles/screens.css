@@ -184,3 +184,43 @@
 .frow { cursor: pointer; }
 .frow-open { text-align: left; padding: 0; color: var(--text-primary); }
 .frow-open:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── Settings ────────────────────────────────────────────────────────── */
+.set-row { display: flex; align-items: center; gap: var(--space-3); min-height: 68px; padding: var(--space-3) 0; border-bottom: 1px solid var(--color-border); }
+.set-row:last-child { border-bottom: none; }
+.set-wrap { flex-wrap: wrap; }
+.set-wrap .set-text { min-width: 150px; }
+.set-wrap .segmented { margin-left: auto; }
+.set-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.set-title { font-size: var(--text-base); font-weight: 700; }
+.set-sub { font-size: var(--text-sm); color: var(--text-secondary); }
+.set-input {
+  width: 100%; min-height: 32px; padding: 2px 8px; margin-left: -8px; border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: none; font-size: var(--text-base); font-weight: 700; color: var(--text-primary); caret-color: var(--color-accent);
+  transition: background-color var(--dur-quick) ease, border-color var(--dur-quick) ease;
+}
+.set-input:hover { background: var(--bg-surface-sunken); }
+.set-input:focus { outline: none; background: var(--bg-surface-sunken); border-color: var(--color-accent); }
+.set-input::placeholder { color: var(--text-tertiary); font-weight: 600; }
+.set-add .set-input { margin-left: 0; }
+.set-actions { display: flex; gap: 2px; flex: none; }
+.set-btn {
+  position: relative; width: 34px; height: 34px; border-radius: 50%; color: var(--text-tertiary);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background-color var(--dur-quick) ease, color var(--dur-quick) ease;
+}
+.set-btn::after { content: ''; position: absolute; inset: -4px; }
+.set-btn:hover:not(:disabled) { background: var(--bg-surface-sunken); color: var(--text-primary); }
+.set-btn.danger:hover { color: var(--color-danger-text); }
+.set-btn:disabled { opacity: 0.3; cursor: default; }
+.set-btn svg { width: 18px; height: 18px; }
+.lrow-icon.pc { background: var(--pc-bg); color: var(--pc-fg); }
+button.lrow-icon { transition: transform var(--dur-quick) var(--ease-spring); }
+button.lrow-icon:active { transform: scale(0.9); }
+.lrow-icon.dashed { background: transparent; border: 2px dashed var(--color-border); color: var(--text-tertiary); }
+.set-row.is-disabled .set-title { color: var(--text-secondary); }
+.scroll-area > .set-hint { text-align: left; margin: calc(-1 * var(--space-2)) var(--space-1) var(--space-5); }
+.lrow > svg:last-child { color: var(--text-tertiary); flex: none; }
+.side-settings { margin-top: auto; }
+.side-settings + .side-user { margin-top: var(--space-2); }
+.main .settings-screen { max-width: 640px; width: 100%; margin: 0 auto; }

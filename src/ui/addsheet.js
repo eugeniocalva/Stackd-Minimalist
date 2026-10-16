@@ -1,6 +1,6 @@
 /* Add-task sheet. Rendered outside #app so re-renders never remove it. */
 
-import { S, PRIORITIES, addTask, allTags as tagPool } from '../store.js';
+import { S, addTask, allTags as tagPool } from '../store.js';
 import { daysFrom, fmtDue } from '../dates.js';
 import { openSchedule } from './schedule.js';
 import { esc } from '../util.js';
@@ -37,7 +37,7 @@ export function openSheet({ lane } = {}) {
     <div class="chip-group">
       <span class="microlabel">Priority</span>
       <div class="chip-row" data-priority>
-        ${PRIORITIES.map((p) => `<button class="chip ${p === 'none' ? 'on' : ''}" data-val="${p}">${p === 'none' ? 'None' : { high: 'High', medium: 'Medium', low: 'Low' }[p]}</button>`).join('')}
+        ${[...S.priorities, { id: 'none', name: 'None' }].map((p) => `<button class="chip ${p.id === 'none' ? 'on' : ''}" data-val="${p.id}">${esc(p.name)}</button>`).join('')}
       </div>
     </div>
     <div class="chip-group">

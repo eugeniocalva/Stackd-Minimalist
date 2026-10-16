@@ -58,8 +58,8 @@
   background: var(--bg-surface-sunken); color: var(--text-secondary);
 }
 .tag svg { width: 12px; height: 12px; }
-.tag-overdue, .tag-high { background: var(--color-danger-bg); color: var(--color-danger-text); }
-.tag-soon, .tag-medium { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.tag-overdue { background: var(--color-danger-bg); color: var(--color-danger-text); }
+.tag-soon { background: var(--color-warning-bg); color: var(--color-warning-text); }
 .tag-done { background: var(--color-success-bg); color: var(--color-success-text); }
 
 /* Selectable chip (add sheet) */
@@ -116,6 +116,9 @@
   color: var(--text-secondary); transition: background-color var(--dur-quick) ease, color var(--dur-quick) ease;
 }
 .seg.active { background: var(--bg-surface); color: var(--text-primary); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12); }
+.segmented.solid { border-radius: var(--radius-full); }
+.segmented.solid .seg { border-radius: var(--radius-full); font-size: var(--text-xs); padding: 7px 14px; }
+.segmented.solid .seg.active { background: var(--color-primary); color: var(--text-on-primary); box-shadow: none; }
 .sortwrap { position: relative; display: flex; }
 .sortbtn {
   display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px;
@@ -293,9 +296,7 @@
 .chip.sm { height: 30px; padding: 0 12px; font-size: 12px; gap: 4px; }
 .chip svg { width: 14px; height: 14px; }
 .chip.removable svg { opacity: 0.7; margin-right: -4px; }
-.chip.on.chip-high { background: var(--color-danger-bg); color: var(--color-danger-text); }
-.chip.on.chip-medium { background: var(--color-warning-bg); color: var(--color-warning-text); }
-.chip.on.chip-low { background: var(--bg-surface-dim); color: var(--text-primary); }
+.chip.on.pc { background: var(--pc-bg); color: var(--pc-fg); }
 .detail-title-input {
   width: 100%; border: none; border-bottom: 2px solid var(--color-accent); background: none; padding: 0 0 2px;
   font-family: var(--font-family-display); font-weight: 800; font-size: var(--text-2xl); line-height: 1.25;
@@ -350,3 +351,13 @@
 .is-readonly .detail-head .t-meta { padding-left: calc(26px + var(--space-3)); }
 .is-readonly .dialog-actions { margin-top: var(--space-2); }
 .is-readonly .dialog-actions .btn svg { width: 18px; height: 18px; }
+
+/* ── Priority colours (Settings → Priorities) ────────────────────────── */
+.pc-red { --pc-bg: var(--color-danger-bg); --pc-fg: var(--color-danger-text); }
+.pc-amber { --pc-bg: var(--color-warning-bg); --pc-fg: var(--color-warning-text); }
+.pc-green { --pc-bg: var(--color-success-bg); --pc-fg: var(--color-success-text); }
+.pc-blue { --pc-bg: var(--color-info-bg); --pc-fg: var(--color-info-text); }
+.pc-violet { --pc-bg: var(--color-violet-bg); --pc-fg: var(--color-violet-text); }
+.pc-gray { --pc-bg: var(--bg-surface-dim); --pc-fg: var(--text-secondary); }
+.tag.pc { background: var(--pc-bg); color: var(--pc-fg); }
+.swatch { width: 14px; height: 14px; flex: none; border-radius: 50%; background: var(--pc-fg); }

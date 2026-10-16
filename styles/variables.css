@@ -1,10 +1,11 @@
 /* Design tokens — ported from Stack'd Finance (src/styles/variables.css) and
    trimmed to what the todo app uses. Finance's income/expense tokens become
    success/danger here; red means overdue or High priority, the brand red
-   survives only in the brand mark and app icon. The theme follows the system
-   (prefers-color-scheme), as before. */
+   survives only in the brand mark and app icon. The theme is chosen in
+   Settings (light / dark / system); index.html and src/theme.js resolve it
+   to data-theme on <html>, so only the dark block below needs a selector. */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
   /* Surfaces */
   --bg-base: #f4f7f9;
@@ -37,6 +38,10 @@
   --color-success: #10b981;
   --color-success-bg: #ecfdf5;
   --color-success-text: #047857;
+  --color-info-bg: #eff6ff;
+  --color-info-text: #1d4ed8;
+  --color-violet-bg: #f5f3ff;
+  --color-violet-text: #6d28d9;
 
   /* Glass + chrome */
   --glass-bg: rgba(255, 255, 255, 0.75);
@@ -96,42 +101,45 @@
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-base: #0b0f19;
-    --bg-surface: #161e2e;
-    --bg-surface-sunken: #111827;
-    --bg-surface-dim: #1f293d;
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-base: #0b0f19;
+  --bg-surface: #161e2e;
+  --bg-surface-sunken: #111827;
+  --bg-surface-dim: #1f293d;
 
-    --text-primary: #f8fafc;
-    --text-secondary: #94a3b8;
-    --text-tertiary: #8796ab;    /* ≥ 4.8:1 on base, surface, sunken and dim */
-    --text-placeholder: #475569;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #8796ab;    /* ≥ 4.8:1 on base, surface, sunken and dim */
+  --text-placeholder: #475569;
 
-    --color-primary: #f8fafc;
-    --color-primary-bg: #1f293d;
-    --color-accent: #38bdf8;
-    --text-on-primary: #0b0f19;
+  --color-primary: #f8fafc;
+  --color-primary-bg: #1f293d;
+  --color-accent: #38bdf8;
+  --text-on-primary: #0b0f19;
 
-    --color-danger: #f87171;
-    --color-danger-bg: rgba(127, 29, 29, 0.35);
-    --color-danger-text: #fca5a5;
-    --color-danger-solid: #f87171;
-    --text-on-danger: #0b0f19;     /* 6.9:1 */
-    --color-warning: #fbbf24;
-    --color-warning-bg: rgba(120, 53, 15, 0.35);
-    --color-warning-text: #fcd34d;
-    --color-success: #34d399;
-    --color-success-bg: rgba(6, 78, 59, 0.35);
-    --color-success-text: #6ee7b7;
+  --color-danger: #f87171;
+  --color-danger-bg: rgba(127, 29, 29, 0.35);
+  --color-danger-text: #fca5a5;
+  --color-danger-solid: #f87171;
+  --text-on-danger: #0b0f19;     /* 6.9:1 */
+  --color-warning: #fbbf24;
+  --color-warning-bg: rgba(120, 53, 15, 0.35);
+  --color-warning-text: #fcd34d;
+  --color-success: #34d399;
+  --color-success-bg: rgba(6, 78, 59, 0.35);
+  --color-success-text: #6ee7b7;
+  --color-info-bg: rgba(30, 58, 138, 0.4);
+  --color-info-text: #93c5fd;
+  --color-violet-bg: rgba(76, 29, 149, 0.4);
+  --color-violet-text: #c4b5fd;
 
-    --glass-bg: rgba(22, 30, 46, 0.82);
-    --glass-border: rgba(255, 255, 255, 0.1);
-    --color-overlay: rgba(0, 0, 0, 0.7);
-    --bg-header: rgba(11, 15, 25, 0.85);
-    --header-scrolled-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    --color-border: rgba(51, 65, 85, 0.6);
-    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.2);
-    --shadow-float: 0 12px 40px rgba(0, 0, 0, 0.45);
-  }
+  --glass-bg: rgba(22, 30, 46, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --color-overlay: rgba(0, 0, 0, 0.7);
+  --bg-header: rgba(11, 15, 25, 0.85);
+  --header-scrolled-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --color-border: rgba(51, 65, 85, 0.6);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-float: 0 12px 40px rgba(0, 0, 0, 0.45);
 }
