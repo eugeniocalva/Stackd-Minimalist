@@ -1,16 +1,17 @@
-/* App chrome: onboarding (1a), mobile lists menu (2b), desktop shell with
-   sidebar (2g / 2h). */
+/* App chrome: onboarding, mobile Boards menu, mobile bottom nav + FAB,
+   desktop shell with sidebar. */
 
-import { S, UI, listById, taskById, openCount, addTask, newList, commit } from '../store.js';
+import { S, UI, listById, taskById, openCount, addTask, newList, commit, rerender } from '../store.js';
 import { esc, app } from '../util.js';
+import { icon } from './icons.js';
 import {
   viewbarHTML, kanbanHTML, desktopTableHTML,
-  bindViewbar, bindChecks, bindKanban, bindRowGestures, bindReorder,
+  bindViewbar, bindChecks, bindKanban, bindRowGestures, bindReorder, bindScrollShadow,
 } from './board.js';
 import { detailHTML, bindDetail } from './detail.js';
 import { openSheet } from './addsheet.js';
 
-/* — onboarding (1a) — */
+/* — onboarding — */
 
 export function onboardingHTML() {
   return `
@@ -20,14 +21,14 @@ export function onboardingHTML() {
       <div class="onboarding-hero">
         <h1><span>Simplify.</span><span>Focus.</span><span class="accent">Achieve.</span></h1>
         <div class="onboarding-points">
-          <div><span class="point-square"></span><span>One list, nothing else on screen.</span></div>
-          <div><span class="point-square"></span><span>Drag to prioritize. Double-tap to finish.</span></div>
-          <div><span class="point-square"></span><span>Lists and boards, synced everywhere.</span></div>
+          <div><span class="point-dot"></span><span>One board, nothing else on screen.</span></div>
+          <div><span class="point-dot"></span><span>Drag to prioritize. Double-tap to finish.</span></div>
+          <div><span class="point-dot"></span><span>Lists and kanban, side by side.</span></div>
         </div>
       </div>
       <div class="onboarding-actions">
-        <button class="btn btn-primary btn-block" style="min-height:52px;font-size:16px" data-go>Get started</button>
-        <button class="btn btn-ghost btn-block" style="min-height:48px;justify-content:center" data-go>I have an account</button>
+        <button class="btn btn-primary btn-block" style="min-height:52px" data-go>Get started</button>
+        <button class="btn btn-ghost btn-block" data-go>I have an account</button>
       </div>
     </div>
   </div>`;
@@ -38,35 +39,37 @@ export function bindOnboarding() {
     b.addEventListener('click', () => { S.onboarded = true; commit(); }));
 }
 
-/* — mobile: lists menu (2b) — */
+/* — mobile: Boards menu — */
 
 export function listsMenuHTML() {
   return `
   <div class="screen">
-    <div class="lists-head">
-      <span class="kicker">Stack'd</span>
-      <h2>Lists</h2>
-    </div>
-    <div class="seam head-seam"></div>
-    <div style="flex:1;display:flex;flex-direction:column;gap:4px;padding-top:10px;overflow-y:auto">
-      ${S.lists.map((l) => `
-      <div class="lrow" data-id="${l.id}">
-        <span class="ldot ${l.id === S.currentList ? 'accent' : ''}"></span>
-        <span class="lname ${l.id === S.currentList ? 'current' : ''}">${esc(l.name)}</span>
-        <span class="lcount num">${openCount(l.id)}</span>
-      </div>`).join('')}
-      <div class="lrow newlist" data-newlist>
-        <span class="ldot new"></span>
-        <span class="lname">New list…</span>
+    <header class="page-head">
+      <div class="page-title-row">
+        <h1 class="page-title-text">Boards</h1>
+        <span class="kicker">Stack'd</span>
       </div>
-    </div>
-    <div style="padding:14px 20px 26px">
+    </header>
+    <div class="scroll-area">
+      <div class="card list-card">
+        ${S.lists.map((l) => `
+        <div class="lrow ${l.id === S.currentList ? 'current' : ''}" data-id="${l.id}">
+          <span class="lrow-icon">${icon('board', 18)}</span>
+          <span class="lname">${esc(l.name)}</span>
+          <span class="lcount num">${openCount(l.id)}</span>
+        </div>`).join('')}
+        <div class="lrow newlist" data-newlist>
+          <span class="lrow-icon">${icon('plus', 18)}</span>
+          <span class="lname">New board…</span>
+        </div>
+      </div>
       <span class="hint">Synced 2 min ago · free account</span>
     </div>
   </div>`;
 }
 
 export function bindListsMenu() {
+  bindScrollShadow();
   app.querySelectorAll('.lrow[data-id]').forEach((row) =>
     row.addEventListener('click', () => {
       S.currentList = row.dataset.id; UI.screen = 'list'; commit();
@@ -74,30 +77,55 @@ export function bindListsMenu() {
   app.querySelector('[data-newlist]').addEventListener('click', newList);
 }
 
-/* — desktop shell (2g / 2h) — */
+/* — mobile: bottom nav pill + FAB (board and Boards screens only) — */
+
+export function mobileNavHTML() {
+  const item = (screen, label, name) => `
+    <button class="nav-item ${UI.screen === screen ? 'active' : ''}" data-nav="${screen}" aria-label="${label}">
+      <span class="nav-icon">${icon(name, 24)}</span>
+      <span class="nav-item-indicator"></span>
+    </button>`;
+  return `
+  <nav class="bottom-nav">
+    <div class="nav-pill">
+      ${item('lists', 'Boards', 'grid')}
+      ${item('list', 'Tasks', 'tasks')}
+    </div>
+    <button class="nav-fab" data-add aria-label="Add task">${icon('plus', 28)}</button>
+  </nav>`;
+}
+
+export function bindMobileNav() {
+  app.querySelectorAll('[data-nav]').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (UI.screen === b.dataset.nav) return;
+      UI.screen = b.dataset.nav; rerender();
+    }));
+  app.querySelector('.nav-fab')?.addEventListener('click', () => openSheet());
+}
+
+/* — desktop shell — */
 
 export function desktopHTML() {
   const list = listById(S.currentList);
   const main = UI.screen === 'detail' ? detailHTML() : `
-    <div class="main-head">
-      <h1>${S.view === 'kanban' ? '<span class="list-square"></span>' : ''}${esc(list.name)}</h1>
-      ${viewbarHTML({ desktop: true })}
-      ${S.view === 'kanban' ? '<button class="btn btn-primary" style="margin:0" data-add>+ Add task</button>' : ''}
-    </div>
+    <header class="main-head">
+      <h1 class="page-title-text">${esc(list.name)}</h1>
+      ${viewbarHTML()}
+      ${S.view === 'kanban' ? `<button class="btn btn-primary btn-sm" data-add>${icon('plus', 18)}Add task</button>` : ''}
+    </header>
     ${S.view === 'kanban' ? kanbanHTML({ desktop: true }) : desktopTableHTML()}`;
   return `
   <div class="shell">
     <aside class="sidebar">
       <div class="brand"><div class="brand-mark"></div><div class="brand-name">STACK'D</div></div>
-      <div style="display:flex;flex-direction:column">
-        <span class="side-label">Lists</span>
-        ${S.lists.map((l) => `
-        <div class="side-item ${l.id === S.currentList ? 'active' : ''}" data-id="${l.id}">
-          <span class="name">${esc(l.name)}</span>
-          <span class="count num">${openCount(l.id)}</span>
-        </div>`).join('')}
-        <div class="side-newlist"><button class="btn btn-secondary" data-newlist>+ New list</button></div>
-      </div>
+      <span class="section-title side-label">Boards</span>
+      ${S.lists.map((l) => `
+      <div class="side-item ${l.id === S.currentList ? 'active' : ''}" data-id="${l.id}">
+        <span class="name">${esc(l.name)}</span>
+        <span class="count num">${openCount(l.id)}</span>
+      </div>`).join('')}
+      <div class="side-newlist"><button class="btn btn-secondary" data-newlist>${icon('plus', 16)}New board</button></div>
       <div class="side-user">
         <span class="who">Alex Rivera</span>
         <span class="sub">Synced across 3 devices</span>

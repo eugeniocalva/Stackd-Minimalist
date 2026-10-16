@@ -1,0 +1,49 @@
+/* Reset + global (from Finance reset.css / global.css, trimmed). */
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+
+html, body { height: 100%; width: 100%; max-width: 100vw; overflow-x: hidden; }
+body {
+  font-family: var(--font-family-body);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  overscroll-behavior-y: none;
+}
+
+input, textarea, button, select { font: inherit; color: inherit; }
+button { background: transparent; border: none; cursor: pointer; }
+input, textarea { user-select: text; -webkit-user-select: text; }
+svg { display: block; }
+h1, h2, h3 { font-family: var(--font-family-display); font-weight: 700; letter-spacing: -0.02em; }
+
+/* #app owns the status-bar inset so no content scrolls under it. */
+#app {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: var(--radius-full); }
+
+:focus { outline: none; }
+:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+::selection { background: color-mix(in srgb, var(--color-accent) 25%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

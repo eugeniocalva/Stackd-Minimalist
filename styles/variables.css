@@ -1,0 +1,133 @@
+/* Design tokens — ported from Stack'd Finance (src/styles/variables.css) and
+   trimmed to what the todo app uses. Finance's income/expense tokens become
+   success/danger here; red means overdue or High priority, the brand red
+   survives only in the brand mark and app icon. The theme follows the system
+   (prefers-color-scheme), as before. */
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces */
+  --bg-base: #f4f7f9;
+  --bg-surface: #ffffff;
+  --bg-surface-sunken: #eef2f5;
+  --bg-surface-dim: #dfe6ed;
+
+  /* Text */
+  --text-primary: #1a1e21;
+  --text-secondary: #475569;   /* slate-600, 6.1:1 on base */
+  --text-tertiary: #64748b;    /* slate-500, 4.6:1 */
+  --text-placeholder: #cbd5e1;
+
+  /* Primary action + accent (Trade-Republic black in light mode) */
+  --color-primary: #111111;
+  --color-primary-bg: #f0f0f0;
+  --color-accent: #111111;
+  --text-on-primary: #ffffff;
+  --color-brand: #ec3013;      /* brand mark only */
+
+  /* Semantic */
+  --color-danger: #ef4444;
+  --color-danger-bg: #fef2f2;
+  --color-danger-text: #b91c1c;
+  --color-warning: #f59e0b;
+  --color-warning-bg: #fffbeb;
+  --color-warning-text: #854d0e;
+  --color-success: #10b981;
+  --color-success-bg: #ecfdf5;
+  --color-success-text: #047857;
+
+  /* Glass + chrome */
+  --glass-bg: rgba(255, 255, 255, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.4);
+  --glass-blur: 16px;
+  --color-overlay: rgba(15, 23, 42, 0.3);
+  --bg-header: rgba(244, 247, 249, 0.85);
+  --header-scrolled-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --color-border: rgba(226, 232, 240, 0.8);
+  --shadow-card: 0 2px 8px rgba(15, 23, 42, 0.03);
+  --shadow-float: 0 12px 40px rgba(0, 0, 0, 0.1);
+  --shadow-sheet: 0 -20px 60px var(--color-overlay);
+
+  /* Typography */
+  --font-family-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-family-display: 'Manrope', system-ui, -apple-system, sans-serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-title: clamp(1.5rem, 5.5vw, 2rem);
+
+  /* Spacing + shape */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --gutter: var(--space-4);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-full: 9999px;
+  --target-size: 48px;
+  --nav-clearance: calc(100px + var(--safe-bottom));
+
+  /* Layers */
+  --z-nav: 100;
+  --z-modal-backdrop: 3000;
+
+  /* Safe areas: Capacitor's System Bars plugin injects --safe-area-inset-*
+     on Android; env() covers iOS and the web; 0 elsewhere. */
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+
+  /* Motion */
+  --dur-quick: 150ms;
+  --dur-view: 250ms;
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-base: #0b0f19;
+    --bg-surface: #161e2e;
+    --bg-surface-sunken: #111827;
+    --bg-surface-dim: #1f293d;
+
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-tertiary: #64748b;
+    --text-placeholder: #475569;
+
+    --color-primary: #f8fafc;
+    --color-primary-bg: #1f293d;
+    --color-accent: #38bdf8;
+    --text-on-primary: #0b0f19;
+
+    --color-danger: #f87171;
+    --color-danger-bg: rgba(127, 29, 29, 0.35);
+    --color-danger-text: #fca5a5;
+    --color-warning: #fbbf24;
+    --color-warning-bg: rgba(120, 53, 15, 0.35);
+    --color-warning-text: #fcd34d;
+    --color-success: #34d399;
+    --color-success-bg: rgba(6, 78, 59, 0.35);
+    --color-success-text: #6ee7b7;
+
+    --glass-bg: rgba(22, 30, 46, 0.82);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --color-overlay: rgba(0, 0, 0, 0.7);
+    --bg-header: rgba(11, 15, 25, 0.85);
+    --header-scrolled-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    --color-border: rgba(51, 65, 85, 0.6);
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.2);
+    --shadow-float: 0 12px 40px rgba(0, 0, 0, 0.45);
+  }
+}

@@ -1,5 +1,5 @@
-/* One board: list rows (2a / 2g table), kanban (2c / 2h), shared partials,
-   row / card gestures. Gestures: double-tap complete, long-press delete,
+/* One board: list rows (mobile) / table (desktop), kanban, shared partials,
+   row and card gestures. Gestures: double-tap complete, long-press delete,
    drag to reorder (manual sort), hold-and-drag kanban cards between lanes. */
 
 import {
@@ -9,22 +9,21 @@ import {
 } from '../store.js';
 import { fmtDue, fmtTime } from '../dates.js';
 import { esc, app } from '../util.js';
+import { icon } from './icons.js';
 import { openSheet } from './addsheet.js';
 
 /* — shared partials — */
 
-export function sortIcon(size = 13) {
-  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>`;
-}
-
-export function viewbarHTML({ desktop = false } = {}) {
+export function viewbarHTML() {
   const sortLabels = { manual: 'Sort', due: 'Due date', priority: 'Priority' };
   return `
   <div class="viewbar">
-    <button class="vsw ${S.view === 'list' ? 'active' : ''}" data-view="list">List</button>
-    <button class="vsw ${S.view === 'kanban' ? 'active' : ''}" data-view="kanban">Kanban</button>
+    <div class="segmented" role="tablist">
+      <button class="seg ${S.view === 'list' ? 'active' : ''}" data-view="list">List</button>
+      <button class="seg ${S.view === 'kanban' ? 'active' : ''}" data-view="kanban">Kanban</button>
+    </div>
     <span class="sortwrap">
-      <button class="sortbtn" data-sortbtn>${sortIcon()}${esc(sortLabels[S.sort])}${desktop ? ' ▾' : ''}</button>
+      <button class="sortbtn ${S.sort !== 'manual' ? 'on' : ''}" data-sortbtn>${icon('sort')}${esc(sortLabels[S.sort])}</button>
       ${UI.sortMenu ? `
       <div class="sortmenu">
         <button data-sort="manual" class="${S.sort === 'manual' ? 'active' : ''}">Manual</button>
@@ -41,8 +40,8 @@ export function taskMetaHTML(t) {
     const d = fmtDue(t.due);
     bits.push(`<span class="tag ${d.cls}">${d.days <= 3 && d.days >= 2 ? 'Due ' : ''}${esc(d.label)}</span>`);
   }
-  if (t.priority !== 'none') bits.push(`<span class="tag tag-outline">${PRIORITY_LABEL[t.priority]}</span>`);
-  t.tags.forEach((tag) => bits.push(`<span class="tag tag-neutral">#${esc(tag)}</span>`));
+  if (t.priority !== 'none') bits.push(`<span class="tag tag-${t.priority}">${PRIORITY_LABEL[t.priority]}</span>`);
+  t.tags.forEach((tag) => bits.push(`<span class="tag">#${esc(tag)}</span>`));
   if (t.subtasks.length) {
     const done = t.subtasks.filter((s) => s.done).length;
     bits.push(`<span class="t-sub num">${done}/${t.subtasks.length} subtasks</span>`);
@@ -83,11 +82,11 @@ export function kanbanHTML({ desktop = false } = {}) {
     <span class="txt">Automation${desktop ? ':' : ' on —'} ${desktop ? 'marking a task complete moves its card' : 'completed tasks move'} to <strong>Done</strong></span>
     ${desktop ? '<button class="edit" data-editrules>Edit rules</button>' : ''}
   </div>
-  <div class="board ${desktop ? 'cols3' : ''}">${lanes}</div>
-  ${desktop ? '' : '<div style="padding:0 20px 24px" class="mobile-only"><span class="hint">Swipe for more lanes · hold a card to move it</span></div>'}`;
+  ${desktop ? '' : '<span class="hint board-hint">Swipe for more lanes · hold a card to move it</span>'}
+  <div class="board ${desktop ? 'cols3' : ''}">${lanes}</div>`;
 }
 
-/* — mobile: list screen (2a / 2c) — */
+/* — mobile: board screen — */
 
 export function mobileListHTML() {
   const list = listById(S.currentList);
@@ -95,39 +94,39 @@ export function mobileListHTML() {
   const headCount = S.view === 'kanban'
     ? `${tasksOf(S.currentList).length} tasks` : `${openCount(S.currentList)} open`;
   const body = S.view === 'kanban' ? kanbanHTML() : `
-    <div class="rows">
-      ${ts.map((t) => `
-      <div class="trow ${t.done ? 'done' : ''}" data-id="${t.id}">
-        <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
-        <div class="t-main">
-          <span class="t-title">${esc(t.title)}</span>
-          ${t.done ? '' : taskMetaHTML(t)}
-        </div>
-        ${t.done ? '' : '<span class="grip">⠿</span>'}
-      </div>`).join('')}
-    </div>
-    <div class="list-footer">
-      <span class="hint">Double-tap to complete · long-press to delete</span>
-      <button class="fab" data-add>+</button>
+    <div class="scroll-area">
+      ${ts.length ? `
+      <div class="card list-card">
+        ${ts.map((t) => `
+        <div class="row trow ${t.done ? 'done' : ''}" data-id="${t.id}">
+          <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
+          <div class="t-main">
+            <span class="t-title">${esc(t.title)}</span>
+            ${t.done ? '' : taskMetaHTML(t)}
+          </div>
+          ${t.done ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
+        </div>`).join('')}
+      </div>
+      <span class="hint">Double-tap to complete · long-press to delete</span>`
+      : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
     </div>`;
   return `
   <div class="screen">
-    <div class="page-head">
+    <header class="page-head">
       <div class="page-title-row">
-        <h2 data-lists>${esc(list.name)} <span class="caret">▾</span></h2>
+        <button class="page-title" data-lists aria-label="Switch board"><span>${esc(list.name)}</span>${icon('chevronDown')}</button>
         <span class="kicker">${headCount}</span>
       </div>
       ${viewbarHTML()}
-    </div>
-    <div class="seam head-seam"></div>
+    </header>
     ${body}
   </div>`;
 }
 
 export function bindMobileList() {
   bindViewbar();
+  bindScrollShadow();
   app.querySelector('[data-lists]').addEventListener('click', () => { UI.screen = 'lists'; rerender(); });
-  app.querySelector('[data-add]')?.addEventListener('click', () => openSheet());
   bindChecks();
   app.querySelectorAll('.trow').forEach((row) => {
     const t = taskById(row.dataset.id);
@@ -138,7 +137,7 @@ export function bindMobileList() {
   bindKanban();
 }
 
-/* — desktop: table (2g) — */
+/* — desktop: table — */
 
 export function desktopTableHTML() {
   const ts = sortedTasks(S.currentList);
@@ -147,11 +146,10 @@ export function desktopTableHTML() {
     <input class="input" placeholder="Add a task — press Enter" data-quickadd>
     <button class="btn btn-primary" data-quickadd-btn>Add</button>
   </div>
-  <div class="tgrid tgrid-head">
-    <span></span><span>Task</span><span>Due</span><span>Priority</span><span>Subtasks</span>
-  </div>
-  <div class="seam"></div>
-  <div class="tgrid-rows">
+  <div class="card table-card">
+    <div class="tgrid tgrid-head">
+      <span></span><span>Task</span><span>Due</span><span>Priority</span><span>Subtasks</span>
+    </div>
     ${ts.map((t) => {
       const due = t.due ? fmtDue(t.due) : null;
       const sub = t.subtasks.length
@@ -162,10 +160,11 @@ export function desktopTableHTML() {
         <span class="t-title">${esc(t.title)}</span>
         ${t.done ? '<span></span><span></span><span></span>' : `
         ${due ? `<span class="tag ${due.cls}">${esc(due.label)}</span>` : '<span class="cell-muted">—</span>'}
-        ${t.priority !== 'none' ? `<span class="tag tag-outline">${PRIORITY_LABEL[t.priority]}</span>` : '<span class="cell-muted">—</span>'}
+        ${t.priority !== 'none' ? `<span class="tag tag-${t.priority}">${PRIORITY_LABEL[t.priority]}</span>` : '<span class="cell-muted">—</span>'}
         ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
       </div>`;
     }).join('')}
+    ${ts.length ? '' : '<p class="empty">No tasks yet. Add one above.</p>'}
   </div>
   <span class="hint">Drag rows to reprioritize · double-click a task to complete</span>`;
 }
@@ -182,6 +181,14 @@ export function bindViewbar() {
     b.addEventListener('click', () => {
       S.sort = b.dataset.sort; UI.sortMenu = false; commit();
     }));
+}
+
+/* Sticky header gets a hairline + shadow once the content scrolls under it. */
+export function bindScrollShadow() {
+  const head = app.querySelector('.page-head');
+  const area = app.querySelector('.scroll-area');
+  if (!head || !area) return;
+  area.addEventListener('scroll', () => head.classList.toggle('is-scrolled', area.scrollTop > 2), { passive: true });
 }
 
 export function bindChecks() {

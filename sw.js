@@ -5,8 +5,6 @@ const VERSION = 'stackd-v1.0.0';
 const SHELL = [
   './',
   'index.html',
-  'ds.css',
-  'app.css',
   'app.js',
   'src/util.js',
   'src/dates.js',
@@ -15,6 +13,16 @@ const SHELL = [
   'src/ui/board.js',
   'src/ui/detail.js',
   'src/ui/addsheet.js',
+  'src/ui/icons.js',
+  'styles/fonts.css',
+  'styles/variables.css',
+  'styles/base.css',
+  'styles/components.css',
+  'styles/screens.css',
+  'fonts/inter-latin.woff2',
+  'fonts/inter-latin-ext.woff2',
+  'fonts/manrope-latin.woff2',
+  'fonts/manrope-latin-ext.woff2',
   'manifest.webmanifest',
   'icons/icon-192.png',
   'icons/icon-512.png',
@@ -34,15 +42,13 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-/* Same-origin + Google Fonts: stale-while-revalidate — instant (and offline)
+/* Same-origin: stale-while-revalidate — instant (and offline)
    from cache, refreshed in the background for the next load. */
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
   const cacheable =
-    url.origin === location.origin ||
-    url.hostname === 'fonts.googleapis.com' ||
-    url.hostname === 'fonts.gstatic.com';
+    url.origin === location.origin;
   if (!cacheable) return;
 
   e.respondWith(

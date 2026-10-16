@@ -1,8 +1,9 @@
-/* Add-task sheet (2e). Rendered outside #app so re-renders never remove it. */
+/* Add-task sheet. Rendered outside #app so re-renders never remove it. */
 
 import { S, PRIORITIES, addTask } from '../store.js';
 import { daysFrom, fmtDue } from '../dates.js';
 import { esc } from '../util.js';
+import { icon } from './icons.js';
 
 export function openSheet({ lane } = {}) {
   const draft = {
@@ -17,12 +18,13 @@ export function openSheet({ lane } = {}) {
   const ov = document.createElement('div');
   ov.className = 'overlay';
   ov.innerHTML = `
-  <div class="sheet">
+  <div class="sheet" role="dialog" aria-label="New task">
+    <div class="sheet-handle"></div>
     <div class="sheet-head">
-      <span class="label">New task</span>
-      <button class="sheet-close" data-close>✕</button>
+      <span class="section-title">New task</span>
+      <button class="icon-btn" data-close aria-label="Close">${icon('x')}</button>
     </div>
-    <input class="sheet-title" placeholder="What needs doing?" autofocus>
+    <input class="input sheet-title" placeholder="What needs doing?" autofocus>
     <div class="chip-group">
       <span class="microlabel">Due</span>
       <div class="chip-row" data-due>
@@ -40,12 +42,12 @@ export function openSheet({ lane } = {}) {
     <div class="chip-group">
       <span class="microlabel">Tags</span>
       <div class="chip-row" data-tags>
-        ${allTags.map((t) => `<button class="chip neutral" data-val="${esc(t)}">#${esc(t)}</button>`).join('')}
+        ${allTags.map((t) => `<button class="chip" data-val="${esc(t)}">#${esc(t)}</button>`).join('')}
         <button class="chip" data-addtag>+ Add tag</button>
       </div>
     </div>
     <div class="chip-group">
-      <span class="microlabel">List</span>
+      <span class="microlabel">Board</span>
       <div class="chip-row" data-list>
         ${S.lists.map((l) => `<button class="chip ${l.id === draft.listId ? 'on' : ''}" data-val="${l.id}">${esc(l.name)}</button>`).join('')}
       </div>
@@ -91,7 +93,7 @@ export function openSheet({ lane } = {}) {
       if (!name) return;
       draft.tags.push(name);
       const nc = document.createElement('button');
-      nc.className = 'chip neutral on';
+      nc.className = 'chip on';
       nc.dataset.val = name;
       nc.textContent = '#' + name;
       chip.before(nc);

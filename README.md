@@ -1,8 +1,8 @@
 # Stack'd — Minimalist Todo
 
 Working prototype implementing turn 2 of the [Claude Design canvas](https://claude.ai/design/p/5d967b89-bc7c-4714-901c-d044de541cbc?file=Stackd+Screens.dc.html)
-("Stack'd Minimalist Todo App"). Modernist design system: flat, zero radius,
-Archivo, 2px rules, one red accent.
+("Stack'd Minimalist Todo App"), restyled in the Stack'd Finance language: Inter +
+Manrope, soft surfaces, rounded cards, frosted bottom nav, light + dark.
 
 ## Run
 
@@ -64,9 +64,9 @@ is enough; HTTPS is required for install + service worker on real devices.
 ## Files
 
 - `index.html` — shell
-- `ds.css` — Modernist design-system tokens + components (from the design
-  project, extended with dark-mode token overrides)
-- `app.css` — screen layouts (mobile-first, desktop ≥900px)
+- `styles/` — `variables.css` (Finance tokens, light + dark), `base.css`,
+  `components.css`, `screens.css`, `fonts.css`
+- `fonts/` — self-hosted Inter + Manrope (woff2)
 - `app.js` — entry point (ES module): `render()` and global listeners
 - `src/store.js` — state, persistence, selectors, mutations
 - `src/dates.js` — local-time date helpers and due-date formatting

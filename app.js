@@ -5,7 +5,8 @@
 import { S, UI, isDesktop, setRenderer, rerender } from './src/store.js';
 import { app } from './src/util.js';
 import {
-  onboardingHTML, bindOnboarding, listsMenuHTML, bindListsMenu, desktopHTML, bindDesktop,
+  onboardingHTML, bindOnboarding, listsMenuHTML, bindListsMenu,
+  mobileNavHTML, bindMobileNav, desktopHTML, bindDesktop,
 } from './src/ui/shell.js';
 import { mobileListHTML, bindMobileList } from './src/ui/board.js';
 import { detailHTML, bindDetail } from './src/ui/detail.js';
@@ -18,13 +19,15 @@ function render() {
     app.innerHTML = desktopHTML();
     bindDesktop();
   } else {
-    app.innerHTML =
-      UI.screen === 'lists' ? listsMenuHTML()
+    const screen = UI.screen === 'lists' ? listsMenuHTML()
       : UI.screen === 'detail' ? detailHTML()
       : mobileListHTML();
+    const withNav = UI.screen !== 'detail';
+    app.innerHTML = screen + (withNav ? mobileNavHTML() : '');
     if (UI.screen === 'lists') bindListsMenu();
     else if (UI.screen === 'detail') bindDetail();
     else bindMobileList();
+    if (withNav) bindMobileNav();
   }
   if (focusAddsub || UI.refocusAddsub) {
     UI.refocusAddsub = false;

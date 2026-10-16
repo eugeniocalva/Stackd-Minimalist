@@ -15,7 +15,8 @@ export function fmtDue(due, { full = false } = {}) {
   const d = new Date(due + 'T00:00:00');
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const days = Math.round((d - today) / 86400000);
-  const accent = days <= 3;
+  /* semantic chip tone: red = overdue, amber = due within 3 days */
+  const cls = days < 0 ? 'tag-overdue' : days <= 3 ? 'tag-soon' : 'tag-neutral';
   let label;
   if (days < 0) label = 'Overdue';
   else if (days === 0) label = 'Today';
@@ -28,7 +29,7 @@ export function fmtDue(due, { full = false } = {}) {
       : days === 0 ? 'today' : days === 1 ? 'tomorrow'
       : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
   }
-  return { label, cls: accent ? 'tag-accent' : 'tag-neutral', days };
+  return { label, cls, days };
 }
 
 export const fmtTime = (ts) =>

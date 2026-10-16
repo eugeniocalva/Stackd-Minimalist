@@ -151,7 +151,7 @@ export function addTask(draft) {
 }
 
 export function newList() {
-  const name = prompt('New list name');
+  const name = prompt('New board name');
   if (!name || !name.trim()) return;
   const list = { id: uid(), name: name.trim() };
   S.lists.push(list);

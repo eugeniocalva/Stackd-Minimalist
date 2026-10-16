@@ -1,11 +1,12 @@
-/* Task detail (2d): subtasks with progress, reminder preset, delete. */
+/* Task detail: subtasks with progress, reminder preset, delete. */
 
 import {
   S, UI, REMINDERS, taskById, listById, toggleDone, deleteTask, commit, rerender,
 } from '../store.js';
 import { fmtDue } from '../dates.js';
 import { esc, app, uid } from '../util.js';
-import { mobileListHTML } from './board.js';
+import { icon } from './icons.js';
+import { mobileListHTML, bindScrollShadow } from './board.js';
 
 export function detailHTML() {
   const t = taskById(UI.detailId);
@@ -15,48 +16,49 @@ export function detailHTML() {
   const pct = t.subtasks.length ? (done / t.subtasks.length) * 100 : 0;
   const tags = [];
   if (t.due) tags.push(`<span class="tag ${fmtDue(t.due).cls}">${esc(fmtDue(t.due, { full: true }).label)}</span>`);
-  if (t.priority !== 'none') tags.push(`<span class="tag tag-outline">${{ high: 'High', medium: 'Medium', low: 'Low' }[t.priority]} priority</span>`);
-  tags.push(`<span class="tag tag-neutral">${esc(list.name)}</span>`);
-  t.tags.forEach((tag) => tags.push(`<span class="tag tag-neutral">#${esc(tag)}</span>`));
+  if (t.priority !== 'none') tags.push(`<span class="tag tag-${t.priority}">${{ high: 'High', medium: 'Medium', low: 'Low' }[t.priority]} priority</span>`);
+  tags.push(`<span class="tag">${esc(list.name)}</span>`);
+  t.tags.forEach((tag) => tags.push(`<span class="tag">#${esc(tag)}</span>`));
   return `
   <div class="screen detail-screen">
-    <div class="detail-top">
-      <button class="backlink" data-back>‹ ${esc(list.name)}</button>
-      <span style="font-size:14px;color:var(--ink-55)">···</span>
-    </div>
-    <div class="detail-head">
-      <div class="detail-title-row">
-        <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
-        <h2>${esc(t.title)}</h2>
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-back aria-label="Back to ${esc(list.name)}">${icon('chevronLeft')}</button>
+      <span class="kicker">${esc(list.name)}</span>
+      <button class="icon-btn" data-more aria-label="More actions">${icon('more')}</button>
+    </header>
+    <div class="scroll-area">
+      <div class="detail-head">
+        <div class="detail-title-row">
+          <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
+          <h1 class="detail-title">${esc(t.title)}</h1>
+        </div>
+        <div class="detail-tags">${tags.join('')}</div>
       </div>
-      <div class="detail-tags">${tags.join('')}</div>
-    </div>
-    <div class="seam head-seam"></div>
-    <div style="flex:1;display:flex;flex-direction:column;overflow-y:auto">
-      <div class="subhead">
-        <span class="label">Subtasks</span>
-        <span class="count num">${done} / ${t.subtasks.length}</span>
-      </div>
-      <div class="progress"><div style="width:${pct}%"></div></div>
-      <div class="subrows">
-        ${t.subtasks.map((s) => `
-        <div class="subrow ${s.done ? 'done' : ''}">
-          <input type="checkbox" aria-label="Toggle complete" class="check sm" ${s.done ? 'checked' : ''} data-sub="${s.id}">
-          <span class="s-title">${esc(s.title)}</span>
-          <button class="s-del" data-subdel="${s.id}" aria-label="Delete subtask">✕</button>
-        </div>`).join('')}
-        <div class="subrow">
-          <span class="addsub-dot"></span>
-          <input class="addsub-input" placeholder="Add subtask…">
+      <div class="card">
+        <div class="subhead">
+          <span class="section-title">Subtasks</span>
+          <span class="count num">${done} / ${t.subtasks.length}</span>
+        </div>
+        <div class="progress"><div style="width:${pct}%"></div></div>
+        <div class="subrows">
+          ${t.subtasks.map((s) => `
+          <div class="subrow ${s.done ? 'done' : ''}">
+            <input type="checkbox" aria-label="Toggle complete" class="check sm" ${s.done ? 'checked' : ''} data-sub="${s.id}">
+            <span class="s-title">${esc(s.title)}</span>
+            <button class="s-del" data-subdel="${s.id}" aria-label="Delete subtask">${icon('x', 16)}</button>
+          </div>`).join('')}
+          <div class="subrow">
+            <span class="addsub-dot"></span>
+            <input class="addsub-input" placeholder="Add subtask…">
+          </div>
         </div>
       </div>
-      <div class="seam" style="margin:8px 20px 0"></div>
-      <div class="kv-row">
-        <span>Reminder</span>
-        <button class="val" data-reminder>${esc(t.reminder)} ▾</button>
+      <div class="card">
+        <div class="kv-row">
+          <span class="kv-label">Reminder</span>
+          <button class="kv-val" data-reminder>${esc(t.reminder)}${icon('chevronDown', 16)}</button>
+        </div>
       </div>
-    </div>
-    <div class="detail-footer">
       <button class="btn btn-ghost btn-block danger" data-del>Delete task</button>
     </div>
   </div>`;
@@ -65,6 +67,7 @@ export function detailHTML() {
 export function bindDetail() {
   const t = taskById(UI.detailId);
   if (!t) { rerender(); return; }
+  bindScrollShadow();
   app.querySelector('[data-back]').addEventListener('click', () => { UI.screen = 'list'; rerender(); });
   app.querySelector('.detail-title-row .check').addEventListener('change', () => toggleDone(t.id));
   app.querySelectorAll('[data-sub]').forEach((c) =>
