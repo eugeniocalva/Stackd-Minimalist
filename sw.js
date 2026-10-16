@@ -19,6 +19,7 @@ const SHELL = [
   'src/ui/folders.js',
   'src/ui/movecopy.js',
   'src/ui/tagpicker.js',
+  'src/ui/schedule.js',
   'styles/fonts.css',
   'styles/variables.css',
   'styles/base.css',

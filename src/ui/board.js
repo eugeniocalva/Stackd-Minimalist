@@ -5,13 +5,13 @@
 import {
   S, UI, LANES, PRIORITY_LABEL,
   listById, taskById, tasksOf, openCount, sortedTasks,
-  toggleDone, reorderTask, moveToLane, commit, rerender,
+  reorderTask, moveToLane, commit, rerender,
 } from '../store.js';
 import { fmtDue, fmtTime } from '../dates.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import { openSheet } from './addsheet.js';
-import { deleteWithUndo } from './actions.js';
+import { deleteWithUndo, completeTask } from './actions.js';
 
 /* — shared partials — */
 
@@ -37,10 +37,7 @@ export function viewbarHTML() {
 
 export function taskMetaHTML(t) {
   const bits = [];
-  if (t.due) {
-    const d = fmtDue(t.due);
-    bits.push(`<span class="tag ${d.cls}">${d.days <= 3 && d.days >= 2 ? 'Due ' : ''}${esc(d.label)}</span>`);
-  }
+  if (t.due) bits.push(dueChipHTML(t, { prefix: true }));
   if (t.priority !== 'none') bits.push(`<span class="tag tag-${t.priority}">${PRIORITY_LABEL[t.priority]}</span>`);
   t.tags.forEach((tag) => bits.push(`<span class="tag">#${esc(tag)}</span>`));
   if (t.subtasks.length) {
@@ -48,6 +45,14 @@ export function taskMetaHTML(t) {
     bits.push(`<span class="t-sub num">${done}/${t.subtasks.length} subtasks</span>`);
   }
   return bits.length ? `<div class="t-meta">${bits.join('')}</div>` : '';
+}
+
+/** Due chip: label (+ time), tone, and a repeat glyph for recurring tasks. */
+export function dueChipHTML(t, { prefix = false } = {}) {
+  const d = fmtDue(t.due, { dueTime: t.dueTime });
+  const lead = prefix && d.days <= 3 && d.days >= 2 ? 'Due ' : '';
+  const rep = t.recur !== 'none' ? `<span class="repeat" aria-label="Repeats ${t.recur}">${icon('repeat', 11)}</span>` : '';
+  return `<span class="tag ${d.cls}">${lead}${esc(d.label)}${rep}</span>`;
 }
 
 export function kanbanHTML({ desktop = false } = {}) {
@@ -152,7 +157,6 @@ export function desktopTableHTML() {
       <span></span><span>Task</span><span>Due</span><span>Priority</span><span>Subtasks</span>
     </div>
     ${ts.map((t) => {
-      const due = t.due ? fmtDue(t.due) : null;
       const sub = t.subtasks.length
         ? `${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}` : null;
       return `
@@ -160,7 +164,7 @@ export function desktopTableHTML() {
         <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
         <span class="t-title">${esc(t.title)}</span>
         ${t.done ? '<span></span><span></span><span></span>' : `
-        ${due ? `<span class="tag ${due.cls}">${esc(due.label)}</span>` : '<span class="cell-muted">—</span>'}
+        ${t.due ? dueChipHTML(t) : '<span class="cell-muted">—</span>'}
         ${t.priority !== 'none' ? `<span class="tag tag-${t.priority}">${PRIORITY_LABEL[t.priority]}</span>` : '<span class="cell-muted">—</span>'}
         ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
       </div>`;
@@ -196,7 +200,7 @@ export function bindChecks() {
   app.querySelectorAll('.check[data-id]').forEach((c) => {
     c.addEventListener('click', (e) => e.stopPropagation());
     c.addEventListener('pointerdown', (e) => e.stopPropagation());
-    c.addEventListener('change', () => toggleDone(c.dataset.id));
+    c.addEventListener('change', () => completeTask(c.dataset.id, c.closest('.trow,.tgrid-row,.kcard')));
   });
 }
 
@@ -218,7 +222,7 @@ export function bindRowGestures(el, task) {
     if (lpFired) { lpFired = false; return; }
     if (clickTimer) {
       clearTimeout(clickTimer); clickTimer = null;
-      toggleDone(task.id);
+      completeTask(task.id, el);
     } else {
       clickTimer = setTimeout(() => { clickTimer = null; openDetail(task.id); }, 260);
     }
@@ -313,7 +317,9 @@ export function bindCard(card, task) {
       card.classList.remove('dragging');
       overLane?.classList.remove('dropover');
       if (dragging && overLane && overLane.dataset.lane !== task.lane) {
-        moveToLane(task.id, overLane.dataset.lane);
+        /* a recurring card dropped on Done rolls forward and snaps back */
+        if (overLane.dataset.lane === 'done' && task.recur !== 'none' && task.due) { rerender(); completeTask(task.id); }
+        else moveToLane(task.id, overLane.dataset.lane);
       } else if (!dragging && !held) {
         openDetail(task.id);
       } else if (dragging) rerender();

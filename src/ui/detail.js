@@ -2,16 +2,17 @@
    reminder), subtasks with progress, ⋯ actions menu. */
 
 import {
-  S, UI, PRIORITIES, REMINDER_OPTIONS, reminderLabel, laneName,
-  taskById, listById, toggleDone, setReminder, setPriority, setTags, setTitle, setDue,
+  S, UI, PRIORITIES, reminderLabel, laneName,
+  taskById, listById, setPriority, setTags, setTitle, setSchedule, clearSchedule,
   moveTask, copyTask, commit, rerender,
 } from '../store.js';
-import { fmtDue, fmtDateLong } from '../dates.js';
+import { fmtDue, fmtDateLong, recurLabel } from '../dates.js';
 import { esc, app, uid } from '../util.js';
 import { icon } from './icons.js';
 import { mobileListHTML, bindScrollShadow, openDetail } from './board.js';
 import { openMenu, toast } from './primitives.js';
-import { archiveWithUndo, deleteWithUndo } from './actions.js';
+import { archiveWithUndo, deleteWithUndo, completeTask } from './actions.js';
+import { openSchedule } from './schedule.js';
 import { openMoveCopy } from './movecopy.js';
 import { openTagPicker } from './tagpicker.js';
 
@@ -23,7 +24,11 @@ export function detailHTML() {
   const list = listById(t.listId);
   const done = t.subtasks.filter((s) => s.done).length;
   const pct = t.subtasks.length ? (done / t.subtasks.length) * 100 : 0;
-  const dueTone = t.due ? fmtDue(t.due).cls : '';
+  const dueTone = t.due ? fmtDue(t.due, { dueTime: t.dueTime }).cls : '';
+  const scheduleNote = [
+    t.start ? `Starts ${fmtDateLong(t.start)}` : '',
+    t.recur !== 'none' ? `Repeats ${recurLabel(t.recur).toLowerCase()}${t.completedCount ? ` · done ${t.completedCount}×` : ''}` : '',
+  ].filter(Boolean).join(' · ');
   return `
   <div class="screen detail-screen">
     <header class="page-head detail-top">
@@ -43,11 +48,11 @@ export function detailHTML() {
         <div class="kv-row">
           <span class="kv-label">${icon('calendar', 16)}Due date</span>
           <span class="kv-right">
-            <button class="kv-val ${t.due ? dueTone.replace('tag-', 'is-') : 'placeholder'}" data-due>${t.due ? esc(fmtDateLong(t.due, t.dueTime)) : 'Set date'}${icon('chevronDown', 16)}</button>
-            ${t.due ? `<button class="kv-clear" data-due-clear aria-label="Clear due date">${icon('x', 14)}</button>` : ''}
-            <input type="date" class="visually-hidden-input" data-due-input value="${t.due || ''}" tabindex="-1">
+            <button class="kv-val ${t.due ? dueTone.replace('tag-', 'is-') : 'placeholder'}" data-due>${t.due ? esc(fmtDateLong(t.due, t.dueTime)) : 'Set date'}${t.recur !== 'none' ? icon('repeat', 14) : ''}${icon('chevronDown', 16)}</button>
+            ${t.due ? `<button class="kv-clear" data-due-clear aria-label="Clear dates">${icon('x', 14)}</button>` : ''}
           </span>
         </div>
+        ${scheduleNote ? `<div class="kv-note">${esc(scheduleNote)}</div>` : ''}
         <div class="kv-row kv-stack">
           <span class="kv-label">Priority</span>
           <div class="chip-row" data-priority>
@@ -67,7 +72,7 @@ export function detailHTML() {
         </div>
         <div class="kv-row">
           <span class="kv-label">Reminder</span>
-          <button class="kv-val ${t.reminder === null ? 'placeholder' : ''}" data-reminder ${t.due ? '' : 'disabled title="Set a due date first"'}>${esc(reminderLabel(t.reminder))}${icon('chevronDown', 16)}</button>
+          <button class="kv-val ${t.reminder === null ? 'placeholder' : ''}" data-reminder>${esc(reminderLabel(t.reminder))}${icon('chevronDown', 16)}</button>
         </div>
       </div>
 
@@ -99,7 +104,7 @@ export function bindDetail() {
   if (!t) { rerender(); return; }
   bindScrollShadow();
   app.querySelector('[data-back]').addEventListener('click', () => { UI.screen = 'list'; rerender(); });
-  app.querySelector('.detail-title-row .check').addEventListener('change', () => toggleDone(t.id));
+  app.querySelector('.detail-title-row .check').addEventListener('change', () => completeTask(t.id, app.querySelector('.detail-title-row')));
 
   /* ⋯ menu */
   const where = (listId, lane) => `${listById(listId).name} · ${laneName(lane)}`;
@@ -146,13 +151,15 @@ export function bindDetail() {
   h1.addEventListener('click', editTitle);
   h1.addEventListener('keydown', (e) => { if (e.key === 'Enter') editTitle(); });
 
-  /* due date (native picker until the schedule popover lands in Phase 4) */
-  const dueInput = app.querySelector('[data-due-input]');
-  dueInput.addEventListener('change', () => { if (dueInput.value) setDue(t.id, dueInput.value); });
-  app.querySelector('[data-due]').addEventListener('click', () => {
-    try { dueInput.showPicker(); } catch { dueInput.click(); }
+  /* due date + reminder both open the schedule popover */
+  const schedule = () => openSchedule({
+    schedule: t,
+    onSave: (sch) => setSchedule(t.id, sch),
+    onRemove: () => clearSchedule(t.id),
   });
-  app.querySelector('[data-due-clear]')?.addEventListener('click', () => setDue(t.id, null));
+  app.querySelector('[data-due]').addEventListener('click', schedule);
+  app.querySelector('[data-reminder]').addEventListener('click', schedule);
+  app.querySelector('[data-due-clear]')?.addEventListener('click', () => clearSchedule(t.id));
 
   /* priority chips */
   app.querySelector('[data-priority]').addEventListener('click', (e) => {
@@ -190,9 +197,4 @@ export function bindDetail() {
     }
   });
 
-  /* reminder: cycle the presets until the schedule popover (Phase 4) */
-  app.querySelector('[data-reminder]').addEventListener('click', () => {
-    const i = REMINDER_OPTIONS.findIndex(([v]) => v === t.reminder);
-    setReminder(t.id, REMINDER_OPTIONS[(i + 1) % REMINDER_OPTIONS.length][0]);
-  });
 }

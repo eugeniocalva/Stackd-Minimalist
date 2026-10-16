@@ -6,6 +6,7 @@
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
+    "check": "node scripts/check-dates.mjs",
     "build": "node scripts/build-www.mjs",
     "sync": "npm run build && cap sync",
     "ios": "npm run build && cap sync ios && cap open ios",

@@ -2,12 +2,14 @@
 
 import { S, PRIORITIES, addTask, allTags as tagPool } from '../store.js';
 import { daysFrom, fmtDue } from '../dates.js';
+import { openSchedule } from './schedule.js';
 import { esc } from '../util.js';
 import { icon } from './icons.js';
 
 export function openSheet({ lane } = {}) {
   const draft = {
     listId: S.currentList, title: '', due: null, priority: 'none', tags: [], lane,
+    start: null, dueTime: null, recur: 'none', reminder: null,
   };
   const allTags = tagPool();
   const dueOpts = [
@@ -30,7 +32,6 @@ export function openSheet({ lane } = {}) {
       <div class="chip-row" data-due>
         ${dueOpts.map((o) => `<button class="chip" data-val="${o.value}">${o.label}</button>`).join('')}
         <button class="chip" data-pick>Pick date…</button>
-        <input type="date" style="position:absolute;width:0;height:0;opacity:0" data-date>
       </div>
     </div>
     <div class="chip-group">
@@ -67,17 +68,24 @@ export function openSheet({ lane } = {}) {
   };
   q('[data-due]').addEventListener('click', (e) => {
     const chip = e.target.closest('.chip'); if (!chip) return;
+    const resetSchedule = () => Object.assign(draft, { start: null, dueTime: null, recur: 'none', reminder: null });
+    const pickChip = q('[data-pick]');
     if (chip.dataset.pick !== undefined) {
-      const di = q('[data-date]');
-      di.onchange = () => {
-        if (!di.value) return;
-        draft.due = di.value;
-        selectOne('[data-due]', chip);
-        chip.textContent = fmtDue(di.value).label;
-      };
-      di.showPicker ? di.showPicker() : di.click();
+      openSchedule({
+        schedule: draft,
+        onSave: (sch) => {
+          Object.assign(draft, sch);
+          selectOne('[data-due]', draft.due ? chip : null);
+          chip.textContent = draft.due
+            ? fmtDue(draft.due, { dueTime: draft.dueTime }).label + (draft.recur !== 'none' ? ' ↻' : '')
+            : 'Pick date…';
+        },
+        onRemove: () => { draft.due = null; resetSchedule(); selectOne('[data-due]', null); chip.textContent = 'Pick date…'; },
+      });
       return;
     }
+    resetSchedule();
+    pickChip.textContent = 'Pick date…';
     if (chip.classList.contains('on')) { draft.due = null; selectOne('[data-due]', null); }
     else { draft.due = chip.dataset.val; selectOne('[data-due]', chip); }
   });

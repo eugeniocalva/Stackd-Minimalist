@@ -4,7 +4,7 @@
    layer. Schema: docs/architecture.md §3. */
 
 import { uid } from './util.js';
-import { daysFrom } from './dates.js';
+import { daysFrom, nextOccurrence, addDays, daysBetween } from './dates.js';
 
 export const STORE_KEY = 'stackd-v2';
 const LEGACY_KEY = 'stackd-v1';
@@ -183,6 +183,7 @@ const leaveDetail = (id) => { if (UI.detailId === id) { UI.detailId = null; UI.s
 
 export function toggleDone(id) {
   const t = taskById(id); if (!t) return;
+  if (!t.done && t.recur !== 'none' && t.due) { rollForward(id); return; } // recurring: never "done"
   t.done = !t.done;
   if (t.done) { t.lane = 'done'; S.lastAuto = Date.now(); }
   else if (t.lane === 'done') t.lane = 'backlog';
@@ -199,6 +200,7 @@ export function reorderTask(id, beforeId) {
 
 export function moveToLane(id, lane) {
   const t = taskById(id); if (!t || !lane) return;
+  if (lane === 'done' && t.recur !== 'none' && t.due) { rollForward(id); return; }
   t.lane = lane;
   t.done = lane === 'done';
   touch(t); commit();
@@ -206,7 +208,9 @@ export function moveToLane(id, lane) {
 
 export function addTask(draft) {
   S.tasks.push(blankTask(draft.listId, draft.title, {
-    due: draft.due, priority: draft.priority, tags: draft.tags,
+    priority: draft.priority, tags: normalizeTags(draft.tags || []),
+    start: draft.start || null, due: draft.due || null, dueTime: draft.dueTime || null,
+    recur: draft.recur || 'none', reminder: draft.reminder ?? null,
     lane: draft.lane || 'backlog', done: draft.lane === 'done', order: nextOrder(),
   }));
   commit();
@@ -242,12 +246,49 @@ export function setTags(id, tags) {
   t.tags = normalizeTags(tags); touch(t); commit();
 }
 
-/** Interim until the schedule popover (Phase 4): date only; clearing the
-    date also clears everything that depends on it. */
-export function setDue(id, due) {
+/* — schedule — */
+
+/** Normalise and store the five schedule fields in one go. Repeat and
+    reminder need a due date; a start date after the due date is dropped. */
+export function setSchedule(id, { start = null, due = null, dueTime = null, recur = 'none', reminder = null }) {
   const t = taskById(id); if (!t) return;
   t.due = due || null;
-  if (!t.due) { t.dueTime = null; t.start = null; t.recur = 'none'; t.reminder = null; }
+  t.dueTime = t.due ? (dueTime || null) : null;
+  t.start = start && (!t.due || start <= t.due) ? start : null;
+  t.recur = t.due ? recur : 'none';
+  t.reminder = t.due ? reminder : null;
+  t.reminderFiredAt = null;
+  touch(t); commit();
+}
+
+export const clearSchedule = (id) => setSchedule(id, {});
+
+/** Completing a recurring task: advance due (and start by the same number
+    of days), reset subtasks, count the completion. Lane and done state are
+    untouched. Returns what Undo needs, or null when not applicable. */
+export function rollForward(id) {
+  const t = taskById(id);
+  if (!t || t.status !== 'active' || t.recur === 'none' || !t.due) return null;
+  const prev = {
+    start: t.start, due: t.due, subtasks: t.subtasks.map((s) => s.done),
+    completedCount: t.completedCount, lastCompletedAt: t.lastCompletedAt, reminderFiredAt: t.reminderFiredAt,
+  };
+  const nextDue = nextOccurrence(t.due, t.recur);
+  if (t.start) t.start = addDays(t.start, daysBetween(t.due, nextDue));
+  t.due = nextDue;
+  t.reminderFiredAt = null;
+  t.subtasks.forEach((s) => { s.done = false; });
+  t.completedCount += 1;
+  t.lastCompletedAt = Date.now();
+  touch(t); commit();
+  return { prev, next: { due: t.due, start: t.start } };
+}
+
+export function undoRollForward(id, prev) {
+  const t = taskById(id); if (!t) return;
+  t.start = prev.start; t.due = prev.due; t.reminderFiredAt = prev.reminderFiredAt;
+  t.subtasks.forEach((s, i) => { s.done = !!prev.subtasks[i]; });
+  t.completedCount = prev.completedCount; t.lastCompletedAt = prev.lastCompletedAt;
   touch(t); commit();
 }
 
