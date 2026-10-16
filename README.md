@@ -13,13 +13,23 @@ the release QA pass is in [`docs/qa-report.md`](docs/qa-report.md).
 
 ## Run
 
-**Windows: double-click `start-stackd.cmd`.** It serves the folder on
-http://localhost:8123 and opens the app in your default browser. Close the
-window to stop it. It needs [Node.js](https://nodejs.org); if port 8123 is
-taken, run it as `set STACKD_PORT=8124 & start-stackd.cmd`.
+**Quickest: double-click `index.html`.** Browsers refuse ES modules from
+`file://`, so the page loads `app.bundle.js` instead: the same app, bundled
+as one classic script. From disk, these don't work:
 
-Opening `index.html` directly does **not** work: the app is ES modules,
-which browsers refuse to load from `file://`, so the page stays blank.
+- **Reminders** — no notifications; the dates dialog says so.
+- **Offline install** — no service worker and no web manifest, so no
+  "Install app" and no offline cache (you don't need one from disk).
+- **Your usual task list** — tasks opened from disk are stored separately
+  from http://localhost:8123 and from the website; nothing moves between
+  them. In Chrome and Edge, every page opened from disk shares one storage
+  area, so another copy of this folder (a backup, an unzipped release)
+  shows and edits the same tasks, and other local HTML files can read them.
+
+**Full app on Windows: double-click `start-stackd.cmd`.** It serves the
+folder on http://localhost:8123 and opens the app in your default browser.
+Close the window to stop it. It needs [Node.js](https://nodejs.org); if
+port 8123 is taken, run it as `set STACKD_PORT=8124 & start-stackd.cmd`.
 
 Anywhere else, any static server works — no build step, no runtime
 dependencies:
@@ -30,11 +40,15 @@ npx http-server -p 8123 -c-1 .
 
 Then open http://localhost:8123.
 
-Checks (Node only, no test framework):
+Checks (Node, no test framework; run `npm install` once, for esbuild):
 
 ```bash
 npm run check
 ```
+
+After changing `app.js` or anything in `src/`, rebuild the disk copy with
+`npm run bundle` and commit `app.bundle.js`; the check fails until you do.
+Nothing runs the checks automatically, so run them before committing.
 
 It runs:
 
@@ -47,6 +61,8 @@ It runs:
   `src/store.js` with a stand-in `localStorage`.
 - `scripts/check-shell.mjs` — the service-worker precache list matches the
   files on disk (a missing entry breaks the offline install silently).
+- `scripts/check-bundle.mjs` — `app.bundle.js` still matches the modules, so
+  a double-clicked `index.html` never runs old code.
 
 ## Live
 
@@ -137,7 +153,11 @@ is enough; HTTPS is required for install + service worker on real devices.
 ## Files
 
 - `start-stackd.cmd` — Windows double-click launcher (local server + browser)
-- `index.html` — shell (loads `app.js` as an ES module)
+- `index.html` — shell: loads `app.js` as an ES module, or `app.bundle.js`
+  when opened from disk
+- `app.bundle.js` — GENERATED classic-script copy of the app for `file://`
+  (`npm run bundle`); never edit it by hand
+- `src/boot.js` — first module; tells `index.html` the modules started
 - `app.js` — entry point: `render()`, routing, global listeners
 - `src/store.js` — state, v1 → v2 migration, selectors, every mutation
 - `src/dates.js` — local-time date maths, recurrence, reminder times,
@@ -163,7 +183,8 @@ is enough; HTTPS is required for install + service worker on real devices.
   `components.css`, `screens.css`, `fonts.css`
 - `fonts/` — self-hosted Inter + Manrope (woff2)
 - `scripts/` — `build-www.mjs` (Capacitor copy), `check-dates.mjs`,
-  `check-reminders.mjs`, `check-store.mjs`, `check-shell.mjs`
+  `check-reminders.mjs`, `check-store.mjs`, `check-shell.mjs`,
+  `bundle.mjs` + `bundle-lib.mjs` (build `app.bundle.js`), `check-bundle.mjs`
 - `docs/` — `prd.md`, `architecture.md`, `qa-report.md`
 - `manifest.webmanifest` — PWA install metadata (name, colors, icons)
 - `sw.js` — service worker: precached app shell, stale-while-revalidate,

@@ -6,7 +6,8 @@
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
-    "check": "node scripts/check-dates.mjs && node scripts/check-reminders.mjs && node scripts/check-store.mjs && node scripts/check-shell.mjs",
+    "check": "node scripts/check-dates.mjs && node scripts/check-reminders.mjs && node scripts/check-store.mjs && node scripts/check-shell.mjs && node scripts/check-bundle.mjs",
+    "bundle": "node scripts/bundle.mjs",
     "build": "node scripts/build-www.mjs",
     "sync": "npm run build && cap sync",
     "ios": "npm run build && cap sync ios && cap open ios",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
-    "@capacitor/cli": "^8.5.0"
+    "@capacitor/cli": "^8.5.0",
+    "esbuild": "^0.28.2"
   }
 }

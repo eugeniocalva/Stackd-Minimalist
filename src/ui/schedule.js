@@ -38,6 +38,7 @@ function reminderHint(d, done) {
     case 'default': return `${when}. Saving asks to allow notifications.`;
     case 'denied': return "Notifications are blocked for Stack'd. Allow them in settings to get this reminder.";
     case 'install': return "Reminders need Stack'd on your Home Screen (iOS 16.4 or later). Tasks in this Safari tab don't move there.";
+    case 'file': return "Reminders don't work when index.html is opened from disk. Open Stack'd from the website or a local web server instead (tasks made here don't move there).";
     default: return "This browser can't show reminder notifications.";
   }
 }

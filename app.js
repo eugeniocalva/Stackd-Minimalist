@@ -2,6 +2,7 @@
    localStorage persistence. This is the entry point: it owns render() and
    the global listeners; state lives in src/store.js, screens in src/ui/. */
 
+import './src/boot.js'; // first: tells index.html's file:// fallback the modules started
 import {
   S, UI, isDesktop, setRenderer, setAfterCommit, rerender, commit, purgeDeleted, taskById,
 } from './src/store.js';

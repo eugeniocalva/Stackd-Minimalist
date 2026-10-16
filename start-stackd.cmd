@@ -1,9 +1,10 @@
 @echo off
 rem Stack'd - double-click to run the app on this computer.
 rem
-rem Browsers refuse to load the app's ES modules from file://, so index.html
-rem cannot be opened directly. This serves the folder on http://localhost and
-rem opens it in your default browser once the server is listening.
+rem Double-clicking index.html also works, but from disk the app runs a
+rem bundled copy without reminders, offline install or the shared task list.
+rem This serves the folder on http://localhost (the full app) and opens it in
+rem your default browser once the server is listening.
 rem Close this window to stop the server. Needs Node.js (https://nodejs.org).
 rem
 rem Optional: set STACKD_PORT to use another port (default 8123),

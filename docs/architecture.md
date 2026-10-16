@@ -29,7 +29,8 @@ engineer never has to hold the whole app in context.
 ## 2. System Architecture
 
 ```
-index.html ─ loads styles/*.css, fonts, app.js (module)
+index.html ─ loads styles/*.css, fonts, app.js (module); from file:// it
+             falls back to app.bundle.js (esbuild, `npm run bundle`)
 app.js ───── boot: migrate → purgeDeleted → render; media-query + global click
              listeners; routes UI.screen to a screen module
 src/store.js ─ S / UI, load / save / migrate, selectors, every mutation

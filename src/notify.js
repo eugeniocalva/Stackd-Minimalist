@@ -40,9 +40,11 @@ const isStandalone = () => navigator.standalone === true || matchMedia('(display
 
 /** Where reminders stand on this device: 'granted', 'default' (not asked
     yet), 'denied', 'install' (an iPhone Safari tab: only Home Screen apps
-    may notify) or 'unsupported'. */
+    may notify), 'file' (index.html opened from disk: no service worker, no
+    lasting permission) or 'unsupported'. */
 export function reminderPermission() {
   if (isNative()) return nativePermission;
+  if (location.protocol === 'file:') return 'file';
   if (isIOS() && !isStandalone()) return 'install';
   if (typeof Notification === 'undefined') return 'unsupported';
   return Notification.permission === 'granted' || Notification.permission === 'denied' ? Notification.permission : 'default';
@@ -125,7 +127,7 @@ async function show({ title, body, tag, taskId }) {
 }
 
 function startWebClock() {
-  if (typeof Notification === 'undefined') return;
+  if (typeof Notification === 'undefined' || reminderPermission() === 'file') return;
   const run = () => {
     checkNow();
     setInterval(checkNow, CHECK_MS);
