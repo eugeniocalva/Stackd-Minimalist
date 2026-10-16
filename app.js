@@ -2,7 +2,7 @@
    localStorage persistence. This is the entry point: it owns render() and
    the global listeners; state lives in src/store.js, screens in src/ui/. */
 
-import { S, UI, isDesktop, setRenderer, rerender } from './src/store.js';
+import { S, UI, isDesktop, setRenderer, rerender, purgeDeleted } from './src/store.js';
 import { app } from './src/util.js';
 import {
   onboardingHTML, bindOnboarding, listsMenuHTML, bindListsMenu,
@@ -10,6 +10,7 @@ import {
 } from './src/ui/shell.js';
 import { mobileListHTML, bindMobileList } from './src/ui/board.js';
 import { detailHTML, bindDetail } from './src/ui/detail.js';
+import { foldersHTML, bindFolders } from './src/ui/folders.js';
 
 function render() {
   const focusAddsub = document.activeElement?.classList?.contains('addsub-input');
@@ -21,11 +22,13 @@ function render() {
   } else {
     const screen = UI.screen === 'lists' ? listsMenuHTML()
       : UI.screen === 'detail' ? detailHTML()
+      : UI.screen === 'folders' ? foldersHTML()
       : mobileListHTML();
     const withNav = UI.screen !== 'detail';
     app.innerHTML = screen + (withNav ? mobileNavHTML() : '');
     if (UI.screen === 'lists') bindListsMenu();
     else if (UI.screen === 'detail') bindDetail();
+    else if (UI.screen === 'folders') bindFolders();
     else bindMobileList();
     if (withNav) bindMobileNav();
   }
@@ -38,6 +41,7 @@ function render() {
 /* ── Boot ────────────────────────────────────────────────────────────── */
 
 setRenderer(render);
+purgeDeleted();
 
 document.addEventListener('click', (e) => {
   if (UI.sortMenu && !e.target.closest('.sortwrap')) { UI.sortMenu = false; rerender(); }

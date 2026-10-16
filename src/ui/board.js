@@ -5,12 +5,13 @@
 import {
   S, UI, LANES, PRIORITY_LABEL,
   listById, taskById, tasksOf, openCount, sortedTasks,
-  toggleDone, deleteTask, reorderTask, moveToLane, commit, rerender,
+  toggleDone, reorderTask, moveToLane, commit, rerender,
 } from '../store.js';
 import { fmtDue, fmtTime } from '../dates.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import { openSheet } from './addsheet.js';
+import { deleteWithUndo } from './actions.js';
 
 /* — shared partials — */
 
@@ -209,7 +210,7 @@ export function bindKanban() {
 
 /* ── Gestures ────────────────────────────────────────────────────────── */
 
-/* single tap → detail, double tap → complete, long-press → delete */
+/* single tap → detail, double tap → complete, long-press → delete (soft, with Undo) */
 export function bindRowGestures(el, task) {
   let clickTimer = null, lpTimer = null, lpFired = false, sx = 0, sy = 0;
   el.addEventListener('click', (e) => {
@@ -227,7 +228,7 @@ export function bindRowGestures(el, task) {
     sx = e.clientX; sy = e.clientY;
     lpTimer = setTimeout(() => {
       lpTimer = null; lpFired = true;
-      if (confirm(`Delete "${task.title}"?`)) deleteTask(task.id);
+      deleteWithUndo(task.id);
     }, 550);
   });
   const cancelLp = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };

@@ -1,12 +1,14 @@
-/* Task detail: subtasks with progress, reminder preset, delete. */
+/* Task detail: subtasks with progress, reminder, ⋯ actions menu. */
 
 import {
-  S, UI, REMINDERS, taskById, listById, toggleDone, deleteTask, commit, rerender,
+  UI, REMINDER_OPTIONS, reminderLabel, taskById, listById, toggleDone, setReminder, commit, rerender,
 } from '../store.js';
 import { fmtDue } from '../dates.js';
 import { esc, app, uid } from '../util.js';
 import { icon } from './icons.js';
 import { mobileListHTML, bindScrollShadow } from './board.js';
+import { openMenu } from './primitives.js';
+import { archiveWithUndo, deleteWithUndo } from './actions.js';
 
 export function detailHTML() {
   const t = taskById(UI.detailId);
@@ -24,7 +26,7 @@ export function detailHTML() {
     <header class="page-head detail-top">
       <button class="icon-btn" data-back aria-label="Back to ${esc(list.name)}">${icon('chevronLeft')}</button>
       <span class="kicker">${esc(list.name)}</span>
-      <button class="icon-btn" data-more aria-label="More actions">${icon('more')}</button>
+      <button class="icon-btn" data-more aria-label="More actions" aria-haspopup="menu">${icon('more')}</button>
     </header>
     <div class="scroll-area">
       <div class="detail-head">
@@ -56,10 +58,9 @@ export function detailHTML() {
       <div class="card">
         <div class="kv-row">
           <span class="kv-label">Reminder</span>
-          <button class="kv-val" data-reminder>${esc(t.reminder)}${icon('chevronDown', 16)}</button>
+          <button class="kv-val" data-reminder ${t.due ? '' : 'disabled title="Set a due date first"'}>${esc(reminderLabel(t.reminder))}${icon('chevronDown', 16)}</button>
         </div>
       </div>
-      <button class="btn btn-ghost btn-block danger" data-del>Delete task</button>
     </div>
   </div>`;
 }
@@ -69,6 +70,11 @@ export function bindDetail() {
   if (!t) { rerender(); return; }
   bindScrollShadow();
   app.querySelector('[data-back]').addEventListener('click', () => { UI.screen = 'list'; rerender(); });
+  app.querySelector('[data-more]').addEventListener('click', (e) => openMenu(e.currentTarget, [
+    { label: 'Archive', icon: 'archive', onClick: () => archiveWithUndo(t.id) },
+    { divider: true },
+    { label: 'Delete', icon: 'trash', danger: true, onClick: () => deleteWithUndo(t.id) },
+  ]));
   app.querySelector('.detail-title-row .check').addEventListener('change', () => toggleDone(t.id));
   app.querySelectorAll('[data-sub]').forEach((c) =>
     c.addEventListener('change', () => {
@@ -89,10 +95,8 @@ export function bindDetail() {
     }
   });
   app.querySelector('[data-reminder]').addEventListener('click', () => {
-    t.reminder = REMINDERS[(REMINDERS.indexOf(t.reminder) + 1) % REMINDERS.length];
-    commit();
-  });
-  app.querySelector('[data-del]').addEventListener('click', () => {
-    if (confirm(`Delete "${t.title}"?`)) deleteTask(t.id);
+    /* interim: cycle the presets until the schedule popover lands (Phase 4) */
+    const i = REMINDER_OPTIONS.findIndex(([v]) => v === t.reminder);
+    setReminder(t.id, REMINDER_OPTIONS[(i + 1) % REMINDER_OPTIONS.length][0]);
   });
 }

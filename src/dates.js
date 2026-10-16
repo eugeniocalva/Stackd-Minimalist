@@ -34,3 +34,17 @@ export function fmtDue(due, { full = false } = {}) {
 
 export const fmtTime = (ts) =>
   new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+/** "today" · "yesterday" · "3 days ago" · "Oct 2" */
+export function fmtRelative(ts, now = Date.now()) {
+  const days = Math.floor((now - ts) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 30) return `${days} days ago`;
+  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/** Whole days left before a deleted task is purged (0 = today). */
+export function daysLeft(deletedAt, retentionDays, now = Date.now()) {
+  return Math.max(0, Math.ceil((deletedAt + retentionDays * 86400000 - now) / 86400000));
+}

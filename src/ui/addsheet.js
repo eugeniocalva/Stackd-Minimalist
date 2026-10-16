@@ -1,6 +1,6 @@
 /* Add-task sheet. Rendered outside #app so re-renders never remove it. */
 
-import { S, PRIORITIES, addTask } from '../store.js';
+import { S, PRIORITIES, addTask, allTags as tagPool } from '../store.js';
 import { daysFrom, fmtDue } from '../dates.js';
 import { esc } from '../util.js';
 import { icon } from './icons.js';
@@ -9,7 +9,7 @@ export function openSheet({ lane } = {}) {
   const draft = {
     listId: S.currentList, title: '', due: null, priority: 'none', tags: [], lane,
   };
-  const allTags = [...new Set(S.tasks.flatMap((t) => t.tags))];
+  const allTags = tagPool();
   const dueOpts = [
     { label: 'Today', value: daysFrom(0) },
     { label: 'Tomorrow', value: daysFrom(1) },

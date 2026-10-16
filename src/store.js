@@ -1,35 +1,51 @@
-/* State, persistence, selectors and mutations. Every mutation ends in
-   commit() (save + re-render); UI-only changes use rerender(). The renderer
-   is injected by app.js so this module never imports the view layer. */
+/* State, persistence, migration, selectors and mutations. Every mutation
+   ends in commit() (save + re-render); UI-only changes use rerender(). The
+   renderer is injected by app.js so this module never imports the view
+   layer. Schema: docs/architecture.md §3. */
 
 import { uid } from './util.js';
 import { daysFrom } from './dates.js';
 
-export const STORE_KEY = 'stackd-v1';
+export const STORE_KEY = 'stackd-v2';
+const LEGACY_KEY = 'stackd-v1';
+export const RETENTION_DAYS = 30;
+const RETENTION_MS = RETENTION_DAYS * 86400000;
+
 export const LANES = [
   { id: 'backlog', name: 'Backlog' },
   { id: 'inprogress', name: 'In Progress' },
   { id: 'done', name: 'Done' },
 ];
+export const laneName = (id) => LANES.find((l) => l.id === id)?.name || id;
 export const PRIORITIES = ['high', 'medium', 'low', 'none'];
 export const PRIORITY_LABEL = { high: 'High', medium: 'Med', low: 'Low' };
-export const REMINDERS = ['None', 'Morning · 9:00 AM', 'Noon · 12:00 PM', 'Evening · 6:00 PM'];
+/* reminder = minutes before the due time; null = none */
+export const REMINDER_OPTIONS = [
+  [null, 'None'], [0, 'At time of due'], [10, '10 minutes before'],
+  [60, '1 hour before'], [1440, '1 day before'], [2880, '2 days before'],
+];
+export const reminderLabel = (m) => (REMINDER_OPTIONS.find(([v]) => v === m) || REMINDER_OPTIONS[0])[1];
 
 /* ── State ───────────────────────────────────────────────────────────── */
 
-export let S = load() || seed();
+/* v1 reminder presets were time-of-day labels with no date behind them. */
+const V1_REMINDER_TIME = { 'Morning · 9:00 AM': '09:00', 'Noon · 12:00 PM': '12:00', 'Evening · 6:00 PM': '18:00' };
+
+/* S is built at module load; everything migrate() touches must be declared above. */
+export let S = migrate();
 
 /* transient UI state (not persisted) */
 export const UI = {
-  screen: 'list',        // mobile: 'lists' | 'list' | 'detail'
+  screen: 'list',        // 'lists' | 'list' | 'detail' | 'folders'
+  folder: 'archived',    // which tab the folders screen shows
   detailId: null,
   sortMenu: false,
   refocusAddsub: false,
 };
 export const isDesktop = window.matchMedia('(min-width: 900px)');
 
-function load() {
-  try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch { return null; }
+function read(key) {
+  try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
 }
 export function save() { localStorage.setItem(STORE_KEY, JSON.stringify(S)); }
 
@@ -38,14 +54,56 @@ export function setRenderer(fn) { renderer = fn; }
 export function rerender() { renderer(); }
 export function commit() { save(); renderer(); }
 
+/* ── Migration ───────────────────────────────────────────────────────── */
+
+function migrate() {
+  const v2 = read(STORE_KEY);
+  if (v2) return v2;
+  const v1 = read(LEGACY_KEY);
+  const state = v1 ? upgradeV1(v1) : seed();
+  localStorage.setItem(STORE_KEY, JSON.stringify(state)); // v1 key is left for rollback
+  return state;
+}
+
+function upgradeV1(v1) {
+  const now = Date.now();
+  return {
+    ...v1,
+    version: 2,
+    tasks: (v1.tasks || []).map((t) => {
+      const time = V1_REMINDER_TIME[t.reminder];
+      const hasSchedule = !!(t.due && time);
+      return {
+        ...blankTask(t.listId, t.title),
+        ...t,
+        dueTime: hasSchedule ? time : null,
+        reminder: hasSchedule ? 0 : null,
+        createdAt: now, updatedAt: now,
+      };
+    }),
+  };
+}
+
+/** A task with every v2 field at its default. */
+export function blankTask(listId, title, extra = {}) {
+  const now = Date.now();
+  return {
+    id: uid(), listId, lane: 'backlog', title, done: false, order: 0,
+    priority: 'none', tags: [], subtasks: [],
+    start: null, due: null, dueTime: null, recur: 'none', reminder: null, reminderFiredAt: null,
+    completedCount: 0, lastCompletedAt: null,
+    status: 'active', archivedAt: null, deletedAt: null, origin: null,
+    createdAt: now, updatedAt: now,
+    ...extra,
+  };
+}
+
 function seed() {
   const work = 'work', personal = 'personal', shopping = 'shopping', family = 'family';
   let o = 0;
-  const t = (listId, title, extra = {}) => ({
-    id: uid(), listId, title, due: null, priority: 'none', tags: [],
-    subtasks: [], done: false, lane: 'backlog', order: o++, reminder: 'None', ...extra,
-  });
+  const t = (listId, title, extra = {}) => blankTask(listId, title, { order: o++, ...extra });
   return {
+    version: 2,
     onboarded: false,
     currentList: work,
     view: 'list',
@@ -59,8 +117,7 @@ function seed() {
     ],
     tasks: [
       t(work, 'Prepare Q3 review deck', {
-        due: daysFrom(7), priority: 'high', tags: ['q3'], lane: 'inprogress',
-        reminder: 'Morning · 9:00 AM',
+        due: daysFrom(7), dueTime: '09:00', reminder: 0, priority: 'high', tags: ['q3'], lane: 'inprogress',
         subtasks: [
           { id: uid(), title: 'Pull revenue numbers', done: true },
           { id: uid(), title: 'Outline the narrative', done: true },
@@ -86,12 +143,21 @@ function seed() {
   };
 }
 
-/* ── Selectors ───────────────────────────────────────────────────────── */
+/* ── Selectors (active tasks only unless named otherwise) ────────────── */
 
 export const listById = (id) => S.lists.find((l) => l.id === id);
-export const taskById = (id) => S.tasks.find((t) => t.id === id);
-export const tasksOf = (listId) => S.tasks.filter((t) => t.listId === listId);
+export const taskById = (id) => S.tasks.find((t) => t.id === id);      // any status
+const active = () => S.tasks.filter((t) => t.status === 'active');
+export const tasksOf = (listId) => active().filter((t) => t.listId === listId);
 export const openCount = (listId) => tasksOf(listId).filter((t) => !t.done).length;
+
+export function folderTasks(status) {
+  const key = status === 'archived' ? 'archivedAt' : 'deletedAt';
+  return S.tasks.filter((t) => t.status === status).sort((a, b) => b[key] - a[key]);
+}
+
+export const allTags = () =>
+  [...new Set(S.tasks.filter((t) => t.status !== 'deleted').flatMap((t) => t.tags))];
 
 export function sortedTasks(listId) {
   const rank = { high: 3, medium: 2, low: 1, none: 0 };
@@ -111,18 +177,16 @@ export function sortedTasks(listId) {
 
 /* ── Mutations ───────────────────────────────────────────────────────── */
 
+const touch = (t) => { t.updatedAt = Date.now(); };
+const nextOrder = () => Math.max(0, ...S.tasks.map((t) => t.order + 1));
+const leaveDetail = (id) => { if (UI.detailId === id) { UI.detailId = null; UI.screen = 'list'; } };
+
 export function toggleDone(id) {
   const t = taskById(id); if (!t) return;
   t.done = !t.done;
   if (t.done) { t.lane = 'done'; S.lastAuto = Date.now(); }
   else if (t.lane === 'done') t.lane = 'backlog';
-  commit();
-}
-
-export function deleteTask(id) {
-  S.tasks = S.tasks.filter((t) => t.id !== id);
-  if (UI.detailId === id) { UI.detailId = null; UI.screen = 'list'; }
-  commit();
+  touch(t); commit();
 }
 
 export function reorderTask(id, beforeId) {
@@ -137,17 +201,20 @@ export function moveToLane(id, lane) {
   const t = taskById(id); if (!t || !lane) return;
   t.lane = lane;
   t.done = lane === 'done';
-  commit();
+  touch(t); commit();
 }
 
 export function addTask(draft) {
-  S.tasks.push({
-    id: uid(), listId: draft.listId, title: draft.title, due: draft.due,
-    priority: draft.priority, tags: draft.tags, subtasks: [], done: false,
-    lane: draft.lane || 'backlog',
-    order: Math.max(0, ...S.tasks.map((t) => t.order + 1)), reminder: 'None',
-  });
+  S.tasks.push(blankTask(draft.listId, draft.title, {
+    due: draft.due, priority: draft.priority, tags: draft.tags,
+    lane: draft.lane || 'backlog', done: draft.lane === 'done', order: nextOrder(),
+  }));
   commit();
+}
+
+export function setReminder(id, minutes) {
+  const t = taskById(id); if (!t) return;
+  t.reminder = minutes; touch(t); commit();
 }
 
 export function newList() {
@@ -158,4 +225,59 @@ export function newList() {
   S.currentList = list.id;
   UI.screen = 'list';
   commit();
+}
+
+/* — lifecycle: archive / soft delete / restore / purge — */
+
+function snapshotOrigin(t) {
+  if (!t.origin) t.origin = { listId: t.listId, lane: t.lane, order: t.order };
+}
+
+export function archiveTask(id) {
+  const t = taskById(id); if (!t || t.status !== 'active') return;
+  snapshotOrigin(t);
+  t.status = 'archived'; t.archivedAt = Date.now();
+  leaveDetail(id); touch(t); commit();
+}
+
+export function softDelete(id) {
+  const t = taskById(id); if (!t || t.status === 'deleted') return;
+  snapshotOrigin(t);
+  t.status = 'deleted'; t.deletedAt = Date.now(); t.archivedAt = null;
+  leaveDetail(id); touch(t); commit();
+}
+
+/** Back to the origin board + lane. keepPosition restores the old order
+    (Undo); otherwise the task goes to the end. Falls back to the first
+    board's Backlog when the origin board is gone. */
+export function restoreTask(id, { keepPosition = false } = {}) {
+  const t = taskById(id); if (!t || t.status === 'active') return null;
+  const o = t.origin || { listId: t.listId, lane: t.lane, order: t.order };
+  const fellBack = !listById(o.listId);
+  t.listId = fellBack ? S.lists[0].id : o.listId;
+  t.lane = fellBack ? 'backlog' : o.lane;
+  t.order = keepPosition ? o.order : nextOrder();
+  t.done = t.lane === 'done';
+  t.status = 'active'; t.archivedAt = null; t.deletedAt = null; t.origin = null;
+  touch(t); commit();
+  return { listId: t.listId, lane: t.lane, fellBack };
+}
+
+export function deleteForever(id) {
+  S.tasks = S.tasks.filter((t) => t.id !== id);
+  commit();
+}
+
+export function emptyDeleted() {
+  S.tasks = S.tasks.filter((t) => t.status !== 'deleted');
+  commit();
+}
+
+/** Drops deleted tasks older than RETENTION_DAYS. Returns how many went. */
+export function purgeDeleted(now = Date.now()) {
+  const before = S.tasks.length;
+  S.tasks = S.tasks.filter((t) => t.status !== 'deleted' || now - t.deletedAt < RETENTION_MS);
+  const removed = before - S.tasks.length;
+  if (removed) save();
+  return removed;
 }

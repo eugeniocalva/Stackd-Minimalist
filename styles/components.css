@@ -218,3 +218,58 @@
   }
   .sheet-handle { display: none; }
 }
+
+/* ── Toast ───────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed; left: 50%; bottom: calc(96px + var(--safe-bottom)); z-index: calc(var(--z-modal-backdrop) + 10);
+  transform: translateX(-50%); max-width: calc(100vw - 32px);
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: 12px 18px; border-radius: var(--radius-full);
+  background: var(--color-primary); color: var(--text-on-primary);
+  font-size: var(--text-sm); font-weight: 600; box-shadow: var(--shadow-float);
+  animation: toastIn 0.3s var(--ease-spring);
+}
+.toast-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast-action {
+  flex: none; min-height: 32px; padding: 0 12px; margin: -4px -8px -4px 0; border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--text-on-primary) 15%, transparent); color: inherit; font-weight: 700;
+}
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 12px); } }
+@media (min-width: 900px) { .toast { bottom: 24px; } }
+
+/* ── Menu (action sheet on mobile, popover on desktop) ───────────────── */
+.menu-sheet { gap: 2px; padding-top: var(--space-3); }
+.menu-item {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 52px; padding: 0 var(--space-3);
+  border-radius: var(--radius-md); font-size: var(--text-base); font-weight: 600; color: var(--text-primary); text-align: left;
+}
+.menu-item:hover, .menu-item:active { background: var(--bg-surface-sunken); }
+.menu-item svg { width: 20px; height: 20px; color: var(--text-secondary); }
+.menu-item.danger { color: var(--color-danger-text); }
+.menu-item.danger svg { color: inherit; }
+.menu-divider { height: 1px; background: var(--color-border); margin: 4px 0; }
+.menu-backdrop { position: fixed; inset: 0; z-index: calc(var(--z-modal-backdrop) - 1); }
+.menu-popover {
+  position: fixed; z-index: var(--z-modal-backdrop); min-width: 200px; padding: 6px;
+  background: var(--bg-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float); animation: popIn var(--dur-quick) var(--ease-spring);
+}
+.menu-popover .menu-item { min-height: 44px; font-size: var(--text-sm); }
+
+/* ── Confirm dialog ──────────────────────────────────────────────────── */
+.dialog { gap: var(--space-3); padding-top: var(--space-6); }
+.dialog h2 { font-size: var(--text-xl); font-weight: 800; }
+.dialog p { color: var(--text-secondary); font-size: var(--text-sm); }
+.dialog-actions { display: flex; gap: 10px; margin-top: var(--space-2); }
+.dialog-actions .btn { flex: 1; }
+.btn-danger { background: var(--color-danger); color: #fff; }
+
+/* ── Notice (folder disclaimer) ──────────────────────────────────────── */
+.notice {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); border-radius: var(--radius-lg);
+  background: var(--color-warning-bg); color: var(--color-warning-text); font-size: var(--text-sm); font-weight: 500;
+}
+.notice > svg { width: 18px; height: 18px; flex: none; }
+.notice > span { flex: 1; min-width: 180px; }
+.notice .btn { margin-left: auto; color: var(--color-warning-text); }
