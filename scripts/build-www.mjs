@@ -6,6 +6,7 @@ import { rmSync, mkdirSync, cpSync, existsSync } from 'node:fs';
 const ASSETS = [
   'index.html',
   'app.js',
+  'src',
   'app.css',
   'ds.css',
   'manifest.webmanifest',

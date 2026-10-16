@@ -67,7 +67,14 @@ is enough; HTTPS is required for install + service worker on real devices.
 - `ds.css` — Modernist design-system tokens + components (from the design
   project, extended with dark-mode token overrides)
 - `app.css` — screen layouts (mobile-first, desktop ≥900px)
-- `app.js` — state, rendering, gestures, persistence
+- `app.js` — entry point (ES module): `render()` and global listeners
+- `src/store.js` — state, persistence, selectors, mutations
+- `src/dates.js` — local-time date helpers and due-date formatting
+- `src/util.js` — ids, HTML escaping, app root
+- `src/ui/` — one module per screen: `shell.js` (onboarding, lists menu,
+  desktop sidebar), `board.js` (list, table, kanban, gestures),
+  `detail.js`, `addsheet.js`
+- `docs/` — `prd.md` (acceptance criteria) and `architecture.md` (v2 plan)
 - `manifest.webmanifest` — PWA install metadata (name, colors, icons)
 - `sw.js` — service worker: offline app shell + font caching
 - `icons/` — app icons (192/512, maskable, apple-touch-icon)

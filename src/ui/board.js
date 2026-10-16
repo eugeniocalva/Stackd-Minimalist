@@ -1,0 +1,317 @@
+/* One board: list rows (2a / 2g table), kanban (2c / 2h), shared partials,
+   row / card gestures. Gestures: double-tap complete, long-press delete,
+   drag to reorder (manual sort), hold-and-drag kanban cards between lanes. */
+
+import {
+  S, UI, LANES, PRIORITY_LABEL,
+  listById, taskById, tasksOf, openCount, sortedTasks,
+  toggleDone, deleteTask, reorderTask, moveToLane, commit, rerender,
+} from '../store.js';
+import { fmtDue, fmtTime } from '../dates.js';
+import { esc, app } from '../util.js';
+import { openSheet } from './addsheet.js';
+
+/* — shared partials — */
+
+export function sortIcon(size = 13) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>`;
+}
+
+export function viewbarHTML({ desktop = false } = {}) {
+  const sortLabels = { manual: 'Sort', due: 'Due date', priority: 'Priority' };
+  return `
+  <div class="viewbar">
+    <button class="vsw ${S.view === 'list' ? 'active' : ''}" data-view="list">List</button>
+    <button class="vsw ${S.view === 'kanban' ? 'active' : ''}" data-view="kanban">Kanban</button>
+    <span class="sortwrap">
+      <button class="sortbtn" data-sortbtn>${sortIcon()}${esc(sortLabels[S.sort])}${desktop ? ' ▾' : ''}</button>
+      ${UI.sortMenu ? `
+      <div class="sortmenu">
+        <button data-sort="manual" class="${S.sort === 'manual' ? 'active' : ''}">Manual</button>
+        <button data-sort="due" class="${S.sort === 'due' ? 'active' : ''}">Due date</button>
+        <button data-sort="priority" class="${S.sort === 'priority' ? 'active' : ''}">Priority</button>
+      </div>` : ''}
+    </span>
+  </div>`;
+}
+
+export function taskMetaHTML(t) {
+  const bits = [];
+  if (t.due) {
+    const d = fmtDue(t.due);
+    bits.push(`<span class="tag ${d.cls}">${d.days <= 3 && d.days >= 2 ? 'Due ' : ''}${esc(d.label)}</span>`);
+  }
+  if (t.priority !== 'none') bits.push(`<span class="tag tag-outline">${PRIORITY_LABEL[t.priority]}</span>`);
+  t.tags.forEach((tag) => bits.push(`<span class="tag tag-neutral">#${esc(tag)}</span>`));
+  if (t.subtasks.length) {
+    const done = t.subtasks.filter((s) => s.done).length;
+    bits.push(`<span class="t-sub num">${done}/${t.subtasks.length} subtasks</span>`);
+  }
+  return bits.length ? `<div class="t-meta">${bits.join('')}</div>` : '';
+}
+
+export function kanbanHTML({ desktop = false } = {}) {
+  const ts = tasksOf(S.currentList);
+  const lanes = LANES.map((lane) => {
+    const cards = ts.filter((t) => t.lane === lane.id);
+    const headCls = lane.id === 'inprogress' ? 'active' : lane.id === 'done' ? 'muted' : '';
+    return `
+    <div class="lane" data-lane="${lane.id}">
+      <div class="lane-head ${headCls}">
+        <span class="lane-name">${lane.name}</span>
+        <span class="lane-count num">${cards.length}</span>
+      </div>
+      <div class="lane-cards">
+        ${cards.map((t) => t.done ? `
+          <div class="kcard done-card" data-id="${t.id}">
+            <input type="checkbox" aria-label="Toggle complete" class="check sm" checked data-id="${t.id}">
+            <span class="t-title">${esc(t.title)}</span>
+          </div>` : `
+          <div class="kcard" data-id="${t.id}">
+            <span class="t-title">${esc(t.title)}</span>
+            ${taskMetaHTML(t)}
+          </div>`).join('')}
+        ${lane.id === 'done' && S.lastAuto
+          ? `<span class="lane-note">Moved here automatically · ${fmtTime(S.lastAuto)}</span>`
+          : `<button class="addcard" data-lane-add="${lane.id}">+ Add card</button>`}
+      </div>
+    </div>`;
+  }).join('');
+  return `
+  <div class="autoline">
+    <span class="dot"></span>
+    <span class="txt">Automation${desktop ? ':' : ' on —'} ${desktop ? 'marking a task complete moves its card' : 'completed tasks move'} to <strong>Done</strong></span>
+    ${desktop ? '<button class="edit" data-editrules>Edit rules</button>' : ''}
+  </div>
+  <div class="board ${desktop ? 'cols3' : ''}">${lanes}</div>
+  ${desktop ? '' : '<div style="padding:0 20px 24px" class="mobile-only"><span class="hint">Swipe for more lanes · hold a card to move it</span></div>'}`;
+}
+
+/* — mobile: list screen (2a / 2c) — */
+
+export function mobileListHTML() {
+  const list = listById(S.currentList);
+  const ts = sortedTasks(S.currentList);
+  const headCount = S.view === 'kanban'
+    ? `${tasksOf(S.currentList).length} tasks` : `${openCount(S.currentList)} open`;
+  const body = S.view === 'kanban' ? kanbanHTML() : `
+    <div class="rows">
+      ${ts.map((t) => `
+      <div class="trow ${t.done ? 'done' : ''}" data-id="${t.id}">
+        <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
+        <div class="t-main">
+          <span class="t-title">${esc(t.title)}</span>
+          ${t.done ? '' : taskMetaHTML(t)}
+        </div>
+        ${t.done ? '' : '<span class="grip">⠿</span>'}
+      </div>`).join('')}
+    </div>
+    <div class="list-footer">
+      <span class="hint">Double-tap to complete · long-press to delete</span>
+      <button class="fab" data-add>+</button>
+    </div>`;
+  return `
+  <div class="screen">
+    <div class="page-head">
+      <div class="page-title-row">
+        <h2 data-lists>${esc(list.name)} <span class="caret">▾</span></h2>
+        <span class="kicker">${headCount}</span>
+      </div>
+      ${viewbarHTML()}
+    </div>
+    <div class="seam head-seam"></div>
+    ${body}
+  </div>`;
+}
+
+export function bindMobileList() {
+  bindViewbar();
+  app.querySelector('[data-lists]').addEventListener('click', () => { UI.screen = 'lists'; rerender(); });
+  app.querySelector('[data-add]')?.addEventListener('click', () => openSheet());
+  bindChecks();
+  app.querySelectorAll('.trow').forEach((row) => {
+    const t = taskById(row.dataset.id);
+    bindRowGestures(row, t);
+    const grip = row.querySelector('.grip');
+    if (grip) bindReorder(grip, row, t, '.trow');
+  });
+  bindKanban();
+}
+
+/* — desktop: table (2g) — */
+
+export function desktopTableHTML() {
+  const ts = sortedTasks(S.currentList);
+  return `
+  <div class="quickadd">
+    <input class="input" placeholder="Add a task — press Enter" data-quickadd>
+    <button class="btn btn-primary" data-quickadd-btn>Add</button>
+  </div>
+  <div class="tgrid tgrid-head">
+    <span></span><span>Task</span><span>Due</span><span>Priority</span><span>Subtasks</span>
+  </div>
+  <div class="seam"></div>
+  <div class="tgrid-rows">
+    ${ts.map((t) => {
+      const due = t.due ? fmtDue(t.due) : null;
+      const sub = t.subtasks.length
+        ? `${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}` : null;
+      return `
+      <div class="tgrid tgrid-row ${t.done ? 'done' : ''}" data-id="${t.id}">
+        <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
+        <span class="t-title">${esc(t.title)}</span>
+        ${t.done ? '<span></span><span></span><span></span>' : `
+        ${due ? `<span class="tag ${due.cls}">${esc(due.label)}</span>` : '<span class="cell-muted">—</span>'}
+        ${t.priority !== 'none' ? `<span class="tag tag-outline">${PRIORITY_LABEL[t.priority]}</span>` : '<span class="cell-muted">—</span>'}
+        ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
+      </div>`;
+    }).join('')}
+  </div>
+  <span class="hint">Drag rows to reprioritize · double-click a task to complete</span>`;
+}
+
+/* — shared bindings — */
+
+export function bindViewbar() {
+  app.querySelectorAll('[data-view]').forEach((b) =>
+    b.addEventListener('click', () => { S.view = b.dataset.view; commit(); }));
+  app.querySelector('[data-sortbtn]')?.addEventListener('click', () => {
+    UI.sortMenu = !UI.sortMenu; rerender();
+  });
+  app.querySelectorAll('[data-sort]').forEach((b) =>
+    b.addEventListener('click', () => {
+      S.sort = b.dataset.sort; UI.sortMenu = false; commit();
+    }));
+}
+
+export function bindChecks() {
+  app.querySelectorAll('.check[data-id]').forEach((c) => {
+    c.addEventListener('click', (e) => e.stopPropagation());
+    c.addEventListener('pointerdown', (e) => e.stopPropagation());
+    c.addEventListener('change', () => toggleDone(c.dataset.id));
+  });
+}
+
+export function bindKanban() {
+  app.querySelectorAll('.kcard').forEach((card) => bindCard(card, taskById(card.dataset.id)));
+  app.querySelectorAll('[data-lane-add]').forEach((b) =>
+    b.addEventListener('click', () => openSheet({ lane: b.dataset.laneAdd })));
+  app.querySelector('[data-editrules]')?.addEventListener('click', () =>
+    alert('One automation is active:\n\nMarking a task complete moves its card to Done.\n\nCustom rules are on the roadmap.'));
+}
+
+/* ── Gestures ────────────────────────────────────────────────────────── */
+
+/* single tap → detail, double tap → complete, long-press → delete */
+export function bindRowGestures(el, task) {
+  let clickTimer = null, lpTimer = null, lpFired = false, sx = 0, sy = 0;
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('.check,.grip') || el.dataset.dragged) { delete el.dataset.dragged; return; }
+    if (lpFired) { lpFired = false; return; }
+    if (clickTimer) {
+      clearTimeout(clickTimer); clickTimer = null;
+      toggleDone(task.id);
+    } else {
+      clickTimer = setTimeout(() => { clickTimer = null; openDetail(task.id); }, 260);
+    }
+  });
+  el.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.check,.grip')) return;
+    sx = e.clientX; sy = e.clientY;
+    lpTimer = setTimeout(() => {
+      lpTimer = null; lpFired = true;
+      if (confirm(`Delete "${task.title}"?`)) deleteTask(task.id);
+    }, 550);
+  });
+  const cancelLp = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+  el.addEventListener('pointerup', cancelLp);
+  el.addEventListener('pointercancel', cancelLp);
+  el.addEventListener('pointermove', (e) => {
+    if (lpTimer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) cancelLp();
+  });
+}
+
+export function openDetail(id) {
+  if (!taskById(id)) return;
+  UI.detailId = id; UI.screen = 'detail'; rerender();
+}
+
+/* drag a row (via handle or the row itself) to reorder — manual sort only */
+export function bindReorder(dragEl, rowEl, task, rowSel) {
+  dragEl.addEventListener('pointerdown', (e) => {
+    if (S.sort !== 'manual' || task.done) return;
+    if (dragEl === rowEl && e.target.closest('.check')) return;
+    let dragging = false, over = null;
+    const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
+    const threshold = dragEl === rowEl ? 8 : 4;
+    const move = (ev) => {
+      if (!dragging && Math.hypot(ev.clientX - sx, ev.clientY - sy) > threshold) {
+        dragging = true;
+        try { dragEl.setPointerCapture(pid); } catch {}
+        rowEl.classList.add('dragging');
+        rowEl.dataset.dragged = '1';
+      }
+      if (!dragging) return;
+      ev.preventDefault();
+      const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(rowSel);
+      if (over && over !== target) over.classList.remove('dropover');
+      over = target && target !== rowEl ? target : null;
+      if (over) over.classList.add('dropover');
+    };
+    const up = () => {
+      dragEl.removeEventListener('pointermove', move);
+      dragEl.removeEventListener('pointercancel', up);
+      rowEl.classList.remove('dragging');
+      over?.classList.remove('dropover');
+      if (dragging && over) reorderTask(task.id, over.dataset.id);
+    };
+    dragEl.addEventListener('pointermove', move);
+    dragEl.addEventListener('pointerup', up, { once: true });
+    dragEl.addEventListener('pointercancel', up);
+    if (dragEl !== rowEl) e.preventDefault(); // grip: don't scroll
+  });
+  if (dragEl !== rowEl) dragEl.style.touchAction = 'none';
+}
+
+/* kanban card: tap → detail; mouse-drag or touch hold-drag → move lane */
+export function bindCard(card, task) {
+  card.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.check')) return;
+    let dragging = false, overLane = null, held = false;
+    const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
+    const isTouch = e.pointerType === 'touch';
+    const holdTimer = isTouch ? setTimeout(() => { held = true; startDrag(); }, 350) : null;
+    const startDrag = () => {
+      dragging = true;
+      try { card.setPointerCapture(pid); } catch {}
+      card.classList.add('dragging');
+    };
+    const blockScroll = (ev) => { if (dragging) ev.preventDefault(); };
+    card.addEventListener('touchmove', blockScroll, { passive: false });
+    const move = (ev) => {
+      const dist = Math.hypot(ev.clientX - sx, ev.clientY - sy);
+      if (!dragging && !isTouch && dist > 8) startDrag();
+      if (!dragging) { if (isTouch && dist > 10 && holdTimer) clearTimeout(holdTimer); return; }
+      const lane = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.lane');
+      if (overLane && overLane !== lane) overLane.classList.remove('dropover');
+      overLane = lane;
+      lane?.classList.add('dropover');
+    };
+    const up = () => {
+      if (holdTimer) clearTimeout(holdTimer);
+      card.removeEventListener('pointermove', move);
+      card.removeEventListener('pointercancel', up);
+      card.removeEventListener('touchmove', blockScroll);
+      card.classList.remove('dragging');
+      overLane?.classList.remove('dropover');
+      if (dragging && overLane && overLane.dataset.lane !== task.lane) {
+        moveToLane(task.id, overLane.dataset.lane);
+      } else if (!dragging && !held) {
+        openDetail(task.id);
+      } else if (dragging) rerender();
+    };
+    card.addEventListener('pointermove', move);
+    card.addEventListener('pointerup', up, { once: true });
+    card.addEventListener('pointercancel', up);
+  });
+}
