@@ -17,6 +17,8 @@ const SHELL = [
   'src/ui/primitives.js',
   'src/ui/actions.js',
   'src/ui/folders.js',
+  'src/ui/movecopy.js',
+  'src/ui/tagpicker.js',
   'styles/fonts.css',
   'styles/variables.css',
   'styles/base.css',

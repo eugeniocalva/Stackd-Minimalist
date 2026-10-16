@@ -1,14 +1,21 @@
-/* Task detail: subtasks with progress, reminder, ⋯ actions menu. */
+/* Task detail: editable title, field rows (due, priority, tags, move,
+   reminder), subtasks with progress, ⋯ actions menu. */
 
 import {
-  UI, REMINDER_OPTIONS, reminderLabel, taskById, listById, toggleDone, setReminder, commit, rerender,
+  S, UI, PRIORITIES, REMINDER_OPTIONS, reminderLabel, laneName,
+  taskById, listById, toggleDone, setReminder, setPriority, setTags, setTitle, setDue,
+  moveTask, copyTask, commit, rerender,
 } from '../store.js';
-import { fmtDue } from '../dates.js';
+import { fmtDue, fmtDateLong } from '../dates.js';
 import { esc, app, uid } from '../util.js';
 import { icon } from './icons.js';
-import { mobileListHTML, bindScrollShadow } from './board.js';
-import { openMenu } from './primitives.js';
+import { mobileListHTML, bindScrollShadow, openDetail } from './board.js';
+import { openMenu, toast } from './primitives.js';
 import { archiveWithUndo, deleteWithUndo } from './actions.js';
+import { openMoveCopy } from './movecopy.js';
+import { openTagPicker } from './tagpicker.js';
+
+const PRIORITY_NAME = { none: 'None', low: 'Low', medium: 'Medium', high: 'High' };
 
 export function detailHTML() {
   const t = taskById(UI.detailId);
@@ -16,11 +23,7 @@ export function detailHTML() {
   const list = listById(t.listId);
   const done = t.subtasks.filter((s) => s.done).length;
   const pct = t.subtasks.length ? (done / t.subtasks.length) * 100 : 0;
-  const tags = [];
-  if (t.due) tags.push(`<span class="tag ${fmtDue(t.due).cls}">${esc(fmtDue(t.due, { full: true }).label)}</span>`);
-  if (t.priority !== 'none') tags.push(`<span class="tag tag-${t.priority}">${{ high: 'High', medium: 'Medium', low: 'Low' }[t.priority]} priority</span>`);
-  tags.push(`<span class="tag">${esc(list.name)}</span>`);
-  t.tags.forEach((tag) => tags.push(`<span class="tag">#${esc(tag)}</span>`));
+  const dueTone = t.due ? fmtDue(t.due).cls : '';
   return `
   <div class="screen detail-screen">
     <header class="page-head detail-top">
@@ -32,10 +35,42 @@ export function detailHTML() {
       <div class="detail-head">
         <div class="detail-title-row">
           <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
-          <h1 class="detail-title">${esc(t.title)}</h1>
+          <h1 class="detail-title" data-title tabindex="0" title="Tap to edit">${esc(t.title)}</h1>
         </div>
-        <div class="detail-tags">${tags.join('')}</div>
       </div>
+
+      <div class="card">
+        <div class="kv-row">
+          <span class="kv-label">${icon('calendar', 16)}Due date</span>
+          <span class="kv-right">
+            <button class="kv-val ${t.due ? dueTone.replace('tag-', 'is-') : 'placeholder'}" data-due>${t.due ? esc(fmtDateLong(t.due, t.dueTime)) : 'Set date'}${icon('chevronDown', 16)}</button>
+            ${t.due ? `<button class="kv-clear" data-due-clear aria-label="Clear due date">${icon('x', 14)}</button>` : ''}
+            <input type="date" class="visually-hidden-input" data-due-input value="${t.due || ''}" tabindex="-1">
+          </span>
+        </div>
+        <div class="kv-row kv-stack">
+          <span class="kv-label">Priority</span>
+          <div class="chip-row" data-priority>
+            ${[...PRIORITIES].reverse().map((p) => `<button class="chip sm ${t.priority === p ? 'on' : ''} ${p !== 'none' && t.priority === p ? `chip-${p}` : ''}" data-val="${p}">${PRIORITY_NAME[p]}</button>`).join('')}
+          </div>
+        </div>
+        <div class="kv-row kv-stack">
+          <span class="kv-label">${icon('tag', 16)}Tags</span>
+          <div class="chip-row" data-tags>
+            ${t.tags.map((tag) => `<button class="chip sm on removable" data-remove="${esc(tag)}" aria-label="Remove tag ${esc(tag)}">#${esc(tag)}${icon('x', 14)}</button>`).join('')}
+            <button class="chip sm" data-add-tag>${icon('plus', 14)}${t.tags.length ? 'Add' : 'Add tags…'}</button>
+          </div>
+        </div>
+        <div class="kv-row">
+          <span class="kv-label">${icon('move', 16)}Move</span>
+          <button class="kv-val" data-move>${esc(list.name)} · ${laneName(t.lane)}${icon('chevronRight', 16)}</button>
+        </div>
+        <div class="kv-row">
+          <span class="kv-label">Reminder</span>
+          <button class="kv-val ${t.reminder === null ? 'placeholder' : ''}" data-reminder ${t.due ? '' : 'disabled title="Set a due date first"'}>${esc(reminderLabel(t.reminder))}${icon('chevronDown', 16)}</button>
+        </div>
+      </div>
+
       <div class="card">
         <div class="subhead">
           <span class="section-title">Subtasks</span>
@@ -55,12 +90,6 @@ export function detailHTML() {
           </div>
         </div>
       </div>
-      <div class="card">
-        <div class="kv-row">
-          <span class="kv-label">Reminder</span>
-          <button class="kv-val" data-reminder ${t.due ? '' : 'disabled title="Set a due date first"'}>${esc(reminderLabel(t.reminder))}${icon('chevronDown', 16)}</button>
-        </div>
-      </div>
     </div>
   </div>`;
 }
@@ -70,12 +99,78 @@ export function bindDetail() {
   if (!t) { rerender(); return; }
   bindScrollShadow();
   app.querySelector('[data-back]').addEventListener('click', () => { UI.screen = 'list'; rerender(); });
+  app.querySelector('.detail-title-row .check').addEventListener('change', () => toggleDone(t.id));
+
+  /* ⋯ menu */
+  const where = (listId, lane) => `${listById(listId).name} · ${laneName(lane)}`;
+  const move = () => openMoveCopy({ mode: 'move', task: t, onConfirm: (listId, lane) => {
+    moveTask(t.id, listId, lane);
+    toast(`Moved to ${where(listId, lane)}`);
+  } });
+  const copy = () => openMoveCopy({ mode: 'copy', task: t, onConfirm: (listId, lane) => {
+    const c = copyTask(t.id, listId, lane);
+    toast(`Copied to ${where(listId, lane)}`, { action: { label: 'Open', onClick: () => {
+      S.currentList = c.listId; commit(); openDetail(c.id);
+    } } });
+  } });
   app.querySelector('[data-more]').addEventListener('click', (e) => openMenu(e.currentTarget, [
+    { label: 'Move', icon: 'move', onClick: move },
+    { label: 'Copy', icon: 'copy', onClick: copy },
     { label: 'Archive', icon: 'archive', onClick: () => archiveWithUndo(t.id) },
     { divider: true },
     { label: 'Delete', icon: 'trash', danger: true, onClick: () => deleteWithUndo(t.id) },
   ]));
-  app.querySelector('.detail-title-row .check').addEventListener('change', () => toggleDone(t.id));
+  app.querySelector('[data-move]').addEventListener('click', move);
+
+  /* inline title edit */
+  const h1 = app.querySelector('[data-title]');
+  const editTitle = () => {
+    const input = document.createElement('input');
+    input.className = 'detail-title-input';
+    input.value = t.title;
+    input.setAttribute('aria-label', 'Task title');
+    h1.replaceWith(input);
+    input.focus(); input.select();
+    let finished = false;
+    const finish = (save) => {
+      if (finished) return; finished = true;
+      if (save && input.value.trim() && input.value.trim() !== t.title) setTitle(t.id, input.value);
+      else rerender();
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') finish(true);
+      if (e.key === 'Escape') finish(false);
+    });
+    input.addEventListener('blur', () => finish(true));
+  };
+  h1.addEventListener('click', editTitle);
+  h1.addEventListener('keydown', (e) => { if (e.key === 'Enter') editTitle(); });
+
+  /* due date (native picker until the schedule popover lands in Phase 4) */
+  const dueInput = app.querySelector('[data-due-input]');
+  dueInput.addEventListener('change', () => { if (dueInput.value) setDue(t.id, dueInput.value); });
+  app.querySelector('[data-due]').addEventListener('click', () => {
+    try { dueInput.showPicker(); } catch { dueInput.click(); }
+  });
+  app.querySelector('[data-due-clear]')?.addEventListener('click', () => setDue(t.id, null));
+
+  /* priority chips */
+  app.querySelector('[data-priority]').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip'); if (!chip) return;
+    if (chip.dataset.val !== t.priority) setPriority(t.id, chip.dataset.val);
+  });
+
+  /* tags */
+  app.querySelector('[data-tags]').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip'); if (!chip) return;
+    if (chip.dataset.remove !== undefined) {
+      setTags(t.id, t.tags.filter((x) => x !== chip.dataset.remove));
+      return;
+    }
+    openTagPicker({ tags: t.tags, onChange: (tags) => setTags(t.id, tags) });
+  });
+
+  /* subtasks */
   app.querySelectorAll('[data-sub]').forEach((c) =>
     c.addEventListener('change', () => {
       const s = t.subtasks.find((s) => s.id === c.dataset.sub);
@@ -94,8 +189,9 @@ export function bindDetail() {
       commit();
     }
   });
+
+  /* reminder: cycle the presets until the schedule popover (Phase 4) */
   app.querySelector('[data-reminder]').addEventListener('click', () => {
-    /* interim: cycle the presets until the schedule popover lands (Phase 4) */
     const i = REMINDER_OPTIONS.findIndex(([v]) => v === t.reminder);
     setReminder(t.id, REMINDER_OPTIONS[(i + 1) % REMINDER_OPTIONS.length][0]);
   });

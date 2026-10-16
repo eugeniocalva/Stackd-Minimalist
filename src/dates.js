@@ -48,3 +48,10 @@ export function fmtRelative(ts, now = Date.now()) {
 export function daysLeft(deletedAt, retentionDays, now = Date.now()) {
   return Math.max(0, Math.ceil((deletedAt + retentionDays * 86400000 - now) / 86400000));
 }
+
+/** 'Fri, Oct 23' (+ ' · 09:00' when a time is set) */
+export function fmtDateLong(due, dueTime = null) {
+  const d = new Date(due + 'T00:00:00');
+  const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return dueTime ? `${label} · ${dueTime}` : label;
+}

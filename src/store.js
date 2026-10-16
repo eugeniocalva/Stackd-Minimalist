@@ -217,6 +217,66 @@ export function setReminder(id, minutes) {
   t.reminder = minutes; touch(t); commit();
 }
 
+export function setPriority(id, priority) {
+  const t = taskById(id); if (!t) return;
+  t.priority = priority; touch(t); commit();
+}
+
+export function setTitle(id, title) {
+  const t = taskById(id); if (!t || !title.trim()) return;
+  t.title = title.trim(); touch(t); commit();
+}
+
+/** Trimmed, no leading #, de-duplicated case-insensitively, empties dropped. */
+export function normalizeTags(tags) {
+  const seen = new Set();
+  return tags.map((x) => String(x).trim().replace(/^#+/, '')).filter((x) => {
+    const k = x.toLowerCase();
+    if (!x || seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+}
+
+export function setTags(id, tags) {
+  const t = taskById(id); if (!t) return;
+  t.tags = normalizeTags(tags); touch(t); commit();
+}
+
+/** Interim until the schedule popover (Phase 4): date only; clearing the
+    date also clears everything that depends on it. */
+export function setDue(id, due) {
+  const t = taskById(id); if (!t) return;
+  t.due = due || null;
+  if (!t.due) { t.dueTime = null; t.start = null; t.recur = 'none'; t.reminder = null; }
+  touch(t); commit();
+}
+
+/** Move to another board and/or lane; the task lands at the end of the
+    target lane and the moved-to board becomes the current one. */
+export function moveTask(id, listId, lane) {
+  const t = taskById(id); if (!t || !listById(listId)) return;
+  if (t.listId === listId && t.lane === lane) return;
+  t.listId = listId; t.lane = lane; t.order = nextOrder();
+  t.done = lane === 'done';
+  S.currentList = listId;
+  touch(t); commit();
+}
+
+/** Duplicate into a board/lane: same fields and schedule, subtasks reset,
+    fresh ids and timestamps. Returns the copy. */
+export function copyTask(id, listId, lane) {
+  const t = taskById(id); if (!t || !listById(listId)) return null;
+  const copy = blankTask(listId, t.title, {
+    lane, done: lane === 'done', order: nextOrder(),
+    priority: t.priority, tags: [...t.tags],
+    subtasks: t.subtasks.map((s) => ({ id: uid(), title: s.title, done: false })),
+    start: t.start, due: t.due, dueTime: t.dueTime, recur: t.recur, reminder: t.reminder,
+  });
+  S.tasks.push(copy);
+  commit();
+  return copy;
+}
+
 export function newList() {
   const name = prompt('New board name');
   if (!name || !name.trim()) return;

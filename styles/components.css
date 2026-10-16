@@ -273,3 +273,32 @@
 .notice > svg { width: 18px; height: 18px; flex: none; }
 .notice > span { flex: 1; min-width: 180px; }
 .notice .btn { margin-left: auto; color: var(--color-warning-text); }
+
+/* ── Field rows (detail) ─────────────────────────────────────────────── */
+.kv-label { display: inline-flex; align-items: center; gap: 8px; }
+.kv-label svg { color: var(--text-tertiary); }
+.kv-right { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.kv-val { min-width: 0; text-align: right; }
+.kv-val.placeholder { color: var(--text-tertiary); font-weight: 500; }
+.kv-val.is-overdue { color: var(--color-danger-text); }
+.kv-val.is-soon { color: var(--color-warning-text); }
+.kv-val:disabled { opacity: 0.5; cursor: default; }
+.kv-clear {
+  width: 28px; height: 28px; border-radius: 50%; flex: none; margin-right: -6px;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--text-tertiary);
+}
+.kv-clear:hover { background: var(--bg-surface-sunken); color: var(--text-primary); }
+.kv-row.kv-stack { flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-3) 0; }
+.visually-hidden-input { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+.chip.sm { height: 30px; padding: 0 12px; font-size: 12px; gap: 4px; }
+.chip svg { width: 14px; height: 14px; }
+.chip.removable svg { opacity: 0.7; margin-right: -4px; }
+.chip.on.chip-high { background: var(--color-danger-bg); color: var(--color-danger-text); }
+.chip.on.chip-medium { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.chip.on.chip-low { background: var(--bg-surface-dim); color: var(--text-primary); }
+.detail-title-input {
+  width: 100%; border: none; border-bottom: 2px solid var(--color-accent); background: none; padding: 0 0 2px;
+  font-family: var(--font-family-display); font-weight: 800; font-size: var(--text-2xl); line-height: 1.25;
+  letter-spacing: -0.02em; color: var(--text-primary); caret-color: var(--color-accent); outline: none; border-radius: 0;
+}
+.detail-title { cursor: text; border-radius: var(--radius-sm); }
