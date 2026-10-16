@@ -4,7 +4,8 @@ A minimalist todo PWA, started from turn 2 of the [Claude Design canvas](https:/
 ("Stack'd Minimalist Todo App") and restyled in the Stack'd Finance language:
 Inter + Manrope, soft surfaces, rounded cards, frosted bottom nav, light + dark.
 
-Current version: **1.1.0** — editable task fields, Move / Copy / Archive /
+Current version: **1.2.0** — reminder notifications on the web and in the
+iOS app, on top of 1.1.0's editable task fields, Move / Copy / Archive /
 Delete, Archived and Deleted folders, a calendar for dates with recurring
 tasks, and the Finance design. Requirements and plan live in
 [`docs/prd.md`](docs/prd.md) and [`docs/architecture.md`](docs/architecture.md);
@@ -35,10 +36,17 @@ Checks (Node only, no test framework):
 npm run check
 ```
 
-It runs `scripts/check-dates.mjs` (date maths: month ends, leap years, DST,
-recurrence, chip labels) and `scripts/check-shell.mjs` (the service-worker
-precache list matches the files on disk — a missing entry breaks the offline
-install silently).
+It runs:
+
+- `scripts/check-dates.mjs` — date maths (month ends, leap years, recurrence,
+  chip labels, reminder times), then re-runs itself with the time zone pinned
+  to Lisbon, New York, Sydney and Tokyo to prove DST handling anywhere.
+- `scripts/check-reminders.mjs` — the reminder engine: what fires, when, with
+  what text, and how iOS pending notifications are reconciled.
+- `scripts/check-store.mjs` — the store's reminder rules, run against the real
+  `src/store.js` with a stand-in `localStorage`.
+- `scripts/check-shell.mjs` — the service-worker precache list matches the
+  files on disk (a missing entry breaks the offline install silently).
 
 ## Live
 
@@ -101,6 +109,19 @@ is enough; HTTPS is required for install + service worker on real devices.
 - **Deleted folder** — every delete is soft (toast with Undo, no confirm);
   tasks stay 30 days, with a countdown and a disclaimer, then are purged at
   start-up. Delete forever and Empty folder ask first
+- **Reminders** — set one in the dates dialog (at the due time, 10 min, 1 h,
+  1 or 2 days before; tasks without a time use 09:00). The dialog shows when
+  it will come and whether this device can show it; saving the first one asks
+  to allow notifications. Tapping a notification opens the task.
+  - *Web / installed PWA:* reminders fire while Stack'd is open in a tab or
+    window (one tab checks for all), through the service worker. A reminder
+    found late still fires if the task isn't overdue yet (or within 15 min);
+    older ones lapse quietly. Several at once become one summary. On iPhone
+    and iPad this needs Stack'd added to the Home Screen (iOS 16.4+).
+  - *iOS app:* uses `@capacitor/local-notifications`, so reminders arrive even
+    when the app is closed. Pending notifications are kept in step with the
+    tasks after every change, at launch and on resume (soonest 60, iOS keeps
+    64). Notifications are silent banners for now (no sound set).
 - **Dark mode** — follows the system (`prefers-color-scheme`); all text meets
   WCAG AA contrast (4.5:1) in both themes
 - **Gestures** — double-tap / double-click completes, long-press deletes,
@@ -108,7 +129,10 @@ is enough; HTTPS is required for install + service worker on real devices.
   (hold-and-drag on touch)
 - **Persistence** — localStorage key `stackd-v2`. A `stackd-v1` store from
   1.0 is migrated once on first launch and left in place for rollback; the
-  old reminder presets become a due time when the task had a due date
+  old reminder presets become a due time when the task had a due date.
+  Reminders add two small keys: `stackd-reminders-fired` (which reminders a
+  tab already showed, so other tabs don't repeat them) and
+  `stackd-native-scheduled` (what the iOS app handed to the system)
 
 ## Files
 
@@ -116,8 +140,12 @@ is enough; HTTPS is required for install + service worker on real devices.
 - `index.html` — shell (loads `app.js` as an ES module)
 - `app.js` — entry point: `render()`, routing, global listeners
 - `src/store.js` — state, v1 → v2 migration, selectors, every mutation
-- `src/dates.js` — local-time date maths, recurrence, formatting (pure, so
-  Node can test it)
+- `src/dates.js` — local-time date maths, recurrence, reminder times,
+  formatting (pure, so Node can test it)
+- `src/reminders.js` — the reminder engine: plan, text, web firing rules,
+  native reconcile (pure)
+- `src/notify.js` — reminders on the device: permission, the web clock and
+  service-worker notifications, the iOS LocalNotifications sync
 - `src/util.js` — ids, HTML escaping, app root
 - `src/ui/` — one module per screen or overlay:
   - `shell.js` — onboarding, Boards menu, bottom nav, desktop sidebar
@@ -135,10 +163,11 @@ is enough; HTTPS is required for install + service worker on real devices.
   `components.css`, `screens.css`, `fonts.css`
 - `fonts/` — self-hosted Inter + Manrope (woff2)
 - `scripts/` — `build-www.mjs` (Capacitor copy), `check-dates.mjs`,
-  `check-shell.mjs`
+  `check-reminders.mjs`, `check-store.mjs`, `check-shell.mjs`
 - `docs/` — `prd.md`, `architecture.md`, `qa-report.md`
 - `manifest.webmanifest` — PWA install metadata (name, colors, icons)
-- `sw.js` — service worker: precached app shell, stale-while-revalidate
+- `sw.js` — service worker: precached app shell, stale-while-revalidate,
+  opens the task when a reminder notification is tapped
 - `icons/` — app icons (192/512, maskable, apple-touch-icon)
 
 ## iOS / App Store
@@ -159,7 +188,10 @@ Layout:
 - `assets/` — 1024px icon + light/dark splash sources. Opaque (no alpha
   channel), which App Store validation requires. `@capacitor/assets`
   generates every native size from these during the build.
-- `codemagic.yaml` — two workflows:
+- `codemagic.yaml` — two workflows. Since 1.2.0 they create the iOS project
+  with `npx cap add ios --packagemanager CocoaPods`: Capacitor 8 otherwise
+  creates a Swift Package Manager project, which has no Podfile or
+  `App.xcworkspace` for the `pod install` and build steps below.
   - `ios-release` — signed `.ipa` to TestFlight. Triggered by pushing a
     `v*` tag (e.g. `git tag v1.1.0 && git push --tags`).
   - `ios-debug` — unsigned compile check, for verifying the build works.
@@ -185,9 +217,12 @@ until the store listing is complete.
 ### Note on App Store review
 
 Apple's Guideline 4.2 (Minimum Functionality) rejects apps that are only a
-repackaged website. Offline support helps, but the strongest fix is real
-native capability — the highest-value one here is turning the task
-**Reminder** into actual local notifications
-(`@capacitor/local-notifications`). Since 1.1.0 every task stores a due date,
-time and reminder offset, so the data is ready; nothing schedules a
-notification yet (PRD US-10, deferred).
+repackaged website. Offline support helps; the strongest native capability
+here is the task **Reminder**, which since 1.2.0 schedules real local
+notifications through `@capacitor/local-notifications` (PRD US-10).
+
+The app reaches the plugin through the object Capacitor injects
+(`window.Capacitor.Plugins.LocalNotifications`), because there is no bundler
+to resolve `import ... from '@capacitor/local-notifications'`. It has been
+verified against a stand-in for that object, not yet on an iPhone: run the
+`ios-debug` workflow and try a reminder on a device before tagging a release.

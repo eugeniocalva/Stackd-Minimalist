@@ -4,7 +4,7 @@ Scope of this PRD: task fields in the detail screen, task actions menu
 (move / copy / archive / delete), Archived and Deleted folders, a Trello-style
 schedule popover with recurrence, and a design refresh towards Stack'd Finance.
 
-Status: **approved 2026-10-16** (all §07 recommendations accepted) and **implemented in 1.1.0**. QA results: `docs/qa-report.md`. US-10 (notifications) is deferred.
+Status: **approved 2026-10-16** (all §07 recommendations accepted) and **implemented in 1.1.0**; US-10 (notifications) followed in **1.2.0**. QA results: `docs/qa-report.md`. AC-10.2 still needs a run on an iPhone.
 Companion document: `docs/architecture.md` (data model, modules, phases).
 
 ---
@@ -219,8 +219,10 @@ Trello's date popover.*
       (checkbox + date field); **Due date** (checkbox + date field + time
       field); **Repeat** select: Never / Daily / Weekly / Monthly / Yearly;
       **Reminder** select: None / At time of due / 10 minutes before / 1 hour
-      before / 1 day before / 2 days before; helper text "You will be reminded
-      on this device"; **Save** (primary) and **Remove** (secondary).
+      before / 1 day before / 2 days before; a helper line that says when the
+      reminder will come and whether this device can show it (in 1.1.0 it was
+      the fixed text "You will be reminded on this device"); **Save** (primary)
+      and **Remove** (secondary).
 - [x] AC-07.3 Tapping a day in the grid sets the date field that was last
       focused (Due by default). When both Start and Due are set, the days
       between them are highlighted as a range with rounded ends.
@@ -309,12 +311,21 @@ same family as Stack'd Finance.*
       list, kanban, detail, add sheet, desktop table and kanban are all
       restyled.
 
-### US-10 — Reminder notifications (Could, separate phase)
-- [ ] AC-10.1 Web / PWA: while the app is open, a 60 s check fires a
+### US-10 — Reminder notifications (Could, separate phase — built in 1.2.0)
+- [x] AC-10.1 Web / PWA: while the app is open, a 60 s check fires a
       Notification at `due + dueTime − reminder` after permission is granted;
-      each reminder fires once (`reminderFiredAt`).
+      each reminder fires once (`reminderFiredAt`). *Verified in Edge against
+      the real service worker (docs/qa-report.md, 1.2.0).*
 - [ ] AC-10.2 Native: `@capacitor/local-notifications` schedules the reminder
       on save and cancels it on change, remove, archive or delete.
+      *Implemented in 1.2.0 and verified against a stand-in for the plugin
+      object iOS injects; tick after a run on an iPhone.*
+
+Decisions taken while building it (1.2.0): a reminder saved after its moment
+is used up rather than fired; a web reminder found late still fires if the
+task is not overdue yet or within 15 minutes, otherwise it lapses quietly;
+three or more at once become one summary; tasks without a time use 09:00;
+done tasks get no reminders; notifications are silent on iOS (no sound set).
 
 ---
 
@@ -384,4 +395,4 @@ Pages publishes. QA follows `agents/qa_tester.md` against this document.
 | Q4 | Drop the delete confirm dialog in favour of **toast + Undo**, now that delete is recoverable for 30 days? | Yes, on all entry points. "Delete forever" and "Empty folder" keep a confirm. |
 | Q5 | Colour: adopt Finance tokens fully (black primary, sky-blue dark accent) and reserve **red for overdue / High**, keeping red only in the brand mark? | Yes. Keeping red as the structural accent would fight the Finance palette. |
 | Q6 | Overdue recurring task: advance from the **due date until it lands in the future** (skips missed periods), or always exactly one period from the due date? | Skip to the future; it avoids a task being "overdue" immediately after completing it. |
-| Q7 | Include **US-10 notifications** in this release (adds the Capacitor plugin and a permission prompt) or defer? | Defer to its own phase after the rest ships; the schedule data is designed so it plugs in without migration. |
+| Q7 | Include **US-10 notifications** in this release (adds the Capacitor plugin and a permission prompt) or defer? | Defer to its own phase after the rest ships; the schedule data is designed so it plugs in without migration. **Done:** deferred from 1.1.0, shipped in 1.2.0. |

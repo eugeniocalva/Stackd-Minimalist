@@ -4,7 +4,8 @@
    layer. Schema: docs/architecture.md §3. */
 
 import { uid } from './util.js';
-import { daysFrom, nextOccurrence, addDays, daysBetween } from './dates.js';
+import { daysFrom, nextOccurrence, addDays, daysBetween, reminderInstant } from './dates.js';
+import { reminderKey } from './reminders.js';
 
 export const STORE_KEY = 'stackd-v2';
 const LEGACY_KEY = 'stackd-v1';
@@ -50,9 +51,13 @@ function read(key) {
 export function save() { localStorage.setItem(STORE_KEY, JSON.stringify(S)); }
 
 let renderer = () => {};
+let afterCommit = () => {};
 export function setRenderer(fn) { renderer = fn; }
+/** Runs after every commit (app.js wires native reminder sync here). The
+    hook must never commit or re-render itself. */
+export function setAfterCommit(fn) { afterCommit = fn; }
 export function rerender() { renderer(); }
-export function commit() { save(); renderer(); }
+export function commit() { save(); renderer(); afterCommit(); }
 
 /* ── Migration ───────────────────────────────────────────────────────── */
 
@@ -73,13 +78,15 @@ function upgradeV1(v1) {
     tasks: (v1.tasks || []).map((t) => {
       const time = V1_REMINDER_TIME[t.reminder];
       const hasSchedule = !!(t.due && time);
-      return {
+      const task = {
         ...blankTask(t.listId, t.title),
         ...t,
         dueTime: hasSchedule ? time : null,
         reminder: hasSchedule ? 0 : null,
         createdAt: now, updatedAt: now,
       };
+      armReminder(task, now);
+      return task;
     }),
   };
 }
@@ -187,7 +194,7 @@ export function toggleDone(id) {
   if (!t.done && t.recur !== 'none' && t.due) { rollForward(id); return; } // recurring: never "done"
   t.done = !t.done;
   if (t.done) { t.lane = 'done'; S.lastAuto = Date.now(); }
-  else if (t.lane === 'done') t.lane = 'backlog';
+  else { if (t.lane === 'done') t.lane = 'backlog'; armReminder(t); }
   touch(t); commit();
 }
 
@@ -202,24 +209,23 @@ export function reorderTask(id, beforeId) {
 export function moveToLane(id, lane) {
   const t = taskById(id); if (!t || !lane) return;
   if (lane === 'done' && t.recur !== 'none' && t.due) { rollForward(id); return; }
+  const wasDone = t.done;
   t.lane = lane;
   t.done = lane === 'done';
+  if (wasDone && !t.done) armReminder(t);
   touch(t); commit();
 }
 
 export function addTask(draft) {
-  S.tasks.push(blankTask(draft.listId, draft.title, {
+  const t = blankTask(draft.listId, draft.title, {
     priority: draft.priority, tags: normalizeTags(draft.tags || []),
     start: draft.start || null, due: draft.due || null, dueTime: draft.dueTime || null,
     recur: draft.recur || 'none', reminder: draft.reminder ?? null,
     lane: draft.lane || 'backlog', done: draft.lane === 'done', order: nextOrder(),
-  }));
+  });
+  armReminder(t);
+  S.tasks.push(t);
   commit();
-}
-
-export function setReminder(id, minutes) {
-  const t = taskById(id); if (!t) return;
-  t.reminder = minutes; touch(t); commit();
 }
 
 export function setPriority(id, priority) {
@@ -249,16 +255,42 @@ export function setTags(id, tags) {
 
 /* — schedule — */
 
+/** Arm a task's reminder: null while its moment is still ahead, or "used"
+    (now) when that moment has already passed — so saving, restoring or
+    reopening a task never fires a stale reminder on the spot. */
+export function armReminder(t, now = Date.now()) {
+  const at = reminderInstant(t.due, t.dueTime, t.reminder);
+  t.reminderFiredAt = at !== null && at <= now ? now : null;
+}
+
+/** Record that a reminder fired. Updates this tab's state and the stored
+    document in place (read-modify-write), and does NOT save this tab's whole
+    state: a background tab must never overwrite edits another tab made. */
+export function markReminderFired(id, at = Date.now()) {
+  const t = taskById(id);
+  if (t) t.reminderFiredAt = at;
+  try {
+    const doc = JSON.parse(localStorage.getItem(STORE_KEY));
+    const stored = doc?.tasks?.find((x) => x.id === id);
+    if (stored && stored.reminderFiredAt !== at) {
+      stored.reminderFiredAt = at;
+      localStorage.setItem(STORE_KEY, JSON.stringify(doc));
+    }
+  } catch { /* storage unavailable: notify.js keeps its own per-tab record, so it still won't repeat */ }
+}
+
 /** Normalise and store the five schedule fields in one go. Repeat and
     reminder need a due date; a start date after the due date is dropped. */
 export function setSchedule(id, { start = null, due = null, dueTime = null, recur = 'none', reminder = null }) {
   const t = taskById(id); if (!t) return;
+  const before = reminderKey(t);
   t.due = due || null;
   t.dueTime = t.due ? (dueTime || null) : null;
   t.start = start && (!t.due || start <= t.due) ? start : null;
   t.recur = t.due ? recur : 'none';
   t.reminder = t.due ? reminder : null;
-  t.reminderFiredAt = null;
+  /* saving unchanged dates must not re-fire a reminder that already went off */
+  if (reminderKey(t) !== before) armReminder(t);
   touch(t); commit();
 }
 
@@ -277,7 +309,7 @@ export function rollForward(id) {
   const nextDue = nextOccurrence(t.due, t.recur);
   if (t.start) t.start = addDays(t.start, daysBetween(t.due, nextDue));
   t.due = nextDue;
-  t.reminderFiredAt = null;
+  armReminder(t);
   t.subtasks.forEach((s) => { s.done = false; });
   t.completedCount += 1;
   t.lastCompletedAt = Date.now();
@@ -300,8 +332,10 @@ export function moveTask(id, listId, lane) {
   const t = taskById(id); if (!t || !listById(listId)) return;
   if (lane === 'done' && t.recur !== 'none' && t.due) lane = t.lane;
   if (t.listId === listId && t.lane === lane) return;
+  const wasDone = t.done;
   t.listId = listId; t.lane = lane; t.order = nextOrder();
   t.done = lane === 'done';
+  if (wasDone && !t.done) armReminder(t);
   S.currentList = listId;
   touch(t); commit();
 }
@@ -316,6 +350,7 @@ export function copyTask(id, listId, lane) {
     subtasks: t.subtasks.map((s) => ({ id: uid(), title: s.title, done: false })),
     start: t.start, due: t.due, dueTime: t.dueTime, recur: t.recur, reminder: t.reminder,
   });
+  armReminder(copy);
   S.tasks.push(copy);
   commit();
   return copy;
@@ -373,6 +408,7 @@ export function restoreTask(id, { keepPosition = false } = {}) {
   t.order = keepPosition ? o.order : nextOrder();
   t.done = t.lane === 'done';
   t.status = 'active'; t.archivedAt = null; t.deletedAt = null; t.origin = null;
+  armReminder(t);
   touch(t); commit();
   return { listId: t.listId, lane: t.lane, fellBack };
 }

@@ -163,6 +163,7 @@ export function bindDetail() {
   /* due date + reminder both open the schedule popover */
   const schedule = () => openSchedule({
     schedule: t,
+    done: t.done,
     onSave: (sch) => setSchedule(t.id, sch),
     onRemove: () => clearSchedule(t.id),
   });

@@ -9,8 +9,12 @@
    the week, and Enter or Space picks the focused day. Esc closes. */
 
 import { REMINDER_OPTIONS } from '../store.js';
-import { todayISO, monthGrid, fmtMonth, RECUR_OPTIONS, addDays, addMonths } from '../dates.js';
+import {
+  todayISO, toISO, monthGrid, fmtMonth, fmtDateLong, RECUR_OPTIONS, addDays, addMonths, reminderInstant,
+} from '../dates.js';
+import { isNative, reminderPermission, requestReminderPermission } from '../notify.js';
 import { icon } from './icons.js';
+import { toast } from './primitives.js';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const TABBABLE = 'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]), select:not([disabled])';
@@ -18,9 +22,29 @@ const monthOf = (iso) => ({ year: +iso.slice(0, 4), month: +iso.slice(5, 7) - 1 
 const weekday = (iso) => (new Date(iso + 'T00:00:00').getDay() + 6) % 7; // Monday = 0
 const longDate = (iso) => new Date(iso + 'T00:00:00')
   .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+const pad = (n) => String(n).padStart(2, '0');
+const momentLabel = (ms) => { const t = new Date(ms); return `${fmtDateLong(toISO(t))} at ${pad(t.getHours())}:${pad(t.getMinutes())}`; };
 
-/** openSchedule({ schedule, onSave(schedule), onRemove() }) */
-export function openSchedule({ schedule, onSave, onRemove }) {
+/** The line under the fields: when the reminder will come, and whether this
+    device can actually show it (PRD US-10). */
+function reminderHint(d, done) {
+  const at = d.due ? reminderInstant(d.due, d.dueTime, d.reminder) : null;
+  if (at === null) return 'No reminder set.';
+  if (at <= Date.now()) return `That reminder time (${momentLabel(at)}) has already passed.`;
+  if (done) return 'Reminders are off while the task is done. Reopen it to get this one.';
+  const when = `Reminder on ${momentLabel(at)}`;
+  switch (reminderPermission()) {
+    case 'granted': return isNative() ? `${when}.` : `${when}, while Stack'd is open.`;
+    case 'default': return `${when}. Saving asks to allow notifications.`;
+    case 'denied': return "Notifications are blocked for Stack'd. Allow them in settings to get this reminder.";
+    case 'install': return "Reminders need Stack'd on your Home Screen (iOS 16.4 or later). Tasks in this Safari tab don't move there.";
+    default: return "This browser can't show reminder notifications.";
+  }
+}
+
+/** openSchedule({ schedule, done, onSave(schedule), onRemove() }) — `done`
+    says the task is completed, so a reminder would not fire. */
+export function openSchedule({ schedule, done = false, onSave, onRemove }) {
   const d = {
     start: schedule.start || null, due: schedule.due || null, dueTime: schedule.dueTime || null,
     recur: schedule.recur || 'none', reminder: schedule.reminder ?? null,
@@ -124,9 +148,8 @@ export function openSchedule({ schedule, onSave, onRemove }) {
     set('[data-f="start"]', 'disabled', !d.start);
     for (const f of ['due', 'dueTime', 'recur', 'reminder']) set(`[data-f="${f}"]`, 'disabled', !d.due);
     sheet.querySelectorAll('[data-row]').forEach((r) => r.classList.toggle('armed', r.dataset.row === armed));
-    q('[data-hint]').innerHTML = invalid()
-      ? '<span class="error">Start must be on or before the due date</span>'
-      : 'You will be reminded on this device.';
+    if (invalid()) q('[data-hint]').innerHTML = '<span class="error">Start must be on or before the due date</span>';
+    else q('[data-hint]').textContent = reminderHint(d, done);
     q('[data-sched-save]').disabled = invalid();
   }
 
@@ -165,7 +188,18 @@ export function openSchedule({ schedule, onSave, onRemove }) {
       return;
     }
     if (el.dataset.schedRemove !== undefined) { close(); onRemove(); return; }
-    if (el.dataset.schedSave !== undefined && !invalid()) { close(); onSave({ ...d }); }
+    if (el.dataset.schedSave !== undefined && !invalid()) {
+      /* the permission prompt needs this tap, so ask before anything awaits */
+      const at = d.due ? reminderInstant(d.due, d.dueTime, d.reminder) : null;
+      const willFire = at !== null && at > Date.now() && !done;
+      if (willFire && reminderPermission() === 'default') {
+        requestReminderPermission().then((state) => {
+          if (state === 'denied') toast('Notifications are blocked, so this reminder will not show');
+        });
+      }
+      close();
+      onSave({ ...d });
+    }
   });
 
   q('[data-days]').addEventListener('keydown', (e) => {

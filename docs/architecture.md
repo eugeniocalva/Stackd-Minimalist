@@ -130,6 +130,8 @@ Stackd Minimalist/
 │  ├─ store.js                 state, migrate, selectors, mutations, purge
 │  ├─ dates.js                 todayISO, addDays, nextOccurrence, fmtDue, fmtRelative
 │  ├─ util.js                  uid, esc, app root
+│  ├─ reminders.js             reminder engine: plan, text, web firing rules, native diff (pure)
+│  ├─ notify.js                permission, web clock + SW notifications, iOS LocalNotifications sync
 │  └─ ui/
 │     ├─ primitives.js         toast(), confirmDialog(), openMenu()
 │     ├─ actions.js            archive / delete / restore / move / complete + their toasts
@@ -153,7 +155,9 @@ Stackd Minimalist/
 ├─ sw.js                       SHELL += src/**, styles/**, fonts/**
 └─ scripts/
    ├─ build-www.mjs            ASSETS += 'src', 'styles', 'fonts'
-   ├─ check-dates.mjs          date maths assertions (npm run check)
+   ├─ check-dates.mjs          date maths assertions + pinned-zone DST runs (npm run check)
+   ├─ check-reminders.mjs      reminder engine assertions (npm run check)
+   ├─ check-store.mjs          store reminder rules on the real store.js (npm run check)
    └─ check-shell.mjs          SHELL list ↔ files on disk (npm run check)
 ```
 
@@ -311,6 +315,16 @@ Estimates are focused build time, excluding review.
 ### Phase 6 — Reminder notifications · M (~4 h) — optional, US-10
 - Web timer + Notification API; `@capacitor/local-notifications` on native;
   permission prompt only when the first reminder is saved.
+- **As built (1.2.0):** pure engine in `src/reminders.js`, device side in
+  `src/notify.js`, wired through a `setAfterCommit` hook in the store (which
+  never re-renders). Web: one tab holds a Web Lock and checks every 60 s and
+  on focus; notifications go through the service worker; each occurrence is
+  recorded in `reminderFiredAt` plus a cross-tab ledger. Native: the plugin
+  object iOS injects (`window.Capacitor.Plugins.LocalNotifications`) — no
+  `@capacitor/core` import — reconciled against `getPending()`, future
+  reminders only, soonest 60, cancels even without permission, schedules only
+  with it. `armReminder` decides when a reminder is armed or already used.
+  Codemagic now adds the iOS platform with CocoaPods to match its pipeline.
 
 Order rationale: the design port comes before the new screens so every new
 component is built once, in the final style; the data model comes before the

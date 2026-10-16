@@ -63,6 +63,26 @@ export function isOverdue(due, dueTime = null, now = new Date()) {
   return now > end;
 }
 
+/** Time a reminder uses when the task has a due date but no due time. */
+export const DEFAULT_REMINDER_TIME = '09:00';
+
+/** The moment a reminder should fire, as epoch ms, or null when the task has
+    no due date or no reminder. Whole-day offsets (1 or 2 days before) move on
+    the calendar, so "1 day before 09:00" stays at 09:00 across a DST change.
+    Shorter offsets subtract real elapsed time: doing them on wall-clock
+    fields would land inside the spring-forward gap and fire after the due
+    time (10 min before 02:05 on a DST day became 02:55). */
+export function reminderInstant(due, dueTime, reminder) {
+  if (!due || reminder === null || reminder === undefined) return null;
+  const d = new Date(`${due}T${dueTime || DEFAULT_REMINDER_TIME}:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  if (reminder > 0 && reminder % 1440 === 0) {
+    d.setDate(d.getDate() - reminder / 1440);
+    return d.getTime();
+  }
+  return d.getTime() - reminder * 60000;
+}
+
 /** Chip label + tone. Tone: overdue (red), soon (amber, ≤ 3 days), neutral. */
 export function fmtDue(due, { full = false, dueTime = null, now = new Date() } = {}) {
   const d = parse(due);

@@ -42,7 +42,7 @@ workflows:
       - name: Add iOS platform if not committed
         script: |
           if [ ! -d "ios" ]; then
-            npx cap add ios
+            npx cap add ios --packagemanager CocoaPods
           fi
 
       - name: Sync web assets + plugins into the native project
@@ -106,7 +106,7 @@ workflows:
       - name: Add iOS platform if not committed
         script: |
           if [ ! -d "ios" ]; then
-            npx cap add ios
+            npx cap add ios --packagemanager CocoaPods
           fi
       - name: Sync Capacitor
         script: npx cap sync ios

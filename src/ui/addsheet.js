@@ -73,6 +73,7 @@ export function openSheet({ lane } = {}) {
     if (chip.dataset.pick !== undefined) {
       openSchedule({
         schedule: draft,
+        done: draft.lane === 'done',
         onSave: (sch) => {
           Object.assign(draft, sch);
           selectOne('[data-due]', draft.due ? chip : null);

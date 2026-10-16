@@ -96,3 +96,76 @@ npm run check
 
 The browser checks were run interactively against `http://localhost:8123`
 and are not part of the repository.
+
+---
+
+# Addendum: 1.2.0 — Reminder notifications (US-10)
+
+Date: 2026-10-16 · Service worker `stackd-v1.2.0`.
+
+**Verdict: 🟢 for the web; iOS needs a device run.** AC-10.1 passes. AC-10.2
+is built and passes a contract test against a stand-in for the object iOS
+injects, but it has not run on an iPhone.
+
+## How it was checked
+
+| Check | Result |
+|---|---|
+| `npm run check` — date maths incl. DST pinned to 4 zones, reminder engine, store rules on the real `store.js`, precache list | Pass |
+| Mutation check — DST bugs re-introduced on purpose (whole-day offset as milliseconds; minute offset on wall-clock fields) | Both caught |
+| Web end-to-end — headless Edge, notification permission granted, real service worker, real `getNotifications()` | 11/11 |
+| Native contract — headless Edge with a stand-in `Capacitor.Plugins.LocalNotifications` (promise methods, empty `cancel` rejects, ISO dates back) | 24/24 |
+| Adversarial review — 5 reviewers, 3 skeptics per finding, then a fix check and a critic | 20 findings → 15 confirmed (9 distinct) → all fixed; fix check found 4 more → fixed |
+
+Web end-to-end covered: a timely reminder fires once with the right text and
+tag; a stale one lapses; nothing repeats after reload; three at once become
+one summary; a tap opens the task; the `#task=` link opens it from a cold
+start; a late "1 day before" reminder on the due day says "Due today"; with
+two tabs open only one fires, because only one holds the clock lock.
+
+Native contract covered: no prompt at launch; permission asked only from the
+Save tap, with user activation; payload uses a real `Date`, an integer id and
+the task id in `extra`; change reschedules under the same id; archive, done
+and delete cancel; restore schedules again; resume syncs; bursts coalesce;
+`cancel([])` never happens; without permission, deletes still cancel and
+nothing is scheduled; delivered reminders are recorded so a time-zone change
+can't repeat them; a reminder saved 2 s before its moment survives a commit
+inside the clamp window; a done, repeating task gets no promise and no prompt.
+
+## Defects found and fixed
+
+1. Late web reminders used the fire-time text ("Due tomorrow" on the due day). Now re-phrased when found more than 2 minutes late.
+2. Re-phrasing every reminder made on-time "At time of due" read "Overdue". Fixed with the 2-minute rule.
+3. Done tasks (with or without a repeat rule) were promised a reminder and Save asked for permission. Now "Reminders are off while the task is done".
+4. The iPhone hint sent users to a Home Screen app without their tasks (separate storage on iOS) and said "iPhone" on iPad. Copy now says tasks don't move there.
+5. Native never recorded delivery, so flying west could repeat a reminder. Now recorded from an absolute log of what was scheduled.
+6. Native sync cancelled requests iOS still held when their moment looked past (clamp window, flying east). Held requests are now left alone; never-delivered but timely ones are delivered now.
+7. Without permission, native sync skipped cancellations. Now always cancels; only scheduling needs permission.
+8. A failed storage write could repeat a web reminder every minute. A per-tab record prevents it.
+9. A notification tap could focus another site on the same origin (other GitHub Pages sites). Only windows in the app's scope are used.
+10. The DST checks only worked in some machine time zones, and later could pass with every zone skipped. Zones are pinned in child processes and a missing zone fails.
+11. The reminder time itself subtracted minutes on wall-clock fields, so "10 minutes before 02:05" on a spring-forward day fired 50 minutes late. Minute offsets now subtract real time; day offsets stay on the calendar.
+
+## Not verified
+
+- **iPhone:** no device run. Run the Codemagic `ios-debug` workflow, install
+  a build, set a reminder a few minutes out, and check it arrives with the
+  app closed and that tapping it opens the task. A tap that cold-launches the
+  app may not deliver the "action performed" event with Capacitor 8's scene
+  setup; the app still opens.
+- **Codemagic:** `codemagic.yaml` now runs `npx cap add ios --packagemanager
+  CocoaPods`, because Capacitor 8 otherwise creates a Swift Package Manager
+  project with no Podfile or `App.xcworkspace`. The pipeline was never run
+  before this change either.
+- **iPhone/iPad Home Screen web app:** whether a foreground notification shows
+  a banner, and whether the tap handler fires (WebKit bug 268797).
+- **Sound:** iOS notifications are silent banners; no sound is set.
+
+## Observations
+
+- `npm audit` reports two critical advisories in `@capacitor/ios` and
+  `@capacitor/android` 8.5.0, fixed in 8.5.1. They predate this change.
+- The seed demo task "Prepare Q3 review deck" has a reminder; new users get
+  it a week after onboarding if they allow notifications.
+- Web reminders only fire while Stack'd is open in a tab or window; reliable
+  background delivery is the iOS app.

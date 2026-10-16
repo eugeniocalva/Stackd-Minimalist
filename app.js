@@ -2,7 +2,10 @@
    localStorage persistence. This is the entry point: it owns render() and
    the global listeners; state lives in src/store.js, screens in src/ui/. */
 
-import { S, UI, isDesktop, setRenderer, rerender, purgeDeleted } from './src/store.js';
+import {
+  S, UI, isDesktop, setRenderer, setAfterCommit, rerender, commit, purgeDeleted, taskById,
+} from './src/store.js';
+import { initReminders, syncReminders } from './src/notify.js';
 import { app } from './src/util.js';
 import {
   onboardingHTML, bindOnboarding, listsMenuHTML, bindListsMenu,
@@ -41,10 +44,22 @@ function render() {
 /* ── Boot ────────────────────────────────────────────────────────────── */
 
 setRenderer(render);
+setAfterCommit(syncReminders); // native: keep iOS pending reminders in step
 purgeDeleted();
+
+/** Show a task, e.g. from a tapped reminder notification. */
+function openTask(id) {
+  const t = taskById(id);
+  if (!t) return;
+  if (t.status === 'active') S.currentList = t.listId;
+  UI.detailId = id;
+  UI.screen = 'detail';
+  commit();
+}
 
 document.addEventListener('click', (e) => {
   if (UI.sortMenu && !e.target.closest('.sortwrap')) { UI.sortMenu = false; rerender(); }
 });
 isDesktop.addEventListener('change', render);
 render();
+initReminders({ openTask });

@@ -1,6 +1,6 @@
 /* Stack'd service worker — offline-first app shell.
    Bump VERSION whenever app files change so installed clients pick them up. */
-const VERSION = 'stackd-v1.1.0';
+const VERSION = 'stackd-v1.2.0';
 
 const SHELL = [
   './',
@@ -9,6 +9,8 @@ const SHELL = [
   'src/util.js',
   'src/dates.js',
   'src/store.js',
+  'src/reminders.js',
+  'src/notify.js',
   'src/ui/shell.js',
   'src/ui/board.js',
   'src/ui/detail.js',
@@ -69,4 +71,26 @@ self.addEventListener('fetch', (e) => {
       return cached || network;
     })
   );
+});
+
+/* Reminder tapped (PRD US-10): focus an open Stack'd window and ask it to
+   show the task, or open the app at #task=<id>. URLs resolve against the
+   registration scope because Pages serves the app from a sub-path; a hash
+   (not a query) keeps the precached './' entry usable offline. */
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const data = e.notification.data || {};
+  const id = data.taskId || (e.notification.tag.match(/^reminder:([^:]+):/) || [])[1];
+  const url = new URL(id ? `./#task=${id}` : './', self.registration.scope).href;
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    /* same origin is not enough: other Pages sites share it */
+    const win = wins.find((w) => w.url.startsWith(self.registration.scope));
+    if (win) {
+      try { await win.focus(); } catch { /* focus may be refused; still deliver the message */ }
+      if (id) win.postMessage({ type: 'open-task', id });
+      return;
+    }
+    await self.clients.openWindow(url);
+  })());
 });

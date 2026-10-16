@@ -1,8 +1,10 @@
 /* Sanity checks for src/dates.js — run with `npm run check`. No framework;
    each line is one assertion, the script exits non-zero on the first miss. */
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
-  toISO, addDays, addMonths, addYears, daysBetween, nextOccurrence, isOverdue, fmtDue, monthGrid,
+  toISO, addDays, addMonths, addYears, daysBetween, nextOccurrence, isOverdue, fmtDue, monthGrid, reminderInstant,
 } from '../src/dates.js';
 
 // local-time ISO, never UTC
@@ -52,4 +54,66 @@ assert.equal(g[0].iso, '2026-09-28');
 assert.equal(g[3].iso, '2026-10-01');
 assert.equal(g.filter((c) => c.inMonth).length, 31);
 
-console.log('check-dates: all assertions passed');
+// reminder instant: due + time − minutes, on local wall-clock fields
+const local = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime();
+assert.equal(reminderInstant('2026-10-23', '09:00', 0), local(2026, 10, 23, 9));
+assert.equal(reminderInstant('2026-10-23', '09:00', 10), local(2026, 10, 23, 8, 50));
+assert.equal(reminderInstant('2026-10-23', '00:30', 60), local(2026, 10, 22, 23, 30)); // crosses midnight
+assert.equal(reminderInstant('2026-10-23', null, 1440), local(2026, 10, 22, 9));      // no time → 09:00
+assert.equal(reminderInstant('2026-03-30', '09:00', 2880), local(2026, 3, 28, 9));    // across the EU DST switch
+// sub-day offsets are real elapsed time, so they always land before the due
+// moment, even when the due time sits right after a spring-forward gap
+for (const [due, time] of [['2026-03-29', '02:05'], ['2026-03-08', '03:05'], ['2026-10-25', '01:30']]) {
+  const at = new Date(`${due}T${time}:00`).getTime();
+  assert.equal(at - reminderInstant(due, time, 10), 10 * 60000);
+  assert.equal(at - reminderInstant(due, time, 60), 60 * 60000);
+}
+assert.equal(reminderInstant('2026-10-23', '09:00', null), null);
+assert.equal(reminderInstant(null, '09:00', 0), null);
+
+// DST pinned to real zones. Everything above compares against the same local
+// constructor, so it only proves DST handling where the machine's zone has
+// DST on those dates. Here this file re-runs itself per zone (TZ passed
+// straight to the child) and checks absolute UTC instants.
+const ZONE_CASES = {
+  'Europe/Lisbon': [
+    ['2026-03-29', '09:00', 1440, Date.UTC(2026, 2, 28, 9, 0)],  // 1 day before, across spring-forward: 09:00 WET
+    ['2026-03-29', '02:05', 10, Date.UTC(2026, 2, 29, 0, 55)],   // just after the gap: 10 real minutes earlier
+    ['2026-10-25', '09:00', 1440, Date.UTC(2026, 9, 24, 8, 0)],  // across fall-back: 09:00 WEST
+  ],
+  'America/New_York': [
+    ['2026-03-08', '09:00', 1440, Date.UTC(2026, 2, 7, 14, 0)],
+    ['2026-03-08', '03:05', 10, Date.UTC(2026, 2, 8, 6, 55)],
+    ['2026-11-01', '09:00', 2880, Date.UTC(2026, 9, 30, 13, 0)],
+  ],
+  'Australia/Sydney': [
+    ['2026-04-05', '09:00', 1440, Date.UTC(2026, 3, 3, 22, 0)],
+  ],
+  'Asia/Tokyo': [
+    ['2026-03-29', '09:00', 1440, Date.UTC(2026, 2, 28, 0, 0)],
+  ],
+};
+const zoneArg = process.argv.indexOf('--zone');
+const zone = zoneArg > 0 ? process.argv[zoneArg + 1] : null;
+if (zone) {
+  if (Intl.DateTimeFormat().resolvedOptions().timeZone !== zone) {
+    console.log(`check-dates: time zone ${zone} not available here, skipped`);
+    process.exit(3);
+  }
+  for (const [due, time, offset, utc] of ZONE_CASES[zone]) {
+    assert.equal(reminderInstant(due, time, offset), utc, `${zone}: ${due} ${time} minus ${offset} min`);
+  }
+  process.exit(0);
+}
+/* A zone that cannot be applied fails the run: skipping it silently would
+   turn these checks off (set STACKD_ALLOW_TZ_SKIP=1 to allow it). */
+const zones = Object.keys(ZONE_CASES);
+let ran = 0;
+for (const z of zones) {
+  const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--zone', z], { env: { ...process.env, TZ: z }, encoding: 'utf8' });
+  if (r.status === 3 && process.env.STACKD_ALLOW_TZ_SKIP === '1') { console.log(r.stdout.trim()); continue; }
+  assert.equal(r.status, 0, `date checks failed in ${z}: ${r.stdout}${r.stderr}`);
+  ran++;
+}
+
+console.log(`check-dates: all assertions passed (local zone + ${ran} pinned zones)`);
