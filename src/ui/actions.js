@@ -4,6 +4,7 @@
 import {
   taskById, listById, laneName, archiveTask, softDelete, returnToArchive, restoreTask,
   moveTask, toggleDone, rollForward, undoRollForward,
+  archiveNote, softDeleteNote, returnNoteToArchive, restoreNote,
 } from '../store.js';
 import { fmtDateLong } from '../dates.js';
 import { toast } from './primitives.js';
@@ -44,6 +45,27 @@ export function moveWithFeedback(id, listId, lane) {
   }
   moveTask(id, listId, lane);
   toast(`Moved to ${where(listId, lane)}`);
+}
+
+/* — notes (same feedback as tasks; a note restores to its list position) — */
+
+export function archiveNoteWithUndo(id) {
+  archiveNote(id);
+  toast('Archived', { action: { label: 'Undo', onClick: () => restoreNote(id) } });
+}
+
+export function deleteNoteWithUndo(id) {
+  const prev = softDeleteNote(id);
+  if (!prev) return;
+  const onClick = prev.status === 'archived'
+    ? () => returnNoteToArchive(id, prev.archivedAt)
+    : () => restoreNote(id);
+  toast('Deleted', { action: { label: 'Undo', onClick } });
+}
+
+export function restoreNoteWithToast(id) {
+  restoreNote(id);
+  toast('Restored to Notes');
 }
 
 const rolling = new Set(); // ids waiting out the completion flash

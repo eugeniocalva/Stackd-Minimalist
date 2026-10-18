@@ -17,6 +17,7 @@ const SHELL = [
   'src/ui/shell.js',
   'src/ui/notes.js',
   'src/ui/noteeditor.js',
+  'src/ui/notedetail.js',
   'src/ui/board.js',
   'src/ui/detail.js',
   'src/ui/addsheet.js',

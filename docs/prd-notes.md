@@ -199,7 +199,7 @@ controls once I need them.*
 - [x] AC-03.4 (Should) A second line with a one-line **preview** of the
       body in secondary text (formatting stripped), truncated; hidden when
       the body is empty or was used as the title.
-- [ ] AC-03.5 Tapping a row opens the note (US-04). Rows have the same
+- [x] AC-03.5 Tapping a row opens the note (US-04). Rows have the same
       hover / pressed states as task rows and are reachable with Tab +
       Enter.
 - [ ] AC-03.6 Tapping a tag chip in a row filters the list to that tag; an
@@ -214,7 +214,7 @@ controls once I need them.*
 *As a user, I want to open a note, fix a word, tick an item, change its
 colour or tags, without a separate "edit mode".*
 
-- [ ] AC-04.1 The note opens on the **detail screen** (same shell as a task:
+- [x] AC-04.1 The note opens on the **detail screen** (same shell as a task:
       sticky bar with back + ⋯). Mobile: full screen; desktop: the main
       column. Layout: the colour bar along the left of the content block;
       title (editable); body (editable, auto-growing, with the Format row
@@ -222,42 +222,42 @@ colour or tags, without a separate "edit mode".*
       chips and the colour swatch; and a footer line **"Created 11/10/26
       · Edited 16/10/26"** (relative words for Today / Yesterday, Date
       format setting otherwise).
-- [ ] AC-04.2 Edits **save on blur / after 500 ms of inactivity** and on
+- [x] AC-04.2 Edits **save on blur / after 500 ms of inactivity** and on
       back; there is no Save button. Every saved change to title, body,
       checklist, tags or colour sets `updatedAt = now`. Ticking or unticking
       a checklist item also counts as an edit.
-- [ ] AC-04.3 Checklist items can be **ticked**, edited, added (Enter) and
+- [x] AC-04.3 Checklist items can be **ticked**, edited, added (Enter) and
       removed (Backspace on empty, ✕). Ticked items are struck through and
       **sink to the bottom** of the checklist; unticking lifts them
       back in their original order. A "+ Add checklist" affordance appears
       when the note has none.
-- [ ] AC-04.4 Tags, colour and formatting use the same picker / popover /
+- [x] AC-04.4 Tags, colour and formatting use the same picker / popover /
       Format row as the composer.
-- [ ] AC-04.5 The **⋯ menu** holds **Copy · Archive · Delete** (Delete last,
+- [x] AC-04.5 The **⋯ menu** holds **Copy · Archive · Delete** (Delete last,
       destructive, after a divider), behaving like the task menu
       (AC-03.1–3.2 of the v2 PRD). Copy duplicates the note ("Copy of
       ‹title›", checklist reset to unticked, fresh `createdAt`) and opens
       the copy.
-- [ ] AC-04.6 A note left completely empty when going back is deleted
+- [x] AC-04.6 A note left completely empty when going back is deleted
       silently (no empty rows in the list).
 
 ### US-05 — Archive, delete and restore notes
 *As a user, I want the safety net I already have for tasks.*
 
-- [ ] AC-05.1 Archive and Delete work exactly like tasks: status
+- [x] AC-05.1 Archive and Delete work exactly like tasks: status
       `archived` / `deleted`, timestamp, toast with **Undo** (5 s), no
       confirm; "Delete forever" and "Empty folder" keep their confirm.
-- [ ] AC-05.2 The Archived and Deleted folders show tasks **and** notes
+- [x] AC-05.2 The Archived and Deleted folders show tasks **and** notes
       behind a segmented control **Tasks ∕ Notes** at the top of each
       folder; folder counts in the sidebar and Boards menu add both kinds.
       Note rows reuse the task-row layout: colour bar, title, tag chips,
       checklist indicator, "Archived 3 days ago" / "Removed in 27 days".
-- [ ] AC-05.3 Restore returns a note to the Notes list (its manual position
+- [x] AC-05.3 Restore returns a note to the Notes list (its manual position
       is kept, see AC-07.4). Deleted notes are purged after 30 days by the
       same `purgeDeleted()` run.
-- [ ] AC-05.4 An archived or deleted note opens read-only with only
+- [x] AC-05.4 An archived or deleted note opens read-only with only
       Restore and Delete / Delete forever, like AC-05.6 of the v2 PRD.
-- [ ] AC-05.5 Settings › Labels: renaming or deleting a label applies to
+- [x] AC-05.5 Settings › Labels: renaming or deleting a label applies to
       notes as well as tasks; the "used by" counts include notes.
 
 ### US-06 — Design, accessibility and platform parity

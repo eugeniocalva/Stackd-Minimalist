@@ -18,6 +18,7 @@ import { detailHTML, bindDetail } from './src/ui/detail.js';
 import { foldersHTML, bindFolders } from './src/ui/folders.js';
 import { settingsHTML, bindSettings } from './src/ui/settings.js';
 import { notesHTML, bindNotes } from './src/ui/notes.js';
+import { noteDetailHTML, bindNoteDetail } from './src/ui/notedetail.js';
 
 function render() {
   applyTheme();
@@ -33,15 +34,17 @@ function render() {
       : UI.screen === 'folders' ? foldersHTML()
       : UI.screen === 'settings' ? settingsHTML()
       : UI.screen === 'notes' ? notesHTML()
+      : UI.screen === 'note' ? noteDetailHTML()
       : mobileListHTML();
-    /* no nav on the detail, nor behind an open composer (its toolbar must stay above the keyboard) */
-    const withNav = UI.screen !== 'detail' && !(UI.screen === 'notes' && UI.composer.expanded);
+    /* no nav on a detail, nor behind an open composer (its toolbar must stay above the keyboard) */
+    const withNav = UI.screen !== 'detail' && UI.screen !== 'note' && !(UI.screen === 'notes' && UI.composer.expanded);
     app.innerHTML = screen + (withNav ? mobileNavHTML() : '');
     if (UI.screen === 'lists') bindListsMenu();
     else if (UI.screen === 'detail') bindDetail();
     else if (UI.screen === 'folders') bindFolders();
     else if (UI.screen === 'settings') bindSettings();
     else if (UI.screen === 'notes') bindNotes();
+    else if (UI.screen === 'note') bindNoteDetail();
     else bindMobileList();
     if (withNav) bindMobileNav();
   }

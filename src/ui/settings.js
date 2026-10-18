@@ -4,7 +4,7 @@
    leaving the field saves, Esc reverts. */
 
 import {
-  S, UI, PRIORITY_COLORS, THEMES, allTags, tagUseCount, priorityUseCount,
+  S, UI, PRIORITY_COLORS, THEMES, allTags, tagUseCounts, priorityUseCount,
   setTheme, addPriority, updatePriority, movePriority, deletePriority,
   addLabel, renameLabel, deleteLabel, rerender,
 } from '../store.js';
@@ -50,12 +50,14 @@ function priorityRowHTML(p, i, n) {
 }
 
 function labelRowHTML(name) {
+  const use = tagUseCounts(name);
+  const sub = use.notes ? `${plural(use.tasks, 'task')} · ${plural(use.notes, 'note')}` : plural(use.tasks, 'task');
   return `
   <div class="set-row" data-label="${esc(name)}">
     <span class="lrow-icon">${icon('tag', 18)}</span>
     <div class="set-text">
       <input class="set-input" data-name value="${esc(name)}" maxlength="32" autocomplete="off" autocapitalize="none" aria-label="Label name">
-      <span class="set-sub">${plural(tagUseCount(name), 'task')}</span>
+      <span class="set-sub">${sub}</span>
     </div>
     <div class="set-actions">
       <button class="set-btn danger" data-delete aria-label="Delete label ${esc(name)}">${icon('trash', 18)}</button>
@@ -109,7 +111,7 @@ export function settingsHTML() {
         ${labels.map(labelRowHTML).join('')}
         ${addRowHTML('data-add-label', 'Add label')}
       </div>
-      <p class="hint set-hint">Renaming a label updates every task that has it; renaming it to an existing label merges the two.</p>
+      <p class="hint set-hint">Renaming a label updates every task and note that has it; renaming it to an existing label merges the two.</p>
 
       <span class="section-title list-label" id="settings-automations">Automations</span>
       <div class="card list-card">

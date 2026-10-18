@@ -165,6 +165,67 @@ assert.ok(!store.allTags().includes('Meeting'), 'deleted notes leave the pool');
 assert.deepEqual(ids('manual'), [n2.id]);
 assert.ok(JSON.parse(mem.get(store.STORE_KEY)).notes.length === 2, 'notes are persisted in the main document');
 
+// notes (Phase 8): detail edits, copy, lifecycle, labels and purge reach notes
+store.restoreNote(n1.id);
+assert.equal(n1.status, 'active');
+assert.equal(n1.order, -1, 'restore keeps the manual position');
+{
+  const before = n1.updatedAt;
+  store.updateNote(n1.id, { title: ' Edited ', body: '<p>a</p><p>b</p>', color: 'red', tags: ['#x', 'X'], checklist: [{ id: 'k', text: 'item', done: false }, { text: '', done: false }] });
+  assert.equal(n1.body, 'a<br>b');
+  assert.equal(n1.color, 'red');
+  assert.deepEqual(n1.tags, ['x']);
+  assert.equal(n1.title, ' Edited ', 'autosave keeps the title as typed');
+  assert.equal(n1.checklist.length, 2, 'empty items survive while editing');
+  assert.ok(n1.updatedAt >= before);
+  assert.equal(JSON.parse(mem.get(store.STORE_KEY)).notes.find((x) => x.id === n1.id).body, 'a<br>b', 'a quiet save still persists');
+  n1.updatedAt = 1;
+  store.toggleCheckItem(n1.id, 'k');
+  assert.equal(n1.checklist[0].done, true);
+  assert.ok(n1.updatedAt > 1, 'ticking is an edit');
+  assert.equal(store.finalizeNote(n1.id), false);
+  assert.equal(n1.title, 'Edited');
+  assert.equal(n1.checklist.length, 1, 'leaving the detail drops empty items');
+}
+const c1 = store.copyNote(n1.id);
+assert.equal(c1.title, 'Copy of Edited');
+assert.equal(c1.checklist[0].done, false, 'a copy starts unticked');
+assert.notEqual(c1.checklist[0].id, 'k');
+assert.equal(c1.order, -3, 'the copy goes first');
+assert.ok(c1.createdAt >= n1.createdAt);
+{
+  const e1 = store.addNote({ title: 'temp', body: '', tags: [], color: null, checklist: null });
+  store.updateNote(e1.id, { title: '  ' });
+  assert.equal(store.finalizeNote(e1.id), true, 'a note left empty is deleted on back');
+  assert.equal(store.noteById(e1.id), undefined);
+}
+store.archiveNote(c1.id);
+assert.equal(c1.status, 'archived'); assert.ok(c1.archivedAt);
+assert.deepEqual(store.folderNotes('archived').map((x) => x.id), [c1.id]);
+assert.equal(store.folderCount('archived'), store.folderTasks('archived').length + 1);
+{
+  const prev = store.softDeleteNote(c1.id);
+  assert.equal(prev.status, 'archived'); assert.equal(c1.status, 'deleted'); assert.equal(c1.archivedAt, null);
+  store.returnNoteToArchive(c1.id, prev.archivedAt);
+  assert.equal(c1.status, 'archived'); assert.equal(c1.archivedAt, prev.archivedAt); assert.equal(c1.deletedAt, null);
+  store.restoreNote(c1.id);
+  assert.equal(c1.status, 'active'); assert.equal(c1.archivedAt, null);
+}
+store.renameLabel('x', 'Why');
+assert.deepEqual(n1.tags, ['Why']); assert.deepEqual(c1.tags, ['Why']);
+assert.deepEqual(store.tagUseCounts('why'), { tasks: 0, notes: 2 });
+store.deleteLabel('why');
+assert.deepEqual(n1.tags, []); assert.deepEqual(c1.tags, []);
+store.softDeleteNote(c1.id);
+c1.deletedAt = Date.now() - 31 * 86400000;
+assert.equal(store.purgeDeleted(), 1, 'purge drops an old deleted note');
+assert.equal(store.noteById(c1.id), undefined);
+store.softDeleteNote(n1.id);
+store.emptyDeleted();
+assert.equal(store.noteById(n1.id), undefined, 'empty folder removes notes too');
+store.deleteNoteForever(n2.id);
+assert.equal(S.notes.length, 0);
+
 // v1 migration arms migrated reminders (fresh module instance, v1 store only)
 mem.clear();
 mem.set('stackd-v1', JSON.stringify({

@@ -53,7 +53,7 @@ function checklistHTML(items) {
 /** v: NoteDraft | Note (body already sanitised). */
 export function editorHTML(v, { mode = 'composer', expanded = true } = {}) {
   const wrap = (inner, cls) =>
-    `<form class="composer card ${cls}" data-editor data-mode="${mode}" aria-label="New note">${colorBarHTML(v.color)}${inner}</form>`;
+    `<form class="composer card ${cls} mode-${mode}" data-editor data-mode="${mode}" aria-label="${mode === 'detail' ? 'Note' : 'New note'}">${colorBarHTML(v.color)}${inner}</form>`;
   if (mode === 'composer' && !expanded) return wrap(collapsedHTML(v), '');
   const inner = `
   <div class="ne">
@@ -66,7 +66,7 @@ export function editorHTML(v, { mode = 'composer', expanded = true } = {}) {
     <div class="ne-toolbar" role="toolbar" aria-label="Note tools">
       <button type="button" class="ne-tool" data-tool="format" aria-label="Formatting" title="Formatting comes in a later update" disabled>${icon('text')}</button>
       <button type="button" class="ne-tool ${v.tags.length ? 'on' : ''}" data-tool="tags" aria-label="Tags" title="Tags">${icon('tag')}</button>
-      <button type="button" class="ne-tool ${v.color ? 'on' : ''}" data-tool="color" aria-label="Colour: ${colorName(v.color)}" title="Colour">${icon('palette')}${v.color ? `<span class="swatch tool-swatch pc-${v.color}"></span>` : ''}</button>
+      <button type="button" class="ne-tool ${v.color ? 'on' : ''} ${mode === 'detail' && v.color ? 'ne-tool-wide' : ''}" data-tool="color" aria-label="Colour: ${colorName(v.color)}" title="Colour">${icon('palette')}${v.color ? `<span class="swatch tool-swatch pc-${v.color}"></span>` : ''}${mode === 'detail' && v.color ? `<span class="ne-tool-text">${colorName(v.color)}</span>` : ''}</button>
       <button type="button" class="ne-tool" data-tool="checklist" aria-pressed="${!!v.checklist}" aria-label="Checklist" title="Checklist">${icon('checklist')}</button>
       <span class="spacer"></span>
       ${mode === 'composer' ? `<button type="submit" class="btn btn-primary btn-sm" data-add ${noteIsEmpty(v) ? 'disabled' : ''}>Add</button>` : ''}
@@ -180,6 +180,7 @@ export function bindEditor(host, opts) {
     qa('[data-ci-done]').forEach((cb) => cb.addEventListener('change', () => {
       const c = items().find((x) => x.id === cb.dataset.ciDone); if (!c) return;
       c.done = cb.checked; setItems(items());
+      if (opts.resortOnToggle) { render(null); return; }   // detail: ticked items sink (AC-04.3)
       cb.closest('.ne-ci-row').classList.toggle('done', cb.checked);
     }));
     qa('[data-ci-del]').forEach((b) => b.addEventListener('click', () => {

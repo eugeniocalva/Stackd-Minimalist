@@ -1,7 +1,7 @@
 /* App chrome: onboarding, mobile Boards menu, mobile bottom nav + FAB,
    desktop shell with sidebar. */
 
-import { S, UI, listById, taskById, openCount, folderTasks, activeNotes, addTask, newList, commit, rerender } from '../store.js';
+import { S, UI, listById, taskById, noteById, openCount, folderCount, activeNotes, addTask, newList, commit, rerender } from '../store.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import {
@@ -13,6 +13,7 @@ import { foldersHTML, bindFolders, openFolder } from './folders.js';
 import { openSheet } from './addsheet.js';
 import { settingsHTML, bindSettings, openSettings } from './settings.js';
 import { notesHTML, bindNotes, openNotes, focusComposer } from './notes.js';
+import { noteDetailHTML, bindNoteDetail } from './notedetail.js';
 
 /* — onboarding — */
 
@@ -45,8 +46,8 @@ export function bindOnboarding() {
 /* — folders entries (shared by Boards menu and sidebar) — */
 
 const folderEntries = () => [
-  { tab: 'archived', label: 'Archived', icon: 'archive', count: folderTasks('archived').length },
-  { tab: 'deleted', label: 'Deleted', icon: 'trash', count: folderTasks('deleted').length },
+  { tab: 'archived', label: 'Archived', icon: 'archive', count: folderCount('archived') },
+  { tab: 'deleted', label: 'Deleted', icon: 'trash', count: folderCount('deleted') },
 ];
 
 function bindFolderLinks() {
@@ -159,6 +160,7 @@ export function desktopHTML() {
     : UI.screen === 'folders' ? foldersHTML()
     : UI.screen === 'settings' ? settingsHTML()
     : UI.screen === 'notes' ? notesHTML()
+    : UI.screen === 'note' ? noteDetailHTML()
     : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
@@ -168,8 +170,10 @@ export function desktopHTML() {
     ${S.view === 'kanban' ? kanbanHTML({ desktop: true }) : desktopTableHTML()}`;
   /* a read-only (archived / deleted) detail belongs to the Folders section */
   const inFolders = UI.screen === 'folders'
-    || (UI.screen === 'detail' && taskById(UI.detailId)?.status !== 'active');
-  const onBoard = !inFolders && UI.screen !== 'settings' && UI.screen !== 'notes';
+    || (UI.screen === 'detail' && taskById(UI.detailId)?.status !== 'active')
+    || (UI.screen === 'note' && noteById(UI.detailId)?.status !== 'active');
+  const onNotes = UI.screen === 'notes' || (UI.screen === 'note' && !inFolders);
+  const onBoard = !inFolders && !onNotes && UI.screen !== 'settings';
   return `
   <div class="shell">
     <aside class="sidebar">
@@ -181,7 +185,7 @@ export function desktopHTML() {
         <span class="count num">${openCount(l.id)}</span>
       </div>`).join('')}
       <div class="side-newlist"><button class="btn btn-secondary" data-newlist>${icon('plus', 16)}New board</button></div>
-      <div class="side-item side-notes ${UI.screen === 'notes' ? 'active' : ''}" data-open-notes>
+      <div class="side-item side-notes ${onNotes ? 'active' : ''}" data-open-notes>
         ${icon('note', 16)}
         <span class="name">Notes</span>
         <span class="count num">${activeNotes().length}</span>
@@ -217,6 +221,7 @@ export function bindDesktop() {
   if (UI.screen === 'folders') { bindFolders(); return; }
   if (UI.screen === 'settings') { bindSettings(); return; }
   if (UI.screen === 'notes') { bindNotes(); return; }
+  if (UI.screen === 'note') { bindNoteDetail(); return; }
   bindViewbar();
   bindChecks();
   app.querySelector('[data-add]')?.addEventListener('click', () => openSheet());

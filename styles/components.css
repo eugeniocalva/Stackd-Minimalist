@@ -412,4 +412,11 @@
 .ne-tool:disabled { opacity: 0.35; cursor: default; }
 .ne-tool svg { width: 20px; height: 20px; }
 .ne-tool .tool-swatch { position: absolute; right: 5px; bottom: 5px; width: 9px; height: 9px; box-shadow: 0 0 0 2px var(--bg-surface); }
+/* detail mode: the colour's name sits next to its swatch (AC-06.3) */
+.ne-tool-wide { width: auto; padding: 0 12px 0 8px; border-radius: var(--radius-full); gap: 6px; }
+.ne-tool-wide .tool-swatch { position: static; box-shadow: none; width: 10px; height: 10px; }
+.ne-tool-text { font-size: var(--text-xs); font-weight: 700; }
+.composer.mode-detail { box-shadow: var(--shadow-card); }
+.composer.mode-detail .ne-body { min-height: 120px; }
+.composer.mode-detail .ne-title { font-size: var(--text-2xl); }
 @media (prefers-reduced-motion: reduce) { .composer { transition: none; } }

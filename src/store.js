@@ -258,6 +258,26 @@ export const sortedChecklist = (items) => [...items.filter((c) => !c.done), ...i
 export const noteIsEmpty = (n) =>
   !n.title.trim() && toText(n.body).trim() === '' && !(n.checklist || []).some((c) => c.text.trim());
 
+/** Row / detail title: the title, else the body's first line, else the first
+    checklist item, else 'Untitled'. */
+export function noteTitle(n) {
+  return n.title.trim() || toText(n.body).split('\n').find((l) => l.trim())?.trim()
+    || (n.checklist || []).map((c) => c.text.trim()).find(Boolean) || 'Untitled';
+}
+
+export function folderNotes(status) {
+  const key = status === 'archived' ? 'archivedAt' : 'deletedAt';
+  return S.notes.filter((n) => n.status === status).sort((a, b) => b[key] - a[key]);
+}
+/** Tasks + notes in a folder (sidebar and Boards-menu counts). */
+export const folderCount = (status) => folderTasks(status).length + folderNotes(status).length;
+
+/** Label usage split by kind, for Settings › Labels. */
+export const tagUseCounts = (name) => ({
+  tasks: S.tasks.filter((t) => t.status !== 'deleted' && t.tags.some((x) => sameTag(x, name))).length,
+  notes: S.notes.filter((n) => n.status !== 'deleted' && n.tags.some((x) => sameTag(x, name))).length,
+});
+
 export const priorityById = (id) => S.priorities.find((p) => p.id === id);
 export const priorityName = (id) => priorityById(id)?.name || 'None';
 export const priorityUseCount = (id) =>
@@ -352,6 +372,93 @@ export function addNote(draft) {
   clearDraft();
   commit();
   return n;
+}
+
+/* Detail edits save without a re-render (the editor keeps its caret); the
+   post-commit hook still runs. Lifecycle changes below use commit(). */
+const touchNote = (n) => { n.updatedAt = Date.now(); };
+const persistQuiet = () => { save(); afterCommit(); };
+const leaveNote = (id) => { if (UI.screen === 'note' && UI.detailId === id) { UI.detailId = null; UI.screen = 'notes'; } };
+
+/** Autosave from the detail: title, body, color, tags, checklist (items kept
+    as typed; finalizeNote() tidies them when the note is left). */
+export function updateNote(id, patch) {
+  const n = noteById(id); if (!n || n.status !== 'active') return;
+  if (patch.title !== undefined) n.title = String(patch.title);
+  if (patch.body !== undefined) n.body = sanitize(patch.body);
+  if (patch.color !== undefined) n.color = NOTE_COLORS.includes(patch.color) ? patch.color : null;
+  if (patch.tags !== undefined) n.tags = normalizeTags(patch.tags);
+  if (patch.checklist !== undefined) {
+    n.checklist = patch.checklist === null ? null
+      : patch.checklist.map((c) => ({ id: c.id || uid(), text: String(c.text ?? ''), done: !!c.done }));
+  }
+  touchNote(n); persistQuiet();
+}
+
+export function toggleCheckItem(id, itemId) {
+  const n = noteById(id); const c = n?.checklist?.find((x) => x.id === itemId); if (!c) return;
+  c.done = !c.done; touchNote(n); persistQuiet();      // ticking is an edit (PRD-notes Q15)
+}
+
+/** Leaving the detail: trim the title, drop empty checklist items (an empty
+    section becomes none), and delete a note left completely empty (AC-04.6). */
+export function finalizeNote(id) {
+  const n = noteById(id); if (!n || n.status !== 'active') return false;
+  const title = n.title.trim();
+  const checklist = cleanChecklist(n.checklist);
+  const changed = title !== n.title || JSON.stringify(checklist) !== JSON.stringify(n.checklist);
+  n.title = title; n.checklist = checklist && checklist.length ? checklist : null;
+  if (noteIsEmpty(n)) { S.notes = S.notes.filter((x) => x.id !== id); leaveNote(id); commit(); return true; }
+  if (changed) touchNote(n);
+  commit();
+  return false;
+}
+
+/** "Copy of …" with the checklist unticked, fresh dates and ids, first in manual order. */
+export function copyNote(id) {
+  const n = noteById(id); if (!n) return null;
+  const copy = blankNote({
+    title: n.title.trim() ? `Copy of ${n.title.trim()}` : '',
+    body: n.body, color: n.color, tags: [...n.tags],
+    checklist: n.checklist ? n.checklist.map((c) => ({ id: uid(), text: c.text, done: false })) : null,
+    order: Math.min(0, ...activeNotes().map((x) => x.order)) - 1,
+  });
+  S.notes.push(copy);
+  commit();
+  return copy;
+}
+
+export function archiveNote(id) {
+  const n = noteById(id); if (!n || n.status !== 'active') return;
+  n.status = 'archived'; n.archivedAt = Date.now();
+  leaveNote(id); commit();
+}
+
+/** Returns the status and archivedAt it had, so Undo can put it back. */
+export function softDeleteNote(id) {
+  const n = noteById(id); if (!n || n.status === 'deleted') return null;
+  const prev = { status: n.status, archivedAt: n.archivedAt };
+  n.status = 'deleted'; n.deletedAt = Date.now(); n.archivedAt = null;
+  leaveNote(id); commit();
+  return prev;
+}
+
+export function returnNoteToArchive(id, archivedAt) {
+  const n = noteById(id); if (!n || n.status !== 'deleted') return;
+  n.status = 'archived'; n.archivedAt = archivedAt; n.deletedAt = null;
+  commit();
+}
+
+/** Back to the Notes list at its stored manual position. */
+export function restoreNote(id) {
+  const n = noteById(id); if (!n || n.status === 'active') return;
+  n.status = 'active'; n.archivedAt = null; n.deletedAt = null;
+  commit();
+}
+
+export function deleteNoteForever(id) {
+  S.notes = S.notes.filter((n) => n.id !== id);
+  commit();
 }
 
 export function setTitle(id, title) {
@@ -536,7 +643,7 @@ export function renameLabel(from, to) {
   if (!label || label === from) return;
   const swap = (tags) => normalizeTags(tags.map((x) => (sameTag(x, from) ? label : x)));
   S.labels = swap(S.labels);
-  S.tasks.forEach((t) => {
+  [...S.tasks, ...S.notes].forEach((t) => {
     if (t.tags.some((x) => sameTag(x, from))) { t.tags = swap(t.tags); touch(t); }
   });
   commit();
@@ -544,7 +651,7 @@ export function renameLabel(from, to) {
 
 export function deleteLabel(name) {
   S.labels = S.labels.filter((x) => !sameTag(x, name));
-  S.tasks.forEach((t) => {
+  [...S.tasks, ...S.notes].forEach((t) => {
     if (t.tags.some((x) => sameTag(x, name))) { t.tags = t.tags.filter((x) => !sameTag(x, name)); touch(t); }
   });
   commit();
@@ -602,16 +709,20 @@ export function deleteForever(id) {
   commit();
 }
 
+/** Tasks and notes alike. */
 export function emptyDeleted() {
   S.tasks = S.tasks.filter((t) => t.status !== 'deleted');
+  S.notes = S.notes.filter((n) => n.status !== 'deleted');
   commit();
 }
 
-/** Drops deleted tasks older than RETENTION_DAYS. Returns how many went. */
+/** Drops deleted tasks and notes older than RETENTION_DAYS. Returns how many went. */
 export function purgeDeleted(now = Date.now()) {
-  const before = S.tasks.length;
-  S.tasks = S.tasks.filter((t) => t.status !== 'deleted' || now - t.deletedAt < RETENTION_MS);
-  const removed = before - S.tasks.length;
+  const keep = (x) => x.status !== 'deleted' || now - x.deletedAt < RETENTION_MS;
+  const before = S.tasks.length + S.notes.length;
+  S.tasks = S.tasks.filter(keep);
+  S.notes = S.notes.filter(keep);
+  const removed = before - S.tasks.length - S.notes.length;
   if (removed) save();
   return removed;
 }

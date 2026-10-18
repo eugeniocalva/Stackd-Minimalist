@@ -605,7 +605,7 @@
   var tagged = () => [...S.tasks, ...S.notes].filter((x) => x.status !== "deleted");
   var allTags = () => normalizeTags([...S.labels, ...tagged().flatMap((x) => x.tags)]);
   var sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
-  var tagUseCount = (name) => tagged().filter((x) => x.tags.some((t) => sameTag(t, name))).length;
+  var noteById = (id) => S.notes.find((n) => n.id === id);
   var activeNotes = () => S.notes.filter((n) => n.status === "active");
   function sortedNotes(sort = S.notesSort) {
     const ns = activeNotes();
@@ -617,7 +617,20 @@
     return ns;
   }
   var checklistProgress = (n) => n.checklist && n.checklist.length ? { done: n.checklist.filter((c) => c.done).length, total: n.checklist.length } : null;
+  var sortedChecklist = (items) => [...items.filter((c) => !c.done), ...items.filter((c) => c.done)];
   var noteIsEmpty = (n) => !n.title.trim() && toText(n.body).trim() === "" && !(n.checklist || []).some((c) => c.text.trim());
+  function noteTitle(n) {
+    return n.title.trim() || toText(n.body).split("\n").find((l) => l.trim())?.trim() || (n.checklist || []).map((c) => c.text.trim()).find(Boolean) || "Untitled";
+  }
+  function folderNotes(status) {
+    const key = status === "archived" ? "archivedAt" : "deletedAt";
+    return S.notes.filter((n) => n.status === status).sort((a, b) => b[key] - a[key]);
+  }
+  var folderCount = (status) => folderTasks(status).length + folderNotes(status).length;
+  var tagUseCounts = (name) => ({
+    tasks: S.tasks.filter((t) => t.status !== "deleted" && t.tags.some((x) => sameTag(x, name))).length,
+    notes: S.notes.filter((n) => n.status !== "deleted" && n.tags.some((x) => sameTag(x, name))).length
+  });
   var priorityById = (id) => S.priorities.find((p) => p.id === id);
   var priorityName = (id) => priorityById(id)?.name || "None";
   var priorityUseCount = (id) => S.tasks.filter((t) => t.status !== "deleted" && t.priority === id).length;
@@ -731,6 +744,104 @@
     clearDraft();
     commit();
     return n;
+  }
+  var touchNote = (n) => {
+    n.updatedAt = Date.now();
+  };
+  var persistQuiet = () => {
+    save();
+    afterCommit();
+  };
+  var leaveNote = (id) => {
+    if (UI.screen === "note" && UI.detailId === id) {
+      UI.detailId = null;
+      UI.screen = "notes";
+    }
+  };
+  function updateNote(id, patch) {
+    const n = noteById(id);
+    if (!n || n.status !== "active") return;
+    if (patch.title !== void 0) n.title = String(patch.title);
+    if (patch.body !== void 0) n.body = sanitize(patch.body);
+    if (patch.color !== void 0) n.color = NOTE_COLORS.includes(patch.color) ? patch.color : null;
+    if (patch.tags !== void 0) n.tags = normalizeTags(patch.tags);
+    if (patch.checklist !== void 0) {
+      n.checklist = patch.checklist === null ? null : patch.checklist.map((c) => ({ id: c.id || uid(), text: String(c.text ?? ""), done: !!c.done }));
+    }
+    touchNote(n);
+    persistQuiet();
+  }
+  function finalizeNote(id) {
+    const n = noteById(id);
+    if (!n || n.status !== "active") return false;
+    const title = n.title.trim();
+    const checklist = cleanChecklist(n.checklist);
+    const changed = title !== n.title || JSON.stringify(checklist) !== JSON.stringify(n.checklist);
+    n.title = title;
+    n.checklist = checklist && checklist.length ? checklist : null;
+    if (noteIsEmpty(n)) {
+      S.notes = S.notes.filter((x) => x.id !== id);
+      leaveNote(id);
+      commit();
+      return true;
+    }
+    if (changed) touchNote(n);
+    commit();
+    return false;
+  }
+  function copyNote(id) {
+    const n = noteById(id);
+    if (!n) return null;
+    const copy = blankNote({
+      title: n.title.trim() ? `Copy of ${n.title.trim()}` : "",
+      body: n.body,
+      color: n.color,
+      tags: [...n.tags],
+      checklist: n.checklist ? n.checklist.map((c) => ({ id: uid(), text: c.text, done: false })) : null,
+      order: Math.min(0, ...activeNotes().map((x) => x.order)) - 1
+    });
+    S.notes.push(copy);
+    commit();
+    return copy;
+  }
+  function archiveNote(id) {
+    const n = noteById(id);
+    if (!n || n.status !== "active") return;
+    n.status = "archived";
+    n.archivedAt = Date.now();
+    leaveNote(id);
+    commit();
+  }
+  function softDeleteNote(id) {
+    const n = noteById(id);
+    if (!n || n.status === "deleted") return null;
+    const prev = { status: n.status, archivedAt: n.archivedAt };
+    n.status = "deleted";
+    n.deletedAt = Date.now();
+    n.archivedAt = null;
+    leaveNote(id);
+    commit();
+    return prev;
+  }
+  function returnNoteToArchive(id, archivedAt) {
+    const n = noteById(id);
+    if (!n || n.status !== "deleted") return;
+    n.status = "archived";
+    n.archivedAt = archivedAt;
+    n.deletedAt = null;
+    commit();
+  }
+  function restoreNote(id) {
+    const n = noteById(id);
+    if (!n || n.status === "active") return;
+    n.status = "active";
+    n.archivedAt = null;
+    n.deletedAt = null;
+    commit();
+  }
+  function deleteNoteForever(id) {
+    S.notes = S.notes.filter((n) => n.id !== id);
+    commit();
   }
   function setTitle(id, title) {
     const t = taskById(id);
@@ -914,7 +1025,7 @@
     if (!label || label === from) return;
     const swap = (tags) => normalizeTags(tags.map((x) => sameTag(x, from) ? label : x));
     S.labels = swap(S.labels);
-    S.tasks.forEach((t) => {
+    [...S.tasks, ...S.notes].forEach((t) => {
       if (t.tags.some((x) => sameTag(x, from))) {
         t.tags = swap(t.tags);
         touch(t);
@@ -924,7 +1035,7 @@
   }
   function deleteLabel(name) {
     S.labels = S.labels.filter((x) => !sameTag(x, name));
-    S.tasks.forEach((t) => {
+    [...S.tasks, ...S.notes].forEach((t) => {
       if (t.tags.some((x) => sameTag(x, name))) {
         t.tags = t.tags.filter((x) => !sameTag(x, name));
         touch(t);
@@ -991,12 +1102,15 @@
   }
   function emptyDeleted() {
     S.tasks = S.tasks.filter((t) => t.status !== "deleted");
+    S.notes = S.notes.filter((n) => n.status !== "deleted");
     commit();
   }
   function purgeDeleted(now = Date.now()) {
-    const before = S.tasks.length;
-    S.tasks = S.tasks.filter((t) => t.status !== "deleted" || now - t.deletedAt < RETENTION_MS);
-    const removed = before - S.tasks.length;
+    const keep = (x) => x.status !== "deleted" || now - x.deletedAt < RETENTION_MS;
+    const before = S.tasks.length + S.notes.length;
+    S.tasks = S.tasks.filter(keep);
+    S.notes = S.notes.filter(keep);
+    const removed = before - S.tasks.length - S.notes.length;
     if (removed) save();
     return removed;
   }
@@ -1459,9 +1573,9 @@
     const q = (s) => sheet.querySelector(s);
     const invalid = () => !!(d.start && d.due && d.start > d.due);
     function renderGrid() {
-      const view = monthOf(cursor);
-      q("[data-month]").textContent = fmtMonth(view.year, view.month);
-      q("[data-days]").innerHTML = monthGrid(view.year, view.month).map((c) => {
+      const view2 = monthOf(cursor);
+      q("[data-month]").textContent = fmtMonth(view2.year, view2.month);
+      q("[data-days]").innerHTML = monthGrid(view2.year, view2.month).map((c) => {
         const cls = ["cal-day"];
         if (!c.inMonth) cls.push("dim");
         if (c.iso === today) cls.push("today");
@@ -1801,6 +1915,20 @@
     moveTask(id, listId, lane);
     toast(`Moved to ${where(listId, lane)}`);
   }
+  function archiveNoteWithUndo(id) {
+    archiveNote(id);
+    toast("Archived", { action: { label: "Undo", onClick: () => restoreNote(id) } });
+  }
+  function deleteNoteWithUndo(id) {
+    const prev = softDeleteNote(id);
+    if (!prev) return;
+    const onClick = prev.status === "archived" ? () => returnNoteToArchive(id, prev.archivedAt) : () => restoreNote(id);
+    toast("Deleted", { action: { label: "Undo", onClick } });
+  }
+  function restoreNoteWithToast(id) {
+    restoreNote(id);
+    toast("Restored to Notes");
+  }
   var rolling = /* @__PURE__ */ new Set();
   function completeTask(id, el = null) {
     const t = taskById(id);
@@ -1849,12 +1977,14 @@
   </div>`;
   }
   function labelRowHTML(name) {
+    const use = tagUseCounts(name);
+    const sub = use.notes ? `${plural(use.tasks, "task")} · ${plural(use.notes, "note")}` : plural(use.tasks, "task");
     return `
   <div class="set-row" data-label="${esc(name)}">
     <span class="lrow-icon">${icon("tag", 18)}</span>
     <div class="set-text">
       <input class="set-input" data-name value="${esc(name)}" maxlength="32" autocomplete="off" autocapitalize="none" aria-label="Label name">
-      <span class="set-sub">${plural(tagUseCount(name), "task")}</span>
+      <span class="set-sub">${sub}</span>
     </div>
     <div class="set-actions">
       <button class="set-btn danger" data-delete aria-label="Delete label ${esc(name)}">${icon("trash", 18)}</button>
@@ -1904,7 +2034,7 @@
         ${labels.map(labelRowHTML).join("")}
         ${addRowHTML("data-add-label", "Add label")}
       </div>
-      <p class="hint set-hint">Renaming a label updates every task that has it; renaming it to an existing label merges the two.</p>
+      <p class="hint set-hint">Renaming a label updates every task and note that has it; renaming it to an existing label merges the two.</p>
 
       <span class="section-title list-label" id="settings-automations">Automations</span>
       <div class="card list-card">
@@ -2728,90 +2858,6 @@
     });
   }
 
-  // src/ui/folders.js
-  function openFolder(tab) {
-    if (tab === "deleted") purgeDeleted();
-    UI.screen = "folders";
-    UI.folder = tab;
-    rerender();
-  }
-  function originLabel(t) {
-    const o = t.origin || t;
-    const board = listById(o.listId)?.name || "Deleted board";
-    return `${board} · ${laneName(o.lane)}`;
-  }
-  function whenLabel(t, tab) {
-    if (tab === "archived") return `Archived ${fmtRelative(t.archivedAt)}`;
-    const left = daysLeft(t.deletedAt, RETENTION_DAYS);
-    return left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
-  }
-  function rowHTML(t, tab) {
-    return `
-  <div class="row frow" data-id="${t.id}">
-    <div class="t-main">
-      <button class="t-title frow-open" data-open="${t.id}">${esc(t.title)}</button>
-      ${taskMetaHTML(t)}
-      <span class="frow-origin">${esc(originLabel(t))} · ${whenLabel(t, tab)}</span>
-      <div class="frow-actions">
-        <button class="btn btn-sm btn-secondary" data-restore="${t.id}">${icon("undo", 16)}Restore</button>
-        <button class="btn btn-sm btn-ghost danger" data-delete="${t.id}">${tab === "archived" ? "Delete" : "Delete forever"}</button>
-      </div>
-    </div>
-  </div>`;
-  }
-  function foldersHTML() {
-    const tab = UI.folder;
-    const archived = folderTasks("archived"), deleted = folderTasks("deleted");
-    const ts = tab === "archived" ? archived : deleted;
-    const disclaimer = `Tasks stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
-    return `
-  <div class="screen">
-    <header class="page-head">
-      <div class="page-title-row">
-        <h1 class="page-title-text">Folders</h1>
-        <span class="kicker">${ts.length} ${tab}</span>
-      </div>
-      <div class="segmented" role="tablist">
-        <button class="seg ${tab === "archived" ? "active" : ""}" data-tab="archived" role="tab" aria-selected="${tab === "archived"}">Archived · ${archived.length}</button>
-        <button class="seg ${tab === "deleted" ? "active" : ""}" data-tab="deleted" role="tab" aria-selected="${tab === "deleted"}">Deleted · ${deleted.length}</button>
-      </div>
-    </header>
-    <div class="scroll-area">
-      ${tab === "deleted" ? `
-      <div class="notice">
-        ${icon("trash", 18)}
-        <span>${disclaimer}</span>
-        ${deleted.length ? '<button class="btn btn-sm btn-ghost danger" data-empty>Empty folder</button>' : ""}
-      </div>` : ""}
-      ${ts.length ? `<div class="card list-card">${ts.map((t) => rowHTML(t, tab)).join("")}</div>` : `<p class="empty">${tab === "archived" ? "Nothing archived yet. Archive tasks you are done with but want to keep." : "Nothing in Deleted."}</p>`}
-    </div>
-  </div>`;
-  }
-  function bindFolders() {
-    bindScrollShadow();
-    app.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => openFolder(b.dataset.tab)));
-    app.querySelectorAll(".frow").forEach((row) => row.addEventListener("click", (e) => {
-      if (e.target.closest("[data-restore],[data-delete]")) return;
-      openDetail(row.dataset.id);
-    }));
-    app.querySelectorAll("[data-restore]").forEach((b) => b.addEventListener("click", () => restoreWithToast(b.dataset.restore)));
-    app.querySelectorAll("[data-delete]").forEach((b) => b.addEventListener("click", async () => {
-      const id = b.dataset.delete;
-      if (UI.folder === "archived") {
-        deleteWithUndo(id);
-        return;
-      }
-      if (await confirmDialog("Delete forever?", "This task cannot be recovered afterwards.", { confirmLabel: "Delete forever", danger: true })) {
-        deleteForever(id);
-      }
-    }));
-    app.querySelector("[data-empty]")?.addEventListener("click", async () => {
-      if (await confirmDialog("Empty the Deleted folder?", "Every task in it is removed permanently.", { confirmLabel: "Empty folder", danger: true })) {
-        emptyDeleted();
-      }
-    });
-  }
-
   // src/ui/noteeditor.js
   var COLOR_NAME2 = { red: "Red", amber: "Amber", green: "Green", blue: "Blue", violet: "Violet", gray: "Gray" };
   var colorName = (c) => c ? COLOR_NAME2[c] : "No colour";
@@ -2841,7 +2887,7 @@
   </div>`;
   }
   function editorHTML(v, { mode = "composer", expanded = true } = {}) {
-    const wrap = (inner2, cls) => `<form class="composer card ${cls}" data-editor data-mode="${mode}" aria-label="New note">${colorBarHTML(v.color)}${inner2}</form>`;
+    const wrap = (inner2, cls) => `<form class="composer card ${cls} mode-${mode}" data-editor data-mode="${mode}" aria-label="${mode === "detail" ? "Note" : "New note"}">${colorBarHTML(v.color)}${inner2}</form>`;
     if (mode === "composer" && !expanded) return wrap(collapsedHTML(v), "");
     const inner = `
   <div class="ne">
@@ -2853,7 +2899,7 @@
     <div class="ne-toolbar" role="toolbar" aria-label="Note tools">
       <button type="button" class="ne-tool" data-tool="format" aria-label="Formatting" title="Formatting comes in a later update" disabled>${icon("text")}</button>
       <button type="button" class="ne-tool ${v.tags.length ? "on" : ""}" data-tool="tags" aria-label="Tags" title="Tags">${icon("tag")}</button>
-      <button type="button" class="ne-tool ${v.color ? "on" : ""}" data-tool="color" aria-label="Colour: ${colorName(v.color)}" title="Colour">${icon("palette")}${v.color ? `<span class="swatch tool-swatch pc-${v.color}"></span>` : ""}</button>
+      <button type="button" class="ne-tool ${v.color ? "on" : ""} ${mode === "detail" && v.color ? "ne-tool-wide" : ""}" data-tool="color" aria-label="Colour: ${colorName(v.color)}" title="Colour">${icon("palette")}${v.color ? `<span class="swatch tool-swatch pc-${v.color}"></span>` : ""}${mode === "detail" && v.color ? `<span class="ne-tool-text">${colorName(v.color)}</span>` : ""}</button>
       <button type="button" class="ne-tool" data-tool="checklist" aria-pressed="${!!v.checklist}" aria-label="Checklist" title="Checklist">${icon("checklist")}</button>
       <span class="spacer"></span>
       ${mode === "composer" ? `<button type="submit" class="btn btn-primary btn-sm" data-add ${noteIsEmpty(v) ? "disabled" : ""}>Add</button>` : ""}
@@ -2973,6 +3019,10 @@
         if (!c) return;
         c.done = cb.checked;
         setItems(items());
+        if (opts.resortOnToggle) {
+          render2(null);
+          return;
+        }
         cb.closest(".ne-ci-row").classList.toggle("done", cb.checked);
       }));
       qa("[data-ci-del]").forEach((b) => b.addEventListener("click", () => {
@@ -3021,6 +3071,182 @@
     }
     bind();
     return { render: render2, focus: (key) => focusField(host.querySelector("[data-editor]"), key) };
+  }
+
+  // src/ui/notedetail.js
+  function openNote(id) {
+    if (!noteById(id)) return;
+    UI.detailId = id;
+    UI.screen = "note";
+    rerender();
+  }
+  var datesLine = (n) => `Created ${fmtDateOrRelative(n.createdAt, S.dateFormat)} · Edited ${fmtDateOrRelative(n.updatedAt, S.dateFormat)}`;
+  var view = (n) => ({ ...n, checklist: n.checklist ? sortedChecklist(n.checklist) : null });
+  function authoringOrder(prev, shown) {
+    const kept = (prev || []).filter((c) => shown.some((s) => s.id === c.id));
+    shown.forEach((s, k) => {
+      if (kept.some((c) => c.id === s.id)) return;
+      const before = k > 0 ? kept.findIndex((c) => c.id === shown[k - 1].id) : -1;
+      kept.splice(before + 1, 0, s);
+    });
+    return kept;
+  }
+  var flushCurrent = null;
+  window.addEventListener("pagehide", () => flushCurrent?.());
+  function noteDetailHTML() {
+    const n = noteById(UI.detailId);
+    if (!n) {
+      UI.screen = "notes";
+      return '<div class="screen"></div>';
+    }
+    if (n.status !== "active") return readOnlyHTML2(n);
+    return `
+  <div class="screen detail-screen note-screen">
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-back aria-label="Back to Notes">${icon("chevronLeft")}</button>
+      <span class="kicker">Note</span>
+      <button class="icon-btn" data-more aria-label="More actions" aria-haspopup="menu">${icon("more")}</button>
+    </header>
+    <div class="scroll-area">
+      <div data-editor-host>${editorHTML(view(n), { mode: "detail" })}</div>
+      <span class="hint note-dates" data-dates>${esc(datesLine(n))}</span>
+    </div>
+  </div>`;
+  }
+  function bindNoteDetail() {
+    const n = noteById(UI.detailId);
+    if (!n) {
+      rerender();
+      return;
+    }
+    if (n.status !== "active") {
+      bindReadOnly2(n);
+      return;
+    }
+    bindScrollShadow();
+    let timer = null;
+    const flush = () => {
+      if (!timer) return;
+      clearTimeout(timer);
+      timer = null;
+      updateNote(n.id, { title: n.title, body: n.body, color: n.color, tags: n.tags, checklist: n.checklist });
+      const d = app.querySelector("[data-dates]");
+      if (d) d.textContent = datesLine(n);
+    };
+    flushCurrent = flush;
+    const set = (patch) => {
+      if (patch.checklist !== void 0 && patch.checklist !== null) patch = { ...patch, checklist: authoringOrder(n.checklist, patch.checklist) };
+      Object.assign(n, patch);
+      n.updatedAt = Date.now();
+      clearTimeout(timer);
+      timer = setTimeout(flush, 500);
+    };
+    const host = app.querySelector("[data-editor-host]");
+    bindEditor(host, { mode: "detail", get: () => view(n), set, resortOnToggle: true });
+    host.addEventListener("focusout", (e) => {
+      if (!host.contains(e.relatedTarget)) flush();
+    });
+    app.querySelector("[data-back]").addEventListener("click", () => {
+      flush();
+      flushCurrent = null;
+      UI.detailId = null;
+      UI.screen = "notes";
+      finalizeNote(n.id);
+    });
+    const leaving = () => {
+      flush();
+      flushCurrent = null;
+    };
+    app.querySelector("[data-more]").addEventListener("click", (e) => openMenu(e.currentTarget, [
+      { label: "Copy", icon: "copy", onClick: () => {
+        leaving();
+        const c = copyNote(n.id);
+        openNote(c.id);
+        toast("Copied");
+      } },
+      { label: "Archive", icon: "archive", onClick: () => {
+        leaving();
+        archiveNoteWithUndo(n.id);
+      } },
+      { divider: true },
+      { label: "Delete", icon: "trash", danger: true, onClick: () => {
+        leaving();
+        deleteNoteWithUndo(n.id);
+      } }
+    ]));
+  }
+  function readOnlyHTML2(n) {
+    const archived = n.status === "archived";
+    const left = archived ? 0 : daysLeft(n.deletedAt, RETENTION_DAYS);
+    const status = archived ? `Archived ${fmtRelative(n.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
+    const items = n.checklist ? sortedChecklist(n.checklist) : [];
+    const hasTitle = !!n.title.trim();
+    return `
+  <div class="screen detail-screen is-readonly note-screen">
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-back aria-label="Back to ${archived ? "Archived" : "Deleted"}">${icon("chevronLeft")}</button>
+      <span class="kicker">${archived ? "Archived" : "Deleted"} note</span>
+      <span class="icon-btn-spacer" aria-hidden="true"></span>
+    </header>
+    <div class="scroll-area">
+      <div class="notice ${archived ? "notice-neutral" : ""}">
+        ${icon(archived ? "archive" : "trash", 18)}
+        <span>${status}. Restore it to edit.</span>
+      </div>
+      <div class="card note-ro" aria-label="${esc(noteTitle(n))}${n.color ? `, ${colorName(n.color)}` : ""}">
+        ${colorBarHTML(n.color)}
+        <h1 class="note-ro-title ${hasTitle ? "" : "untitled"}">${esc(hasTitle ? n.title : "Untitled")}</h1>
+        ${isEmpty(n.body) ? "" : `<div class="note-ro-body">${n.body}</div>`}
+        ${items.length ? `
+        <div class="subrows">
+          ${items.map((c) => `
+          <div class="subrow ${c.done ? "done" : ""}">
+            <input type="checkbox" class="check sm" disabled ${c.done ? "checked" : ""} aria-label="${c.done ? "Done" : "Not done"}">
+            <span class="s-title">${esc(c.text)}</span>
+          </div>`).join("")}
+        </div>` : ""}
+        ${n.tags.length || n.color ? `
+        <div class="t-meta">
+          ${n.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}
+          ${n.color ? `<span class="tag pc pc-${n.color}">${colorName(n.color)}</span>` : ""}
+        </div>` : ""}
+      </div>
+      <span class="hint note-dates">${esc(datesLine(n))}</span>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" data-ro-restore>${icon("undo", 18)}Restore</button>
+        <button class="btn btn-ghost danger" data-ro-delete>${archived ? "Delete" : "Delete forever"}</button>
+      </div>
+    </div>
+  </div>`;
+  }
+  function bindReadOnly2(n) {
+    bindScrollShadow();
+    const archived = n.status === "archived";
+    const toFolder = () => {
+      UI.detailId = null;
+      UI.screen = "folders";
+      UI.folder = archived ? "archived" : "deleted";
+      UI.folderKind = "notes";
+    };
+    app.querySelector("[data-back]").addEventListener("click", () => {
+      toFolder();
+      rerender();
+    });
+    app.querySelector("[data-ro-restore]").addEventListener("click", () => {
+      toFolder();
+      restoreNoteWithToast(n.id);
+    });
+    app.querySelector("[data-ro-delete]").addEventListener("click", async () => {
+      if (archived) {
+        toFolder();
+        deleteNoteWithUndo(n.id);
+        return;
+      }
+      if (await confirmDialog("Delete forever?", "This note cannot be recovered afterwards.", { confirmLabel: "Delete forever", danger: true })) {
+        toFolder();
+        deleteNoteForever(n.id);
+      }
+    });
   }
 
   // src/ui/notes.js
@@ -3088,32 +3314,28 @@
     if (e.target.closest("[data-editor], .overlay, .menu-popover, .menu-backdrop, .toast")) return;
     collapse();
   });
-  function openNote(id) {
-    const row = app.querySelector(`.nrow[data-id="${id}"]`);
-    if (!row) return;
-    row.scrollIntoView({ block: "center", behavior: "smooth" });
-    row.classList.add("flash");
-    setTimeout(() => row.classList.remove("flash"), 1200);
-  }
   var MAX_CHIPS = 3;
-  function noteRowHTML(n, { dateLabel: dateLabel2 = "Created" } = {}) {
-    const hasTitle = !!n.title.trim();
-    const title = hasTitle ? n.title : firstLine(n.body) || (n.checklist || []).map((c) => c.text.trim()).find(Boolean) || "Untitled";
-    const preview = hasTitle && !isEmpty(n.body) ? firstLine(n.body) : "";
+  function noteMetaHTML(n) {
     const chips = n.tags.slice(0, MAX_CHIPS).map((t) => `<span class="tag">#${esc(t)}</span>`);
     if (n.tags.length > MAX_CHIPS) chips.push(`<span class="tag">+${n.tags.length - MAX_CHIPS}</span>`);
     const p = checklistProgress(n);
     if (p) chips.push(`<span class="t-sub num" aria-label="Checklist, ${p.done} of ${p.total} done">${icon("checklist", 12)}${p.done}/${p.total}</span>`);
+    return chips.length ? `<div class="t-meta">${chips.join("")}</div>` : "";
+  }
+  function noteRowHTML(n, { dateLabel: dateLabel2 = "Created" } = {}) {
+    const hasTitle = !!n.title.trim();
+    const title = noteTitle(n);
+    const preview = hasTitle && !isEmpty(n.body) ? firstLine(n.body) : "";
     const when = fmtDateOrRelative(dateLabel2 === "Created" ? n.createdAt : n.updatedAt, S.dateFormat);
     return `
-  <div class="row nrow" data-id="${n.id}" aria-label="${esc(title)}${n.color ? `, ${colorName(n.color)}` : ""}">
+  <div class="row nrow" data-id="${n.id}" role="button" tabindex="0" aria-label="${esc(title)}${n.color ? `, ${colorName(n.color)}` : ""}">
     ${colorBarHTML(n.color)}
     <div class="t-main">
       <div class="nrow-line">
         <span class="t-title ${hasTitle ? "" : "untitled"}">${esc(title)}</span>
         <span class="nrow-date num">${dateLabel2} ${esc(when)}</span>
       </div>
-      ${chips.length ? `<div class="t-meta">${chips.join("")}</div>` : ""}
+      ${noteMetaHTML(n)}
       ${preview ? `<span class="nrow-preview">${esc(preview)}</span>` : ""}
     </div>
   </div>`;
@@ -3155,6 +3377,134 @@
       editor.focus(UI.composer.focus);
       UI.composer.focus = null;
     }
+    app.querySelectorAll(".nrow").forEach((row) => {
+      row.addEventListener("click", () => openNote(row.dataset.id));
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openNote(row.dataset.id);
+        }
+      });
+    });
+  }
+
+  // src/ui/folders.js
+  function openFolder(tab, kind) {
+    if (tab === "deleted") purgeDeleted();
+    UI.screen = "folders";
+    UI.folder = tab;
+    if (kind) UI.folderKind = kind;
+    rerender();
+  }
+  function originLabel(t) {
+    const o = t.origin || t;
+    const board = listById(o.listId)?.name || "Deleted board";
+    return `${board} · ${laneName(o.lane)}`;
+  }
+  function whenLabel(x, tab) {
+    if (tab === "archived") return `Archived ${fmtRelative(x.archivedAt)}`;
+    const left = daysLeft(x.deletedAt, RETENTION_DAYS);
+    return left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
+  }
+  var actionsHTML = (attr, id, tab) => `
+      <div class="frow-actions">
+        <button class="btn btn-sm btn-secondary" data-restore-${attr}="${id}">${icon("undo", 16)}Restore</button>
+        <button class="btn btn-sm btn-ghost danger" data-delete-${attr}="${id}">${tab === "archived" ? "Delete" : "Delete forever"}</button>
+      </div>`;
+  function taskRowHTML(t, tab) {
+    return `
+  <div class="row frow" data-id="${t.id}">
+    <div class="t-main">
+      <button class="t-title frow-open" data-open="${t.id}">${esc(t.title)}</button>
+      ${taskMetaHTML(t)}
+      <span class="frow-origin">${esc(originLabel(t))} · ${whenLabel(t, tab)}</span>
+      ${actionsHTML("task", t.id, tab)}
+    </div>
+  </div>`;
+  }
+  function noteRowHTML2(n, tab) {
+    return `
+  <div class="row frow nrow" data-note="${n.id}">
+    ${colorBarHTML(n.color)}
+    <div class="t-main">
+      <button class="t-title frow-open" data-open-note="${n.id}">${esc(noteTitle(n))}</button>
+      ${noteMetaHTML(n)}
+      <span class="frow-origin">Note · ${whenLabel(n, tab)}</span>
+      ${actionsHTML("note", n.id, tab)}
+    </div>
+  </div>`;
+  }
+  function foldersHTML() {
+    const tab = UI.folder, kind = UI.folderKind;
+    const tasks = folderTasks(tab), notes = folderNotes(tab);
+    const total = (t) => folderTasks(t).length + folderNotes(t).length;
+    const rows = kind === "notes" ? notes.map((n) => noteRowHTML2(n, tab)) : tasks.map((t) => taskRowHTML(t, tab));
+    const disclaimer = `Tasks and notes stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
+    const empty = tab === "archived" ? kind === "notes" ? "Nothing archived yet. Archive notes you are done with but want to keep." : "Nothing archived yet. Archive tasks you are done with but want to keep." : kind === "notes" ? "No deleted notes." : "Nothing in Deleted.";
+    const seg = (k, label, n) => `<button class="seg ${kind === k ? "active" : ""}" data-kind="${k}" role="tab" aria-selected="${kind === k}">${label} · ${n}</button>`;
+    return `
+  <div class="screen">
+    <header class="page-head">
+      <div class="page-title-row">
+        <h1 class="page-title-text">Folders</h1>
+        <span class="kicker">${rows.length} ${tab}</span>
+      </div>
+      <div class="segmented" role="tablist" aria-label="Folder">
+        <button class="seg ${tab === "archived" ? "active" : ""}" data-tab="archived" role="tab" aria-selected="${tab === "archived"}">Archived · ${total("archived")}</button>
+        <button class="seg ${tab === "deleted" ? "active" : ""}" data-tab="deleted" role="tab" aria-selected="${tab === "deleted"}">Deleted · ${total("deleted")}</button>
+      </div>
+      <div class="segmented solid folder-kind" role="tablist" aria-label="Kind">
+        ${seg("tasks", "Tasks", tasks.length)}
+        ${seg("notes", "Notes", notes.length)}
+      </div>
+    </header>
+    <div class="scroll-area">
+      ${tab === "deleted" ? `
+      <div class="notice">
+        ${icon("trash", 18)}
+        <span>${disclaimer}</span>
+        ${total("deleted") ? '<button class="btn btn-sm btn-ghost danger" data-empty>Empty folder</button>' : ""}
+      </div>` : ""}
+      ${rows.length ? `<div class="card list-card">${rows.join("")}</div>` : `<p class="empty">${empty}</p>`}
+    </div>
+  </div>`;
+  }
+  function bindFolders() {
+    bindScrollShadow();
+    app.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => openFolder(b.dataset.tab)));
+    app.querySelectorAll("[data-kind]").forEach((b) => b.addEventListener("click", () => {
+      UI.folderKind = b.dataset.kind;
+      rerender();
+    }));
+    app.querySelectorAll(".frow").forEach((row) => row.addEventListener("click", (e) => {
+      if (e.target.closest(".frow-actions")) return;
+      if (row.dataset.note) openNote(row.dataset.note);
+      else openDetail(row.dataset.id);
+    }));
+    app.querySelectorAll("[data-restore-task]").forEach((b) => b.addEventListener("click", () => restoreWithToast(b.dataset.restoreTask)));
+    app.querySelectorAll("[data-restore-note]").forEach((b) => b.addEventListener("click", () => restoreNoteWithToast(b.dataset.restoreNote)));
+    const confirmForever = (what) => confirmDialog("Delete forever?", `This ${what} cannot be recovered afterwards.`, { confirmLabel: "Delete forever", danger: true });
+    app.querySelectorAll("[data-delete-task]").forEach((b) => b.addEventListener("click", async () => {
+      const id = b.dataset.deleteTask;
+      if (UI.folder === "archived") {
+        deleteWithUndo(id);
+        return;
+      }
+      if (await confirmForever("task")) deleteForever(id);
+    }));
+    app.querySelectorAll("[data-delete-note]").forEach((b) => b.addEventListener("click", async () => {
+      const id = b.dataset.deleteNote;
+      if (UI.folder === "archived") {
+        deleteNoteWithUndo(id);
+        return;
+      }
+      if (await confirmForever("note")) deleteNoteForever(id);
+    }));
+    app.querySelector("[data-empty]")?.addEventListener("click", async () => {
+      if (await confirmDialog("Empty the Deleted folder?", "Every task and note in it is removed permanently.", { confirmLabel: "Empty folder", danger: true })) {
+        emptyDeleted();
+      }
+    });
   }
 
   // src/ui/shell.js
@@ -3185,8 +3535,8 @@
     }));
   }
   var folderEntries = () => [
-    { tab: "archived", label: "Archived", icon: "archive", count: folderTasks("archived").length },
-    { tab: "deleted", label: "Deleted", icon: "trash", count: folderTasks("deleted").length }
+    { tab: "archived", label: "Archived", icon: "archive", count: folderCount("archived") },
+    { tab: "deleted", label: "Deleted", icon: "trash", count: folderCount("deleted") }
   ];
   function bindFolderLinks() {
     app.querySelectorAll("[data-open-folder]").forEach((el) => el.addEventListener("click", () => openFolder(el.dataset.openFolder)));
@@ -3289,15 +3639,16 @@
   }
   function desktopHTML() {
     const list = listById(S.currentList);
-    const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : `
+    const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
       ${viewbarHTML()}
       ${S.view === "kanban" ? `<button class="btn btn-primary btn-sm" data-add>${icon("plus", 18)}Add task</button>` : ""}
     </header>
     ${S.view === "kanban" ? kanbanHTML({ desktop: true }) : desktopTableHTML()}`;
-    const inFolders = UI.screen === "folders" || UI.screen === "detail" && taskById(UI.detailId)?.status !== "active";
-    const onBoard = !inFolders && UI.screen !== "settings" && UI.screen !== "notes";
+    const inFolders = UI.screen === "folders" || UI.screen === "detail" && taskById(UI.detailId)?.status !== "active" || UI.screen === "note" && noteById(UI.detailId)?.status !== "active";
+    const onNotes = UI.screen === "notes" || UI.screen === "note" && !inFolders;
+    const onBoard = !inFolders && !onNotes && UI.screen !== "settings";
     return `
   <div class="shell">
     <aside class="sidebar">
@@ -3309,7 +3660,7 @@
         <span class="count num">${openCount(l.id)}</span>
       </div>`).join("")}
       <div class="side-newlist"><button class="btn btn-secondary" data-newlist>${icon("plus", 16)}New board</button></div>
-      <div class="side-item side-notes ${UI.screen === "notes" ? "active" : ""}" data-open-notes>
+      <div class="side-item side-notes ${onNotes ? "active" : ""}" data-open-notes>
         ${icon("note", 16)}
         <span class="name">Notes</span>
         <span class="count num">${activeNotes().length}</span>
@@ -3357,6 +3708,10 @@
       bindNotes();
       return;
     }
+    if (UI.screen === "note") {
+      bindNoteDetail();
+      return;
+    }
     bindViewbar();
     bindChecks();
     app.querySelector("[data-add]")?.addEventListener("click", () => openSheet());
@@ -3392,14 +3747,15 @@
       app.innerHTML = desktopHTML();
       bindDesktop();
     } else {
-      const screen = UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : mobileListHTML();
-      const withNav = UI.screen !== "detail" && !(UI.screen === "notes" && UI.composer.expanded);
+      const screen = UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : mobileListHTML();
+      const withNav = UI.screen !== "detail" && UI.screen !== "note" && !(UI.screen === "notes" && UI.composer.expanded);
       app.innerHTML = screen + (withNav ? mobileNavHTML() : "");
       if (UI.screen === "lists") bindListsMenu();
       else if (UI.screen === "detail") bindDetail();
       else if (UI.screen === "folders") bindFolders();
       else if (UI.screen === "settings") bindSettings();
       else if (UI.screen === "notes") bindNotes();
+      else if (UI.screen === "note") bindNoteDetail();
       else bindMobileList();
       if (withNav) bindMobileNav();
     }

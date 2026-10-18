@@ -6,7 +6,7 @@
 
 import {
   S, UI, sortedNotes, activeNotes, addNote, loadDraft, saveDraft, blankDraft,
-  checklistProgress, rerender,
+  checklistProgress, noteTitle, rerender,
 } from '../store.js';
 import { fmtDateOrRelative } from '../dates.js';
 import { firstLine, isEmpty } from '../richtext.js';
@@ -15,6 +15,7 @@ import { icon } from './icons.js';
 import { bindScrollShadow } from './board.js';
 import { toast } from './primitives.js';
 import { editorHTML, bindEditor, colorBarHTML, colorName } from './noteeditor.js';
+import { openNote } from './notedetail.js';
 
 let draft = loadDraft() || blankDraft();
 let saveTimer = null;
@@ -76,39 +77,34 @@ document.addEventListener('click', (e) => {
   collapse();
 });
 
-/** Phase 8 routes this to the note detail; until then it reveals the row. */
-export function openNote(id) {
-  const row = app.querySelector(`.nrow[data-id="${id}"]`);
-  if (!row) return;
-  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  row.classList.add('flash');
-  setTimeout(() => row.classList.remove('flash'), 1200);
-}
-
 /* ── Markup ──────────────────────────────────────────────────────────── */
 
 const MAX_CHIPS = 3;
 
-/** One list row (also used by the folders in Phase 8). dateLabel follows the sort. */
-export function noteRowHTML(n, { dateLabel = 'Created' } = {}) {
-  const hasTitle = !!n.title.trim();
-  const title = hasTitle ? n.title : firstLine(n.body)
-    || (n.checklist || []).map((c) => c.text.trim()).find(Boolean) || 'Untitled';
-  const preview = hasTitle && !isEmpty(n.body) ? firstLine(n.body) : '';
+/** Tag chips (max 3 + "+n") and the checklist progress; shared with the folders. */
+export function noteMetaHTML(n) {
   const chips = n.tags.slice(0, MAX_CHIPS).map((t) => `<span class="tag">#${esc(t)}</span>`);
   if (n.tags.length > MAX_CHIPS) chips.push(`<span class="tag">+${n.tags.length - MAX_CHIPS}</span>`);
   const p = checklistProgress(n);
   if (p) chips.push(`<span class="t-sub num" aria-label="Checklist, ${p.done} of ${p.total} done">${icon('checklist', 12)}${p.done}/${p.total}</span>`);
+  return chips.length ? `<div class="t-meta">${chips.join('')}</div>` : '';
+}
+
+/** One list row. dateLabel follows the sort. */
+export function noteRowHTML(n, { dateLabel = 'Created' } = {}) {
+  const hasTitle = !!n.title.trim();
+  const title = noteTitle(n);
+  const preview = hasTitle && !isEmpty(n.body) ? firstLine(n.body) : '';
   const when = fmtDateOrRelative(dateLabel === 'Created' ? n.createdAt : n.updatedAt, S.dateFormat);
   return `
-  <div class="row nrow" data-id="${n.id}" aria-label="${esc(title)}${n.color ? `, ${colorName(n.color)}` : ''}">
+  <div class="row nrow" data-id="${n.id}" role="button" tabindex="0" aria-label="${esc(title)}${n.color ? `, ${colorName(n.color)}` : ''}">
     ${colorBarHTML(n.color)}
     <div class="t-main">
       <div class="nrow-line">
         <span class="t-title ${hasTitle ? '' : 'untitled'}">${esc(title)}</span>
         <span class="nrow-date num">${dateLabel} ${esc(when)}</span>
       </div>
-      ${chips.length ? `<div class="t-meta">${chips.join('')}</div>` : ''}
+      ${noteMetaHTML(n)}
       ${preview ? `<span class="nrow-preview">${esc(preview)}</span>` : ''}
     </div>
   </div>`;
@@ -149,4 +145,8 @@ export function bindNotes() {
     onExpand: expand,
   });
   if (UI.composer.focus) { editor.focus(UI.composer.focus); UI.composer.focus = null; }
+  app.querySelectorAll('.nrow').forEach((row) => {
+    row.addEventListener('click', () => openNote(row.dataset.id));
+    row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNote(row.dataset.id); } });
+  });
 }
