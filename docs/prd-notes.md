@@ -7,8 +7,9 @@ tags and a colour. Alongside it, three app-wide additions the Notes work
 needs: a **search bar** on boards, a **date format** setting, and sortable
 creation / edit dates.
 
-Status: **decisions complete 2026-10-18** (two rounds, all logged in §07);
-ready for the architecture update and build. §08 lists the small calls the
+Status: **built and QA'd as 1.4.0 on 2026-10-18** (decisions in §07);
+52 of 54 criteria verified, the two open ones need a phone and an iOS build
+(`docs/qa-report.md`). §08 lists the small calls the
 analyst made alone. Companion documents: `docs/prd.md` (tasks, v2),
 `docs/architecture.md`. Target release: **1.4.0**.
 
@@ -171,7 +172,9 @@ controls once I need them.*
 - [ ] AC-02.11 Mobile: when the on-screen keyboard is open the toolbar and
       Add stay reachable (the card scrolls, the toolbar is not hidden
       under the keyboard); the bottom nav pill hides while the composer is
-      expanded, as it does on the detail screen.
+      expanded, as it does on the detail screen. *Nav hiding and scrolling
+      verified in 1.4.0; tick after a run with a real on-screen keyboard
+      (docs/qa-report.md, 1.4.0 addendum).*
 
 ### US-03 — Note list: see everything like Notion
 *As a user, I want my existing notes as a calm list, not a wall of cards.*
@@ -282,7 +285,9 @@ colour or tags, without a separate "edit mode".*
       the note list is a `list`; search is a `search` landmark.
 - [ ] AC-06.5 Works from `file://` (bundle), on the PWA, and inside the
       Capacitor iOS shell; new files are added to the SW shell list and
-      `check-shell.mjs` passes; `app.bundle.js` is rebuilt.
+      `check-shell.mjs` passes; `app.bundle.js` is rebuilt. *Shell list,
+      bundle and the PWA over http verified in 1.4.0; tick after a
+      double-click of `index.html` and an iOS build (qa-report addendum).*
 
 ### US-07 — Sort notes, including a manual order
 *As a user, I want to decide how my notes are ordered, and to move them by

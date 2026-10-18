@@ -359,6 +359,15 @@ loop; the additions are one new top-level area, two app-wide features the
 area needs (search, date format), and the plumbing so that notes share the
 tag pool, the folders and the design tokens with tasks.
 
+**As built (1.4.0, 2026-10-18):** Phases 7–13 shipped in seven commits on
+`main`, one per phase, in the order below. Departures from the plan: the
+search matcher lives in `src/search.js` (pure) with the field in
+`src/ui/search.js`, so `check-text.mjs` can import it; the date format is a
+module-level default in `dates.js` set by the store, so no caller takes a
+format parameter; and the body was a `contenteditable` from Phase 7 with a
+`br`-only whitelist, widened in Phase 12 as planned. QA results and the two
+criteria that still need a device are in `docs/qa-report.md`.
+
 ## 9. Approach
 
 - **Notes are a second array, not a task variant.** `S.notes` sits next to

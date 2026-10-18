@@ -4,12 +4,16 @@ A minimalist todo PWA, started from turn 2 of the [Claude Design canvas](https:/
 ("Stack'd Minimalist Todo App") and restyled in the Stack'd Finance language:
 Inter + Manrope, soft surfaces, rounded cards, frosted bottom nav, light + dark.
 
-Current version: **1.2.0** — reminder notifications on the web and in the
-iOS app, on top of 1.1.0's editable task fields, Move / Copy / Archive /
-Delete, Archived and Deleted folders, a calendar for dates with recurring
-tasks, and the Finance design. Requirements and plan live in
-[`docs/prd.md`](docs/prd.md) and [`docs/architecture.md`](docs/architecture.md);
-the release QA pass is in [`docs/qa-report.md`](docs/qa-report.md).
+Current version: **1.4.0** — a **Notes** area (Keep-style composer,
+Notion-style list, colour bar, checklists, bold / italic / underline /
+strikethrough, sort with manual order), **search** on Notes and on every
+board, and an app-wide **date format** setting; on top of 1.3.0's Settings
+(theme, priorities, labels, automations), 1.2.0's reminder notifications
+and 1.1.0's editable task fields, Move / Copy / Archive / Delete, folders,
+calendar and recurring tasks. Requirements and plan live in
+[`docs/prd.md`](docs/prd.md), [`docs/prd-notes.md`](docs/prd-notes.md) and
+[`docs/architecture.md`](docs/architecture.md); the release QA passes are in
+[`docs/qa-report.md`](docs/qa-report.md).
 
 ## Run
 
@@ -59,6 +63,9 @@ It runs:
   what text, and how iOS pending notifications are reconciled.
 - `scripts/check-store.mjs` — the store's reminder rules, run against the real
   `src/store.js` with a stand-in `localStorage`.
+- `scripts/check-text.mjs` — the note-body sanitiser (whitelist, synonym
+  mapping, nesting, Chrome and Word paste samples) and the search matcher
+  (accents, case, every term must hit).
 - `scripts/check-shell.mjs` — the service-worker precache list matches the
   files on disk (a missing entry breaks the offline install silently).
 - `scripts/check-bundle.mjs` — `app.bundle.js` still matches the modules, so
@@ -94,7 +101,10 @@ is enough; HTTPS is required for install + service worker on real devices.
 
 - **Board** — Work, Personal, Shopping, Family… (the sidebar / Boards menu).
 - **Lane** — Backlog, In Progress, Done (the kanban columns of a board).
-- **Folder** — Archived and Deleted.
+- **Folder** — Archived and Deleted, each with a Tasks ∕ Notes switch.
+- **Note** — a title, formatted text, an optional checklist, tags and a
+  colour; lives in the Notes area, not on a board.
+- **Composer** — the "Take a note…" box at the top of Notes.
 
 ## What's implemented
 
@@ -105,8 +115,34 @@ is enough; HTTPS is required for install + service worker on real devices.
 - **Board, kanban** — Backlog / In Progress / Done lanes; completing a task
   moves its card to Done (repeating tasks excepted, see below)
 - **Navigation** — mobile: sticky frosted header plus a floating bottom pill
-  (Boards · Tasks · Folders) and a round **+**; desktop: sidebar with Boards
-  and Folders, each with live counts
+  (Boards · Tasks · Notes · Folders) and a round **+** (a new task on a
+  board, a new note on Notes); desktop: sidebar with Boards, Notes and
+  Folders, each with live counts
+- **Search** — a field at the top of every board (desktop inline, mobile
+  behind a search icon) and of Notes: case- and accent-insensitive, every
+  word must appear in the title, tags, subtasks, note text or checklist.
+  Kanban lanes count "1 of 2", the kicker "3 of 12 tasks"; drags pause while
+  a query is active. Esc clears, `/` focuses. The query clears when you
+  switch board or area and survives opening an item and coming back
+- **Notes** — the Notes area, with:
+  - *Composer:* tap "Take a note…" for Title and note lines plus a toolbar:
+    **Aa** (bold / italic / underline / strikethrough, also Ctrl+B / I / U
+    and Ctrl+Shift+X), **Tags** (the shared tag picker), **Colour** (none or
+    the six priority colours, shown as a thin bar on the left edge),
+    **Checklist** (Enter adds an item, Backspace on an empty one removes it)
+    and **Add** (or Ctrl+Enter). Leaving the composer, the screen or the app
+    keeps the draft; it comes back as "Draft: …"
+  - *List:* one flat list; each row shows the colour bar, title (or the first
+    line of the text), tag chips (tap one to filter), checklist progress and
+    the date that matches the sort. Sort: manual (drag the handle), created
+    or edited, newest or oldest first
+  - *Detail:* tap a row; edits save as you type; ticked items sink to the
+    bottom; ⋯ gives **Copy**, **Archive**, **Delete**; a note left empty is
+    removed
+  - *Folders:* archived and deleted notes sit behind the Tasks ∕ Notes
+    switch, with Restore, Delete, the 30-day purge and Empty folder
+  - Note text is stored as a small HTML subset (line breaks and the four
+    styles); everything else pasted in is stripped
 - **Task detail** — tap the title to rename; rows for **Due date**,
   **Priority**, **Tags** (picker with suggestions from every tag in use),
   **Move** (board + lane) and **Reminder**; subtasks with a progress bar
@@ -141,20 +177,27 @@ is enough; HTTPS is required for install + service worker on real devices.
 - **Settings** — sidebar (desktop) or Boards menu (mobile):
   - *Appearance:* Light / Dark / System theme, applied before the first paint;
     all text meets WCAG AA contrast (4.5:1) in both themes
+  - *Dates:* `dd/mm/yyyy`, `mm/dd/yyyy` or `yyyy-mm-dd`, defaulting to the
+    device locale; used wherever a full date is written (note dates, task
+    detail, folder rows, chips from a week out, reminder text). Chips keep
+    Today / Tomorrow / weekdays; the calendar's typed date fields follow the
+    device
   - *Priorities:* rename, recolour (red, amber, green, blue, violet, gray),
     reorder (drives Sort by priority), add or delete levels; deleting one
     leaves its tasks with no priority
-  - *Labels:* every tag in use plus ones created here; rename across all
-    tasks (renaming onto an existing label merges them), add, delete
+  - *Labels:* every tag in use on tasks and notes plus ones created here;
+    rename across all of them (renaming onto an existing label merges them),
+    add, delete
   - *Automations:* the built-in "completed tasks move to Done" rule; custom
     rules are a placeholder for now (kanban "Edit rules" opens this section)
 - **Gestures** — double-tap / double-click completes, long-press deletes,
   drag rows to reprioritize in manual sort, drag kanban cards between lanes
   (hold-and-drag on touch)
-- **Persistence** — localStorage key `stackd-v2`. A `stackd-v1` store from
-  1.0 is migrated once on first launch and left in place for rollback; the
-  old reminder presets become a due time when the task had a due date.
-  Reminders add two small keys: `stackd-reminders-fired` (which reminders a
+- **Persistence** — localStorage key `stackd-v2` (tasks, notes, settings).
+  A `stackd-v1` store from 1.0 is migrated once on first launch and left in
+  place for rollback; the old reminder presets become a due time when the
+  task had a due date. The composer draft lives under `stackd-note-draft`,
+  so a half-written note survives a reload. Reminders add two small keys: `stackd-reminders-fired` (which reminders a
   tab already showed, so other tabs don't repeat them) and
   `stackd-native-scheduled` (what the iOS app handed to the system)
 
@@ -169,7 +212,10 @@ is enough; HTTPS is required for install + service worker on real devices.
 - `app.js` — entry point: `render()`, routing, global listeners
 - `src/store.js` — state, v1 → v2 migration, selectors, every mutation
 - `src/dates.js` — local-time date maths, recurrence, reminder times,
-  formatting (pure, so Node can test it)
+  formatting in the chosen date format (pure, so Node can test it)
+- `src/richtext.js` — the note-body sanitiser and text extractor (pure), plus
+  the inline-style commands the editor uses
+- `src/search.js` — the search matcher for tasks and notes (pure)
 - `src/reminders.js` — the reminder engine: plan, text, web firing rules,
   native reconcile (pure)
 - `src/notify.js` — reminders on the device: permission, the web clock and
@@ -180,11 +226,16 @@ is enough; HTTPS is required for install + service worker on real devices.
   - `shell.js` — onboarding, Boards menu, bottom nav, desktop sidebar
   - `board.js` — list, table, kanban, chips, gestures
   - `detail.js` — task detail, ⋯ menu, read-only archived / deleted view
-  - `folders.js` — Archived / Deleted screens
+  - `folders.js` — Archived / Deleted screens, tasks and notes
+  - `notes.js` — the Notes screen: composer, list, sort, search, tag filter
+  - `noteeditor.js` — the note editor (title, text, checklist, tags, colour,
+    Format row), shared by the composer and the detail
+  - `notedetail.js` — note detail with autosave, ⋯ menu, read-only view
+  - `search.js` — the search field (desktop inline, mobile icon)
   - `schedule.js` — the dates dialog
   - `movecopy.js` — board + lane picker for Move and Copy
   - `tagpicker.js` — tag picker
-  - `settings.js` — Settings: theme, priorities, labels, automations
+  - `settings.js` — Settings: theme, dates, priorities, labels, automations
   - `addsheet.js` — add-task sheet
   - `actions.js` — archive / delete / restore / move / complete, with toasts
   - `primitives.js` — toast, confirm dialog, context menu
@@ -193,9 +244,10 @@ is enough; HTTPS is required for install + service worker on real devices.
   `components.css`, `screens.css`, `fonts.css`
 - `fonts/` — self-hosted Inter + Manrope (woff2)
 - `scripts/` — `build-www.mjs` (Capacitor copy), `check-dates.mjs`,
-  `check-reminders.mjs`, `check-store.mjs`, `check-shell.mjs`,
-  `bundle.mjs` + `bundle-lib.mjs` (build `app.bundle.js`), `check-bundle.mjs`
-- `docs/` — `prd.md`, `architecture.md`, `qa-report.md`
+  `check-reminders.mjs`, `check-store.mjs`, `check-text.mjs`,
+  `check-shell.mjs`, `bundle.mjs` + `bundle-lib.mjs` (build
+  `app.bundle.js`), `check-bundle.mjs`
+- `docs/` — `prd.md`, `prd-notes.md`, `architecture.md`, `qa-report.md`
 - `manifest.webmanifest` — PWA install metadata (name, colors, icons)
 - `sw.js` — service worker: precached app shell, stale-while-revalidate,
   opens the task when a reminder notification is tapped

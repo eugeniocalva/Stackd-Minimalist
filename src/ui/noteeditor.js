@@ -67,7 +67,7 @@ export function editorHTML(v, { mode = 'composer', expanded = true, formatOpen =
   const inner = `
   <div class="ne">
     <input class="ne-title" data-f="title" value="${esc(v.title)}" placeholder="Title" maxlength="200" autocomplete="off" aria-label="Title">
-    <div class="ne-body" data-f="body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Note" data-placeholder="Take a note…">${v.body}</div>
+    <div class="ne-body" data-f="body" contenteditable="true" tabindex="0" role="textbox" aria-multiline="true" aria-label="Note" data-placeholder="Take a note…">${v.body}</div>
     ${v.checklist ? checklistHTML(v.checklist) : ''}
     ${v.tags.length ? `
     <div class="ne-chips">${v.tags.map((t) =>

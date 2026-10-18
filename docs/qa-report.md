@@ -169,3 +169,97 @@ inside the clamp window; a done, repeating task gets no promise and no prompt.
   it a week after onboarding if they allow notifications.
 - Web reminders only fire while Stack'd is open in a tab or window; reliable
   background delivery is the iOS app.
+
+---
+
+# Addendum: 1.4.0 — Notes, search, date format
+
+Date: 2026-10-18 · Role: QA tester (`agents/qa_tester.md`) · Build: `main`
+after Phases 7–12 of `docs/architecture.md` §14, service worker
+`stackd-v1.4.0`.
+
+**Verdict: 🟢 Good to go for the web build.** 52 of the 54 acceptance
+criteria in `docs/prd-notes.md` pass; the two left open need a real phone
+and a disk / iOS run (see "Not verified"). One defect was found in this
+pass and fixed before release.
+
+## How it was checked
+
+- **Source of truth:** `docs/prd-notes.md`, US-01 to US-09, with the
+  decisions in its §07 and the calls in §08.
+- **Environment:** local `http-server`, Chromium (Claude in-app browser), at
+  1280×800 and 375×812, light and dark colour schemes, on the seed data
+  plus the notes created during the walk.
+- **How:** each phase ended with a scripted walk of its criteria through the
+  real UI (clicks, real keystrokes into the composer and the search field,
+  Ctrl+Enter / Esc / Ctrl+B shortcuts, synthetic pointer drags for reorder,
+  a synthetic Word paste) with `localStorage` read back after every step;
+  `npm run check` (dates in all three formats, reminder text, store rules
+  for every note mutation, the sanitiser and the search matcher, precache
+  list, bundle); and in this pass an accessibility-tree read of the
+  composer, a tab-order read, an automated contrast scan of every visible
+  text element on the Notes, note detail, folders and Settings screens in
+  both themes, and a timing run with 504 notes.
+
+## Results by story
+
+| Story | Criteria | Result |
+|---|---|---|
+| US-01 Reach Notes | 01.1 – 01.5 | Pass |
+| US-02 Composer | 02.1 – 02.10 | Pass · 02.11 see below |
+| US-03 Note list | 03.1 – 03.8 | Pass (504 notes render in 88 ms; search re-render ≈ 120 ms after the 150 ms debounce) |
+| US-04 Open and edit | 04.1 – 04.6 | Pass |
+| US-05 Archive / delete / restore | 05.1 – 05.5 | Pass |
+| US-06 Design, accessibility | 06.1 – 06.4 | Pass · 06.5 see below |
+| US-07 Sort and manual order | 07.1 – 07.4 | Pass (task-row drag re-checked after the helper was generalised) |
+| US-08 Search | 08.1 – 08.4 | Pass |
+| US-09 Date format | 09.1 – 09.5 | Pass (first-run default came out `mm/dd/yyyy` on the en-US test browser) |
+| Contrast, light + dark | 4 screens, 37–41 text nodes each | 0 below 4.5 : 1 |
+
+## Defects found and fixed
+
+During the phase walks (fixed in the phase's commit):
+
+1. Tapping the **+** button on Notes expanded the composer and collapsed it again at once: the click-outside listener ran on the same event after the FAB's handler had re-rendered. Clicks whose target was already replaced by a render are now ignored.
+2. The sanitiser turned a `</div><div>` boundary into two line breaks; caught by `check-text.mjs` before it reached the UI. Block boundaries are now one pending break.
+3. On desktop, switching board cleared the search in state but the header had already drawn the field with the old text. The reset now runs before the header renders.
+4. The mobile task list still drew the drag handle on filtered rows although dragging was disabled. Hidden while a query is active.
+
+In this pass:
+
+5. The note body (`contenteditable`) had no explicit `tabindex`, and Chromium reports such elements as outside the sequential focus order, so Tab from the title could skip it (AC-02.9). It now carries `tabindex="0"`; the order reads Title → note → checklist → toolbar → Add.
+
+## Not verified
+
+- **AC-02.11, on-screen keyboard:** the bottom nav hides while the composer
+  is open and the card scrolls, but whether the toolbar and Add stay above
+  an iOS or Android keyboard needs a real phone.
+- **AC-06.5, file:// and the iOS shell:** `check-bundle.mjs` proves
+  `app.bundle.js` matches the modules and the fallback in `index.html` is
+  unchanged since 1.2.1, but the in-app browser cannot open `file://`
+  pages, and no Capacitor build was run. Double-click `index.html`, and run
+  the `ios-debug` Codemagic workflow, before tagging.
+- **Safari / WebKit editing:** `contenteditable`, `execCommand` and the
+  paste handler were exercised in Chromium only. Check bold / italic /
+  underline / strikethrough, Enter inside the body, and a paste from Notes
+  or Pages on an iPhone.
+- **Touch drag** of note rows (grip handle, `touch-action: none`) on a real
+  device; the walk used synthetic mouse pointer events.
+- **Installed PWA update:** after this release's `VERSION` bump, confirm an
+  installed client picks up the new shell on its second load.
+
+## Observations
+
+- The service worker is stale-while-revalidate, so the first load after a
+  deploy still runs the previous modules and only the second load is
+  current. Expected, and the reason the version bump matters for installed
+  clients.
+- `document.execCommand` is deprecated but still the only zero-dependency
+  way to toggle inline styles; it is wrapped in one function
+  (`richtext.js exec()`) for a later swap.
+- Chromium's `tabIndex` getter returns −1 for an implicit `contenteditable`
+  even where the element is reachable by Tab; the explicit attribute removes
+  the doubt.
+- The desktop header shows the search field permanently; with the sidebar,
+  title, field, List ∕ Kanban control and Add button, the board header wraps
+  to two lines below about 1100 px. Acceptable, noted for a later polish.
