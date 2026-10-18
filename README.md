@@ -288,11 +288,35 @@ entitlements, or capabilities, drop those lines from `.gitignore` and commit
 
 ### Before the first Codemagic build
 
-1. App Store Connect: create the bundle id `com.eugeniocalva.stackd`.
-2. Codemagic > Integrations > App Store Connect: add an API key named
-   **`StackdAppStoreKey`** (the name `codemagic.yaml` refers to).
-3. Push a `v*` tag. Codemagic issues the certificate and provisioning
-   profile itself — no manual signing setup.
+1. **Apple Developer Program**: an active membership (paid, yearly) on the
+   Apple ID that will own the app.
+2. **Bundle id**: developer.apple.com > Certificates, Identifiers & Profiles
+   > Identifiers > **+** > App IDs > App: `com.eugeniocalva.stackd`
+   (explicit). No extra capabilities: local notifications need none.
+3. **App record**: App Store Connect > Apps > **+** > New App: platform
+   iOS, name Stack'd (any free name), language, bundle id from step 2, SKU
+   e.g. `stackd`. Uploads fail without this record, not just the bundle id.
+4. **API key**: App Store Connect > Users and Access > Integrations > App
+   Store Connect API > Team Keys > **+**, access **App Manager**. Download
+   the `.p8` (only possible once) and note the Issuer ID and Key ID.
+5. **Codemagic**: sign in with GitHub, add the `Stackd-Minimalist`
+   repository (this installs the webhook that tag builds need), then Team
+   settings > Integrations > Developer Portal > Connect: upload the key from
+   step 4 under the name **`StackdAppStoreKey`** (the name
+   `codemagic.yaml` refers to).
+6. **Tag and push**: `git tag v1.4.0 && git push origin v1.4.0`. Codemagic
+   runs `ios-release`, issues the certificate and provisioning profile
+   itself, sets the version from the tag and the build number from its
+   counter, and uploads to TestFlight (about 15–25 min, then a few minutes
+   of Apple processing).
+7. **Test**: App Store Connect > the app > TestFlight > Internal Testing >
+   **+** a group, add yourself (internal testers need no Beta App Review),
+   add the build. Install **TestFlight** from the App Store on the iPhone,
+   accept the invite, install Stack'd.
+
+The pipeline sets `ITSAppUsesNonExemptEncryption = false` (HTTPS only), so
+builds don't stop at "Missing Compliance". Every later release is just
+step 6 with a new tag.
 
 `submit_to_app_store` is deliberately `false`; it ships to TestFlight only
 until the store listing is complete.

@@ -64,6 +64,21 @@ workflows:
           cd ios/App
           agvtool new-version -all "$PROJECT_BUILD_NUMBER"
 
+      - name: Set the version shown in TestFlight from the tag (v1.4.0 → 1.4.0)
+        script: |
+          if [ -n "$CM_TAG" ]; then
+            cd ios/App
+            agvtool new-marketing-version "${CM_TAG#v}"
+          fi
+
+      - name: Declare export compliance (HTTPS only, no custom encryption)
+        script: |
+          # Without this key every build waits in TestFlight as "Missing
+          # Compliance" until the encryption question is answered by hand.
+          PLIST=ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
+
       - name: Apply signing profiles to the Xcode project
         script: xcode-project use-profiles
 
