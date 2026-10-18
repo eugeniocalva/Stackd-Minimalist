@@ -56,7 +56,7 @@ jobs:
       WORKSPACE: ios/App/App.xcworkspace
       SCHEME: App
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # The `runner` context does not exist at job level, so the temp paths are
       # set here and exported to every later step. The version is the one the
@@ -76,7 +76,7 @@ jobs:
           echo "WANT_VERSION=$version" >> "$GITHUB_ENV"
           echo "WANT_BUILD=$build" >> "$GITHUB_ENV"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
           cache: npm
@@ -251,7 +251,9 @@ jobs:
           {
             echo "### iOS build"
             echo "- version: \`${VERSION:-?}\`, build: \`${BUILD:-?}\`"
-            if [ "${{ inputs.upload }}" = "true" ]; then
+            if [ "${{ job.status }}" != "success" ]; then
+              echo "- **failed**: open the red step above for the error; nothing was sent to Apple unless the upload step ran"
+            elif [ "${{ inputs.upload }}" = "true" ]; then
               echo "- upload requested: check App Store Connect > TestFlight; processing takes a few minutes to an hour"
             else
               echo "- dry run: built, signed and checked, nothing sent to Apple"

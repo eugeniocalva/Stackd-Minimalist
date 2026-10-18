@@ -48,7 +48,7 @@ assert.equal(defaultDateFormat('en-GB'), 'dmy');
 assert.equal(defaultDateFormat('pt-PT'), 'dmy');
 assert.equal(defaultDateFormat('sv-SE'), 'ymd');
 assert.equal(defaultDateFormat('ja-JP'), 'ymd');
-assert.equal(defaultDateFormat(undefined), 'dmy');
+assert.equal(defaultDateFormat(''), 'dmy');   // empty = unknown locale; undefined would read the machine's own language
 {
   const now = new Date(2026, 9, 16, 9, 0).getTime();
   const at = (d, h) => new Date(2026, 9, d, h).getTime();
