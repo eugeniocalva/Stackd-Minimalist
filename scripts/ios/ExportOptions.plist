@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Export settings for App Store Connect, used by .github/workflows/ios-testflight.yml
+  (same as Stack'd Finance's ios/ExportOptions.plist).
+  - app-store-connect + automatic signing: the distribution signature comes from
+    Apple's cloud-managed certificate, so no private signing key lives anywhere
+    outside Apple.
+  - destination is "export" (write an .ipa so the workflow can inspect it); the
+    workflow flips it to "upload" only when asked to upload.
+  - manageAppVersionAndBuildNumber is OFF: the version comes from sw.js and the
+    build number from the workflow, and Xcode must not quietly bump them.
+  The Team ID is not a secret.
+-->
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>teamID</key>
+	<string>YA3DTZR26U</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>destination</key>
+	<string>export</string>
+	<key>uploadSymbols</key>
+	<true/>
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+	<key>testFlightInternalTestingOnly</key>
+	<false/>
+</dict>
+</plist>

@@ -1,0 +1,265 @@
+# iOS build -> App Store Connect / TestFlight, on GitHub's hosted Macs.
+# Adapted from Stack'd Finance's workflow of the same name.
+#
+# Why this exists: there is no Mac on the team, and Apple requires Xcode 26
+# (macOS only) for every upload. GitHub's macos-26 image ships Xcode 26, and
+# macOS runners are free on a public repository.
+#
+# MANUAL ONLY (workflow_dispatch). The repository is public, so there is
+# deliberately no push / pull_request trigger: nothing a fork or a pull request
+# does can reach the signing secrets. Only people with write access can start a
+# run (Actions tab > iOS to TestFlight > Run workflow).
+#
+# Unlike Finance, ios/ is not committed: the Xcode project is generated here by
+# `npx cap add ios`, then the version, build number, icons and the encryption
+# declaration are applied to it.
+#
+# Signing: Apple's cloud-managed distribution certificate, reached through an
+# App Store Connect API key with the ADMIN role (an App Manager key archives,
+# then export fails with "Cloud signing permission error"). The team key that
+# Stack'd Finance uses works here too. Secrets (Settings > Secrets and
+# variables > Actions > New repository secret):
+#   APPSTORE_API_KEY_ID      Key ID
+#   APPSTORE_API_ISSUER_ID   Issuer ID
+#   APPSTORE_API_KEY_P8      full contents of AuthKey_XXXXXXXXXX.p8
+#
+# First run: leave "upload" unticked. It builds, signs and INSPECTS the .ipa
+# without sending anything to Apple. Tick "upload" once that is green.
+name: iOS to TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Upload to App Store Connect (leave off for a dry run that only builds, signs and checks)'
+        type: boolean
+        default: false
+      build_number:
+        description: 'Build number override. Empty = this workflow''s run number, which always goes up. Apple rejects a build number it has already seen for the same version.'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      TEAM_ID: YA3DTZR26U
+      BUNDLE_ID: com.eugeniocalva.stackd
+      WORKSPACE: ios/App/App.xcworkspace
+      SCHEME: App
+    steps:
+      - uses: actions/checkout@v4
+
+      # The `runner` context does not exist at job level, so the temp paths are
+      # set here and exported to every later step. The version is the one the
+      # web app ships (sw.js VERSION 'stackd-v1.4.0' -> 1.4.0).
+      - name: Paths, version and build number
+        env:
+          BUILD_INPUT: ${{ inputs.build_number }}
+        run: |
+          echo "ARCHIVE=$RUNNER_TEMP/App.xcarchive" >> "$GITHUB_ENV"
+          echo "EXPORT_DIR=$RUNNER_TEMP/export" >> "$GITHUB_ENV"
+          echo "KEY_PATH=$RUNNER_TEMP/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
+          version="$(sed -n "s/^const VERSION = 'stackd-v\([0-9.]*\)';.*/\1/p" sw.js)"
+          [ -n "$version" ] || { echo "::error::could not read the version from sw.js"; exit 1; }
+          build="${BUILD_INPUT:-$GITHUB_RUN_NUMBER}"
+          case "$build" in ''|*[!0-9]*) echo "::error::build number must be digits, got '$build'"; exit 1 ;; esac
+          echo "version $version, build $build"
+          echo "WANT_VERSION=$version" >> "$GITHUB_ENV"
+          echo "WANT_BUILD=$build" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Select Xcode 26
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -n 1)"
+          xcodebuild -version
+
+      - name: Check the secrets are present
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          KEY_P8: ${{ secrets.APPSTORE_API_KEY_P8 }}
+        run: |
+          missing=0
+          [ -n "$KEY_ID" ] || { echo "::error::secret APPSTORE_API_KEY_ID is not set"; missing=1; }
+          [ -n "$ISSUER_ID" ] || { echo "::error::secret APPSTORE_API_ISSUER_ID is not set"; missing=1; }
+          case "$KEY_P8" in
+            *"BEGIN PRIVATE KEY"*"END PRIVATE KEY"*) ;;
+            "") echo "::error::secret APPSTORE_API_KEY_P8 is not set"; missing=1 ;;
+            *) echo "::error::APPSTORE_API_KEY_P8 does not look like a .p8 file - paste the whole file, BEGIN and END lines included"; missing=1 ;;
+          esac
+          exit $missing
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Date maths, reminders, store rules, sanitiser, precache list and the
+      # file:// bundle: the same gate as a local commit.
+      - name: Gates (npm run check)
+        run: npm run check
+
+      - name: Build the web assets into www/
+        run: npm run build
+
+      - name: Generate the iOS project
+        run: npx cap add ios --packagemanager CocoaPods
+
+      - name: App icon and splash screens
+        run: |
+          npx @capacitor/assets generate --ios \
+            --iconBackgroundColor '#ec3013' \
+            --splashBackgroundColor '#f4f7f9' \
+            --splashBackgroundColorDark '#0b0f19'
+
+      - name: Sync web assets and plugins (pod install)
+        run: npx cap sync ios
+
+      - name: Check the reminders plugin landed
+        run: |
+          grep -q "CapacitorLocalNotifications" ios/App/Podfile \
+            || { echo "::error::@capacitor/local-notifications is missing from the Podfile - reminders would not work"; exit 1; }
+
+      # HTTPS only, no custom encryption: without this key every build waits in
+      # TestFlight as "Missing Compliance" until it is answered by hand.
+      - name: Declare export compliance
+        run: |
+          PLIST=ios/App/App/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
+
+      - name: Install the API key and a build keychain
+        env:
+          KEY_P8: ${{ secrets.APPSTORE_API_KEY_P8 }}
+        run: |
+          mkdir -p "$(dirname "$KEY_PATH")"
+          umask 077
+          printf '%s\n' "$KEY_P8" > "$KEY_PATH"
+          # A throwaway, unlocked keychain for anything Xcode needs to create
+          # while signing. Deleted in the last step.
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KC_PASS="$(uuidgen)"
+          echo "::add-mask::$KC_PASS"
+          security create-keychain -p "$KC_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PASS" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Archive
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            MARKETING_VERSION="$WANT_VERSION" CURRENT_PROJECT_VERSION="$WANT_BUILD" | tail -n 200
+
+      - name: Check the archive
+        run: |
+          APP="$ARCHIVE/Products/Applications/App.app"
+          got_id="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")"
+          got_version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Info.plist")"
+          got_build="$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$APP/Info.plist")"
+          enc="$(/usr/libexec/PlistBuddy -c 'Print ITSAppUsesNonExemptEncryption' "$APP/Info.plist" 2>/dev/null || echo absent)"
+          echo "$got_id $got_version ($got_build), ITSAppUsesNonExemptEncryption=$enc"
+          [ "$got_id" = "$BUNDLE_ID" ] || { echo "::error::bundle id $got_id != $BUNDLE_ID"; exit 1; }
+          [ "$got_version" = "$WANT_VERSION" ] || { echo "::error::archived version $got_version != $WANT_VERSION"; exit 1; }
+          [ "$got_build" = "$WANT_BUILD" ] || { echo "::error::archived build $got_build != $WANT_BUILD"; exit 1; }
+          [ "$enc" = "false" ] || { echo "::error::ITSAppUsesNonExemptEncryption is not false"; exit 1; }
+          [ -f "$APP/public/index.html" ] && [ -f "$APP/public/src/ui/notes.js" ] \
+            || { echo "::error::the web app is missing from the bundle"; exit 1; }
+          echo "VERSION=$got_version" >> "$GITHUB_ENV"
+          echo "BUILD=$got_build" >> "$GITHUB_ENV"
+
+      - name: Export and sign the .ipa (no upload)
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE" \
+            -exportPath "$EXPORT_DIR" \
+            -exportOptionsPlist scripts/ios/ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" | tail -n 100
+
+      - name: Check the signed .ipa
+        run: |
+          IPA="$(ls "$EXPORT_DIR"/*.ipa | head -n 1)"
+          [ -f "$IPA" ] || { echo "::error::no .ipa was exported"; exit 1; }
+          rm -rf "$RUNNER_TEMP/ipa" && mkdir -p "$RUNNER_TEMP/ipa"
+          unzip -q "$IPA" -d "$RUNNER_TEMP/ipa"
+          APP="$(ls -d "$RUNNER_TEMP"/ipa/Payload/*.app | head -n 1)"
+          codesign -dvv "$APP" 2>&1 | grep -E '^Authority=' | head -n 3
+          codesign -dvv "$APP" 2>&1 | grep -q 'Authority=Apple Distribution' \
+            || { echo "::error::the app is not signed with an Apple Distribution certificate"; exit 1; }
+          ENTS="$RUNNER_TEMP/entitlements.plist"
+          codesign -d --entitlements "$ENTS" --xml "$APP" 2>/dev/null
+          # A store build must not be debuggable.
+          gta="$(plutil -extract get-task-allow raw -o - "$ENTS" 2>/dev/null || echo absent)"
+          echo "get-task-allow: $gta"
+          [ "$gta" != "true" ] || { echo "::error::get-task-allow is true - this is a development-signed build"; exit 1; }
+          ls "$APP"/AppIcon*.png >/dev/null 2>&1 \
+            || { echo "::error::no app icon in the bundle - App Store Connect would reject the upload"; exit 1; }
+          echo "ipa OK: $(du -h "$IPA" | cut -f1), version $VERSION build $BUILD"
+
+      - name: Upload to App Store Connect
+        if: ${{ inputs.upload }}
+        env:
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          cp scripts/ios/ExportOptions.plist "$RUNNER_TEMP/ExportOptions-upload.plist"
+          /usr/libexec/PlistBuddy -c 'Set :destination upload' "$RUNNER_TEMP/ExportOptions-upload.plist"
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE" \
+            -exportPath "$RUNNER_TEMP/upload" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-upload.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" | tail -n 100
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### iOS build"
+            echo "- version: \`${VERSION:-?}\`, build: \`${BUILD:-?}\`"
+            if [ "${{ inputs.upload }}" = "true" ]; then
+              echo "- upload requested: check App Store Connect > TestFlight; processing takes a few minutes to an hour"
+            else
+              echo "- dry run: built, signed and checked, nothing sent to Apple"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the key and the keychain
+        if: ${{ always() }}
+        run: |
+          rm -f "$KEY_PATH"
+          if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi

@@ -256,7 +256,9 @@ is enough; HTTPS is required for install + service worker on real devices.
 ## iOS / App Store
 
 The same web code is wrapped with [Capacitor](https://capacitorjs.com) and
-built in the cloud by [Codemagic](https://codemagic.io) — no Mac required.
+built on GitHub's hosted Macs by `.github/workflows/ios-testflight.yml`, the
+same approach as Stack'd Finance. No Mac required; macOS runners are free on a
+public repository.
 
     npm install          # one time
     npm run build        # copies web assets into www/
@@ -271,55 +273,55 @@ Layout:
 - `assets/` — 1024px icon + light/dark splash sources. Opaque (no alpha
   channel), which App Store validation requires. `@capacitor/assets`
   generates every native size from these during the build.
-- `codemagic.yaml` — two workflows. Since 1.2.0 they create the iOS project
-  with `npx cap add ios --packagemanager CocoaPods`: Capacitor 8 otherwise
-  creates a Swift Package Manager project, which has no Podfile or
-  `App.xcworkspace` for the `pod install` and build steps below.
-  - `ios-release` — signed `.ipa` to TestFlight. Triggered by pushing a
-    `v*` tag (e.g. `git tag v1.1.0 && git push --tags`).
-  - `ios-debug` — unsigned compile check, for verifying the build works.
-    Run it once after any change to how scripts load (1.1.0 moved to ES
-    modules).
+- `scripts/ios/ExportOptions.plist` — App Store Connect export settings
+  (cloud-managed signing, team `YA3DTZR26U`).
+- `.github/workflows/ios-testflight.yml` — **manual only** (Actions tab >
+  iOS to TestFlight > Run workflow), so nothing a fork or pull request does
+  can reach the signing secrets. It runs `npm run check`, generates the iOS
+  project with `npx cap add ios --packagemanager CocoaPods`, adds icons and
+  splash screens, sets the version from `sw.js` (`stackd-v1.4.0` → 1.4.0) and
+  the build number from the run number, declares
+  `ITSAppUsesNonExemptEncryption = false`, archives, signs with Apple's
+  cloud-managed certificate and checks the `.ipa`. With **upload** ticked it
+  also sends the build to App Store Connect.
 
 `ios/` and `android/` are git-ignored and generated in CI, so no Xcode project
 is committed. Once you have a Mac and need to customize `Info.plist`,
 entitlements, or capabilities, drop those lines from `.gitignore` and commit
-`ios/` instead.
+`ios/` instead (as Finance does).
 
-### Before the first Codemagic build
+### First TestFlight build
 
-1. **Apple Developer Program**: an active membership (paid, yearly) on the
-   Apple ID that will own the app.
-2. **Bundle id**: developer.apple.com > Certificates, Identifiers & Profiles
-   > Identifiers > **+** > App IDs > App: `com.eugeniocalva.stackd`
-   (explicit). No extra capabilities: local notifications need none.
-3. **App record**: App Store Connect > Apps > **+** > New App: platform
-   iOS, name Stack'd (any free name), language, bundle id from step 2, SKU
-   e.g. `stackd`. Uploads fail without this record, not just the bundle id.
-4. **API key**: App Store Connect > Users and Access > Integrations > App
-   Store Connect API > Team Keys > **+**, access **App Manager**. Download
-   the `.p8` (only possible once) and note the Issuer ID and Key ID.
-5. **Codemagic**: sign in with GitHub, add the `Stackd-Minimalist`
-   repository (this installs the webhook that tag builds need), then Team
-   settings > Integrations > Developer Portal > Connect: upload the key from
-   step 4 under the name **`StackdAppStoreKey`** (the name
-   `codemagic.yaml` refers to).
-6. **Tag and push**: `git tag v1.4.0 && git push origin v1.4.0`. Codemagic
-   runs `ios-release`, issues the certificate and provisioning profile
-   itself, sets the version from the tag and the build number from its
-   counter, and uploads to TestFlight (about 15–25 min, then a few minutes
-   of Apple processing).
-7. **Test**: App Store Connect > the app > TestFlight > Internal Testing >
-   **+** a group, add yourself (internal testers need no Beta App Review),
-   add the build. Install **TestFlight** from the App Store on the iPhone,
-   accept the invite, install Stack'd.
+Done once (2026-10-18): Apple Developer Program, the bundle id
+`com.eugeniocalva.stackd`, and the App Store Connect app record
+"Stack'd Minimalist".
 
-The pipeline sets `ITSAppUsesNonExemptEncryption = false` (HTTPS only), so
-builds don't stop at "Missing Compliance". Every later release is just
-step 6 with a new tag.
+1. **Secrets**: github.com/eugeniocalva/Stackd-Minimalist > Settings >
+   Secrets and variables > Actions > New repository secret, three times:
+   - `APPSTORE_API_KEY_ID` — the Key ID (the part of `AuthKey_XXXX.p8`
+     after the underscore)
+   - `APPSTORE_API_ISSUER_ID` — App Store Connect > Users and Access >
+     Integrations > App Store Connect API, shown above the key list
+   - `APPSTORE_API_KEY_P8` — the whole `.p8` file opened in a text editor,
+     `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` lines
+     included
 
-`submit_to_app_store` is deliberately `false`; it ships to TestFlight only
-until the store listing is complete.
+   The key must have the **Admin** role: an App Manager key archives, then
+   fails at export with "Cloud signing permission error". Stack'd Finance's
+   team key can be reused.
+2. **Dry run**: Actions > iOS to TestFlight > Run workflow, **upload**
+   unticked. It builds, signs and checks the `.ipa` without sending anything
+   to Apple (about 15 min).
+3. **Upload**: run it again with **upload** ticked. App Store Connect needs a
+   few minutes to an hour to process the build.
+4. **Test**: App Store Connect > Stack'd Minimalist > TestFlight > Internal
+   Testing > **+** a group, add yourself (internal testers need no Beta App
+   Review), add the build. Install **TestFlight** from the App Store on the
+   iPhone, accept the invite, install Stack'd.
+
+Every later release: bump `VERSION` in `sw.js`, push, run the workflow with
+upload ticked. Don't use "Adicionar para revisão" / "Add for Review" on the
+App Store page until the store listing is ready; TestFlight doesn't need it.
 
 ### Note on App Store review
 
@@ -331,5 +333,5 @@ notifications through `@capacitor/local-notifications` (PRD US-10).
 The app reaches the plugin through the object Capacitor injects
 (`window.Capacitor.Plugins.LocalNotifications`), because there is no bundler
 to resolve `import ... from '@capacitor/local-notifications'`. It has been
-verified against a stand-in for that object, not yet on an iPhone: run the
-`ios-debug` workflow and try a reminder on a device before tagging a release.
+verified against a stand-in for that object, not yet on an iPhone: try a
+reminder on the first TestFlight build.
