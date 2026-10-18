@@ -379,6 +379,13 @@
     { id: "low", name: "Low", color: "gray" }
   ];
   var THEMES = ["light", "dark", "system"];
+  var NOTES_SORTS = [
+    ["manual", "Manual"],
+    ["created-desc", "Created · newest first"],
+    ["created-asc", "Created · oldest first"],
+    ["updated-desc", "Edited · newest first"],
+    ["updated-asc", "Edited · oldest first"]
+  ];
   var NOTE_COLORS = PRIORITY_COLORS;
   var NOTE_DRAFT_KEY = "stackd-note-draft";
   var REMINDER_OPTIONS = [
@@ -612,7 +619,8 @@
     const [field, dir] = sort === "manual" ? [null, 1] : [sort.startsWith("updated") ? "updatedAt" : "createdAt", sort.endsWith("asc") ? 1 : -1];
     ns.sort((a, b) => {
       if (field && a[field] !== b[field]) return (a[field] - b[field]) * dir;
-      return a.order - b.order;
+      if (a.order !== b.order) return a.order - b.order;
+      return b.createdAt - a.createdAt;
     });
     return ns;
   }
@@ -841,6 +849,22 @@
   }
   function deleteNoteForever(id) {
     S.notes = S.notes.filter((n) => n.id !== id);
+    commit();
+  }
+  function setNotesSort(sort) {
+    if (!NOTES_SORTS.some(([v]) => v === sort) || S.notesSort === sort) return;
+    S.notesSort = sort;
+    commit();
+  }
+  function reorderNote(id, beforeId) {
+    const n = noteById(id);
+    if (!n || n.status !== "active" || S.notesSort !== "manual") return;
+    const ordered = sortedNotes("manual").filter((x) => x.id !== id);
+    const idx = ordered.findIndex((x) => x.id === beforeId);
+    ordered.splice(idx === -1 ? ordered.length : idx, 0, n);
+    ordered.forEach((x, i) => {
+      x.order = i;
+    });
     commit();
   }
   function setTitle(id, title) {
@@ -2248,7 +2272,7 @@
       const t = taskById(row.dataset.id);
       bindRowGestures(row, t);
       const grip = row.querySelector(".grip");
-      if (grip) bindReorder(grip, row, t, ".trow");
+      if (grip) bindReorder(grip, row, taskReorder(t, ".trow"));
     });
     bindKanban();
   }
@@ -2279,6 +2303,11 @@
   </div>
   <span class="hint">Drag rows to reprioritize · double-click a task to complete</span>`;
   }
+  var taskReorder = (t, rowSel) => ({
+    rowSel,
+    enabled: () => S.sort === "manual" && !t.done,
+    onDrop: (beforeId) => reorderTask(t.id, beforeId)
+  });
   function bindViewbar() {
     app.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => {
       S.view = b.dataset.view;
@@ -2362,9 +2391,9 @@
     UI.screen = "detail";
     rerender();
   }
-  function bindReorder(dragEl, rowEl, task, rowSel) {
+  function bindReorder(dragEl, rowEl, { rowSel, enabled = () => true, onDrop }) {
     dragEl.addEventListener("pointerdown", (e) => {
-      if (S.sort !== "manual" || task.done) return;
+      if (!enabled()) return;
       if (dragEl === rowEl && e.target.closest(".check")) return;
       let dragging = false, over = null;
       const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
@@ -2391,7 +2420,7 @@
         dragEl.removeEventListener("pointercancel", up);
         rowEl.classList.remove("dragging");
         over?.classList.remove("dropover");
-        if (dragging && over) reorderTask(task.id, over.dataset.id);
+        if (dragging && over) onDrop(over.dataset.id);
       };
       dragEl.addEventListener("pointermove", move);
       dragEl.addEventListener("pointerup", up, { once: true });
@@ -3322,7 +3351,7 @@
     if (p) chips.push(`<span class="t-sub num" aria-label="Checklist, ${p.done} of ${p.total} done">${icon("checklist", 12)}${p.done}/${p.total}</span>`);
     return chips.length ? `<div class="t-meta">${chips.join("")}</div>` : "";
   }
-  function noteRowHTML(n, { dateLabel: dateLabel2 = "Created" } = {}) {
+  function noteRowHTML(n, { dateLabel: dateLabel2 = "Created", grip = false } = {}) {
     const hasTitle = !!n.title.trim();
     const title = noteTitle(n);
     const preview = hasTitle && !isEmpty(n.body) ? firstLine(n.body) : "";
@@ -3338,9 +3367,42 @@
       ${noteMetaHTML(n)}
       ${preview ? `<span class="nrow-preview">${esc(preview)}</span>` : ""}
     </div>
+    ${grip ? `<span class="grip" aria-hidden="true">${icon("grip")}</span>` : ""}
   </div>`;
   }
   var dateLabel = () => S.notesSort.startsWith("created") ? "Created" : "Edited";
+  var DEFAULT_SORT = "created-desc";
+  var SHORT = {
+    manual: "Manual",
+    "created-desc": "Newest first",
+    "created-asc": "Oldest first",
+    "updated-desc": "Recently edited",
+    "updated-asc": "Least recently edited"
+  };
+  var canReorder = () => S.notesSort === "manual" && !UI.query && !UI.tagFilter;
+  function sortbarHTML() {
+    return `
+  <div class="viewbar notes-bar">
+    <span class="sortwrap">
+      <button class="sortbtn ${S.notesSort !== DEFAULT_SORT ? "on" : ""}" data-sortbtn aria-haspopup="menu" aria-expanded="${UI.sortMenu}">${icon("sort")}${SHORT[S.notesSort]}</button>
+      ${UI.sortMenu ? `
+      <div class="sortmenu" role="menu">
+        ${NOTES_SORTS.map(([v, label]) => `<button role="menuitemradio" aria-checked="${S.notesSort === v}" data-notes-sort="${v}" class="${S.notesSort === v ? "active" : ""}">${label}</button>`).join("")}
+      </div>` : ""}
+    </span>
+  </div>`;
+  }
+  function bindSortbar() {
+    app.querySelector("[data-sortbtn]")?.addEventListener("click", () => {
+      UI.sortMenu = !UI.sortMenu;
+      rerender();
+    });
+    app.querySelectorAll("[data-notes-sort]").forEach((b) => b.addEventListener("click", () => {
+      UI.sortMenu = false;
+      setNotesSort(b.dataset.notesSort);
+      rerender();
+    }));
+  }
   function notesHTML() {
     const notes = sortedNotes();
     const total = activeNotes().length;
@@ -3351,10 +3413,12 @@
         <h1 class="page-title-text">Notes</h1>
         <span class="kicker">${total ? `${total} note${total === 1 ? "" : "s"}` : "No notes"}</span>
       </div>
+      ${sortbarHTML()}
     </header>
     <div class="scroll-area">
       <div data-composer-host>${editorHTML(draft, { mode: "composer", expanded: UI.composer.expanded })}</div>
-      ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel() })).join("")}</div>` : '<p class="empty">No notes yet. Write one above.</p>'}
+      ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder() })).join("")}</div>` : '<p class="empty">No notes yet. Write one above.</p>'}
+      ${notes.length > 1 && canReorder() ? '<span class="hint">Drag the handle to reorder</span>' : ""}
     </div>
   </div>`;
   }
@@ -3377,14 +3441,24 @@
       editor.focus(UI.composer.focus);
       UI.composer.focus = null;
     }
+    bindSortbar();
     app.querySelectorAll(".nrow").forEach((row) => {
-      row.addEventListener("click", () => openNote(row.dataset.id));
+      const id = row.dataset.id;
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".grip") || row.dataset.dragged) {
+          delete row.dataset.dragged;
+          return;
+        }
+        openNote(id);
+      });
       row.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          openNote(row.dataset.id);
+          openNote(id);
         }
       });
+      const grip = row.querySelector(".grip");
+      if (grip) bindReorder(grip, row, { rowSel: ".nrow", enabled: canReorder, onDrop: (beforeId) => reorderNote(id, beforeId) });
     });
   }
 
@@ -3729,7 +3803,7 @@
     app.querySelectorAll(".tgrid-row").forEach((row) => {
       const t = taskById(row.dataset.id);
       bindRowGestures(row, t);
-      bindReorder(row, row, t, ".tgrid-row");
+      bindReorder(row, row, taskReorder(t, ".tgrid-row"));
     });
     bindKanban();
   }

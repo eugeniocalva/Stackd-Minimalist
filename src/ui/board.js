@@ -145,7 +145,7 @@ export function bindMobileList() {
     const t = taskById(row.dataset.id);
     bindRowGestures(row, t);
     const grip = row.querySelector('.grip');
-    if (grip) bindReorder(grip, row, t, '.trow');
+    if (grip) bindReorder(grip, row, taskReorder(t, '.trow'));
   });
   bindKanban();
 }
@@ -180,6 +180,13 @@ export function desktopTableHTML() {
   </div>
   <span class="hint">Drag rows to reprioritize · double-click a task to complete</span>`;
 }
+
+/** bindReorder options for a task row: manual sort only, never a done task. */
+export const taskReorder = (t, rowSel) => ({
+  rowSel,
+  enabled: () => S.sort === 'manual' && !t.done,
+  onDrop: (beforeId) => reorderTask(t.id, beforeId),
+});
 
 /* — shared bindings — */
 
@@ -254,10 +261,11 @@ export function openDetail(id) {
   UI.detailId = id; UI.screen = 'detail'; rerender();
 }
 
-/* drag a row (via handle or the row itself) to reorder — manual sort only */
-export function bindReorder(dragEl, rowEl, task, rowSel) {
+/* Drag a row (via a handle or the row itself) to reorder. Shared by task rows
+   and note rows: { rowSel, enabled(), onDrop(beforeId) }. */
+export function bindReorder(dragEl, rowEl, { rowSel, enabled = () => true, onDrop }) {
   dragEl.addEventListener('pointerdown', (e) => {
-    if (S.sort !== 'manual' || task.done) return;
+    if (!enabled()) return;
     if (dragEl === rowEl && e.target.closest('.check')) return;
     let dragging = false, over = null;
     const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
@@ -281,7 +289,7 @@ export function bindReorder(dragEl, rowEl, task, rowSel) {
       dragEl.removeEventListener('pointercancel', up);
       rowEl.classList.remove('dragging');
       over?.classList.remove('dropover');
-      if (dragging && over) reorderTask(task.id, over.dataset.id);
+      if (dragging && over) onDrop(over.dataset.id);
     };
     dragEl.addEventListener('pointermove', move);
     dragEl.addEventListener('pointerup', up, { once: true });

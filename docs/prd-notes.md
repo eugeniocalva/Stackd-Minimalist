@@ -288,22 +288,22 @@ colour or tags, without a separate "edit mode".*
 *As a user, I want to decide how my notes are ordered, and to move them by
 hand when no rule fits.*
 
-- [ ] AC-07.1 A **sort** control sits top-right of the Notes header (the
+- [x] AC-07.1 A **sort** control sits top-right of the Notes header (the
       board's sort button pattern). Its menu offers: **Manual**, **Created ·
       newest first**, **Created · oldest first**, **Edited · newest first**,
       **Edited · oldest first**. The chosen option is persisted
       (`S.notesSort`); the button shows the active option and is drawn
       "on" when it is not the default. Default: Created · newest first.
-- [ ] AC-07.2 **Manual**: rows can be dragged to reorder, with the same
+- [x] AC-07.2 **Manual**: rows can be dragged to reorder, with the same
       mechanics as task rows — drag the row on mobile after the 8 px
       threshold, a grip handle on desktop; the dragged row lifts (shadow),
       the drop target shows a divider. Dragging is disabled in every other
       sort, and while a search or tag filter is active (the full list is
       the only thing that can be reordered).
-- [ ] AC-07.3 Manual order is stored per note (`order`) and kept while
+- [x] AC-07.3 Manual order is stored per note (`order`) and kept while
       another sort is active, so switching back to Manual restores it. A
       new note is placed **first** in manual order.
-- [ ] AC-07.4 Archive / delete remove the note from the list without
+- [x] AC-07.4 Archive / delete remove the note from the list without
       renumbering the others; Restore puts it back at its old `order`
       (clamped to the top if that position no longer makes sense).
 

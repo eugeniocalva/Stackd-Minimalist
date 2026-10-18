@@ -240,6 +240,10 @@ button.lrow-icon:active { transform: scale(0.9); }
 .note-ro .t-meta { padding-top: var(--space-1); }
 .main .note-screen { max-width: 720px; width: 100%; margin: 0 auto; }
 .folder-kind { align-self: flex-start; }
+.notes-bar { justify-content: flex-end; }
+.nrow.dragging { opacity: 0.35; }
+.nrow.dropover { box-shadow: inset 0 2px 0 var(--color-accent); }
+.nrow .grip { margin-right: calc(-1 * var(--space-2)); }
 .frow.nrow .frow-open { padding-left: 0; }
 .nrow-line { display: flex; align-items: baseline; gap: var(--space-3); min-width: 0; }
 .nrow-line .t-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }

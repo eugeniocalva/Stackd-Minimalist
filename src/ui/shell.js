@@ -6,7 +6,7 @@ import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import {
   viewbarHTML, kanbanHTML, desktopTableHTML,
-  bindViewbar, bindChecks, bindKanban, bindRowGestures, bindReorder, bindScrollShadow,
+  bindViewbar, bindChecks, bindKanban, bindRowGestures, bindReorder, taskReorder, bindScrollShadow,
 } from './board.js';
 import { detailHTML, bindDetail } from './detail.js';
 import { foldersHTML, bindFolders, openFolder } from './folders.js';
@@ -237,7 +237,7 @@ export function bindDesktop() {
   app.querySelectorAll('.tgrid-row').forEach((row) => {
     const t = taskById(row.dataset.id);
     bindRowGestures(row, t);
-    bindReorder(row, row, t, '.tgrid-row');
+    bindReorder(row, row, taskReorder(t, '.tgrid-row'));
   });
   bindKanban();
 }

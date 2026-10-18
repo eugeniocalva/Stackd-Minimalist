@@ -226,6 +226,35 @@ assert.equal(store.noteById(n1.id), undefined, 'empty folder removes notes too')
 store.deleteNoteForever(n2.id);
 assert.equal(S.notes.length, 0);
 
+// notes (Phase 9): sort setting and manual order
+const mk = (title) => store.addNote({ title, body: '', tags: [], color: null, checklist: null });
+const na = mk('A'), nb = mk('B'), nc = mk('C');            // manual order: C, B, A (newest first)
+assert.deepEqual(store.sortedNotes('manual').map((x) => x.title), ['C', 'B', 'A']);
+store.setNotesSort('bogus');
+assert.equal(S.notesSort, 'created-desc', 'unknown sorts are ignored');
+store.reorderNote(na.id, nb.id);
+assert.deepEqual(store.sortedNotes('manual').map((x) => x.title), ['C', 'B', 'A'], 'no drag outside manual sort');
+store.setNotesSort('manual');
+store.reorderNote(na.id, nb.id);                           // A before B
+assert.deepEqual(store.sortedNotes('manual').map((x) => x.title), ['C', 'A', 'B']);
+assert.deepEqual([nc.order, na.order, nb.order], [0, 1, 2], 'reorder renumbers 0…n−1');
+store.reorderNote(nc.id, null);                           // C to the end
+assert.deepEqual(store.sortedNotes('manual').map((x) => x.title), ['A', 'B', 'C']);
+const nd = mk('D');
+[na, nb, nc, nd].forEach((x, i) => { x.createdAt = i + 1; });   // same-millisecond creations would tie
+assert.equal(nd.order, -1, 'a new note still goes first');
+store.setNotesSort('created-asc');
+assert.deepEqual(store.sortedNotes().map((x) => x.title), ['A', 'B', 'C', 'D'], 'other sorts leave the manual order untouched');
+store.setNotesSort('manual');
+store.archiveNote(nb.id);
+assert.deepEqual([na.order, nc.order], [0, 2], 'archiving does not renumber');
+store.restoreNote(nb.id);
+assert.deepEqual(store.sortedNotes('manual').map((x) => x.title), ['D', 'A', 'B', 'C'], 'restore returns to its old place');
+na.order = nc.order;                                       // equal positions: newer (C) first
+assert.deepEqual(store.sortedNotes('manual').map((x) => x.title), ['D', 'B', 'C', 'A']);
+S.notes = [];
+store.setNotesSort('created-desc');
+
 // v1 migration arms migrated reminders (fresh module instance, v1 store only)
 mem.clear();
 mem.set('stackd-v1', JSON.stringify({

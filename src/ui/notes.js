@@ -5,14 +5,14 @@
    search and tag filter: Phase 10; opening a note: Phase 8. */
 
 import {
-  S, UI, sortedNotes, activeNotes, addNote, loadDraft, saveDraft, blankDraft,
-  checklistProgress, noteTitle, rerender,
+  S, UI, NOTES_SORTS, sortedNotes, activeNotes, addNote, loadDraft, saveDraft, blankDraft,
+  checklistProgress, noteTitle, setNotesSort, reorderNote, rerender,
 } from '../store.js';
 import { fmtDateOrRelative } from '../dates.js';
 import { firstLine, isEmpty } from '../richtext.js';
 import { esc, app, uid } from '../util.js';
 import { icon } from './icons.js';
-import { bindScrollShadow } from './board.js';
+import { bindScrollShadow, bindReorder } from './board.js';
 import { toast } from './primitives.js';
 import { editorHTML, bindEditor, colorBarHTML, colorName } from './noteeditor.js';
 import { openNote } from './notedetail.js';
@@ -90,8 +90,8 @@ export function noteMetaHTML(n) {
   return chips.length ? `<div class="t-meta">${chips.join('')}</div>` : '';
 }
 
-/** One list row. dateLabel follows the sort. */
-export function noteRowHTML(n, { dateLabel = 'Created' } = {}) {
+/** One list row. dateLabel follows the sort; a grip appears when the list can be reordered. */
+export function noteRowHTML(n, { dateLabel = 'Created', grip = false } = {}) {
   const hasTitle = !!n.title.trim();
   const title = noteTitle(n);
   const preview = hasTitle && !isEmpty(n.body) ? firstLine(n.body) : '';
@@ -107,10 +107,40 @@ export function noteRowHTML(n, { dateLabel = 'Created' } = {}) {
       ${noteMetaHTML(n)}
       ${preview ? `<span class="nrow-preview">${esc(preview)}</span>` : ''}
     </div>
+    ${grip ? `<span class="grip" aria-hidden="true">${icon('grip')}</span>` : ''}
   </div>`;
 }
 
 const dateLabel = () => (S.notesSort.startsWith('created') ? 'Created' : 'Edited');
+
+/* ── Sort (PRD-notes US-07) ──────────────────────────────────────────── */
+
+const DEFAULT_SORT = 'created-desc';
+const SHORT = {
+  manual: 'Manual', 'created-desc': 'Newest first', 'created-asc': 'Oldest first',
+  'updated-desc': 'Recently edited', 'updated-asc': 'Least recently edited',
+};
+/** Manual drag only in manual sort and on the full list (no search / tag filter). */
+const canReorder = () => S.notesSort === 'manual' && !UI.query && !UI.tagFilter;
+
+function sortbarHTML() {
+  return `
+  <div class="viewbar notes-bar">
+    <span class="sortwrap">
+      <button class="sortbtn ${S.notesSort !== DEFAULT_SORT ? 'on' : ''}" data-sortbtn aria-haspopup="menu" aria-expanded="${UI.sortMenu}">${icon('sort')}${SHORT[S.notesSort]}</button>
+      ${UI.sortMenu ? `
+      <div class="sortmenu" role="menu">
+        ${NOTES_SORTS.map(([v, label]) => `<button role="menuitemradio" aria-checked="${S.notesSort === v}" data-notes-sort="${v}" class="${S.notesSort === v ? 'active' : ''}">${label}</button>`).join('')}
+      </div>` : ''}
+    </span>
+  </div>`;
+}
+
+function bindSortbar() {
+  app.querySelector('[data-sortbtn]')?.addEventListener('click', () => { UI.sortMenu = !UI.sortMenu; rerender(); });
+  app.querySelectorAll('[data-notes-sort]').forEach((b) =>
+    b.addEventListener('click', () => { UI.sortMenu = false; setNotesSort(b.dataset.notesSort); rerender(); }));
+}
 
 export function notesHTML() {
   const notes = sortedNotes();
@@ -122,12 +152,14 @@ export function notesHTML() {
         <h1 class="page-title-text">Notes</h1>
         <span class="kicker">${total ? `${total} note${total === 1 ? '' : 's'}` : 'No notes'}</span>
       </div>
+      ${sortbarHTML()}
     </header>
     <div class="scroll-area">
       <div data-composer-host>${editorHTML(draft, { mode: 'composer', expanded: UI.composer.expanded })}</div>
       ${notes.length
-        ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel() })).join('')}</div>`
+        ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder() })).join('')}</div>`
         : '<p class="empty">No notes yet. Write one above.</p>'}
+      ${notes.length > 1 && canReorder() ? '<span class="hint">Drag the handle to reorder</span>' : ''}
     </div>
   </div>`;
 }
@@ -145,8 +177,15 @@ export function bindNotes() {
     onExpand: expand,
   });
   if (UI.composer.focus) { editor.focus(UI.composer.focus); UI.composer.focus = null; }
+  bindSortbar();
   app.querySelectorAll('.nrow').forEach((row) => {
-    row.addEventListener('click', () => openNote(row.dataset.id));
-    row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNote(row.dataset.id); } });
+    const id = row.dataset.id;
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.grip') || row.dataset.dragged) { delete row.dataset.dragged; return; }
+      openNote(id);
+    });
+    row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNote(id); } });
+    const grip = row.querySelector('.grip');
+    if (grip) bindReorder(grip, row, { rowSel: '.nrow', enabled: canReorder, onDrop: (beforeId) => reorderNote(id, beforeId) });
   });
 }

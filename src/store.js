@@ -244,7 +244,8 @@ export function sortedNotes(sort = S.notesSort) {
     : [sort.startsWith('updated') ? 'updatedAt' : 'createdAt', sort.endsWith('asc') ? 1 : -1];
   ns.sort((a, b) => {
     if (field && a[field] !== b[field]) return (a[field] - b[field]) * dir;
-    return a.order - b.order;
+    if (a.order !== b.order) return a.order - b.order;
+    return b.createdAt - a.createdAt;          // equal positions (a restored note): newer first
   });
   return ns;
 }
@@ -458,6 +459,25 @@ export function restoreNote(id) {
 
 export function deleteNoteForever(id) {
   S.notes = S.notes.filter((n) => n.id !== id);
+  commit();
+}
+
+/* — notes: sort and manual order (PRD-notes US-07) — */
+
+export function setNotesSort(sort) {
+  if (!NOTES_SORTS.some(([v]) => v === sort) || S.notesSort === sort) return;
+  S.notesSort = sort; commit();
+}
+
+/** Drop the note before `beforeId` (or last when null); manual sort only.
+    Renumbers the active notes 0…n−1, so the next new note (min − 1) stays first. */
+export function reorderNote(id, beforeId) {
+  const n = noteById(id);
+  if (!n || n.status !== 'active' || S.notesSort !== 'manual') return;
+  const ordered = sortedNotes('manual').filter((x) => x.id !== id);
+  const idx = ordered.findIndex((x) => x.id === beforeId);
+  ordered.splice(idx === -1 ? ordered.length : idx, 0, n);
+  ordered.forEach((x, i) => { x.order = i; });
   commit();
 }
 
