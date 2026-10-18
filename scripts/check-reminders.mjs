@@ -22,9 +22,9 @@ for (const s of ['a', 'zzzzzzzz', '42wo28ep', '']) assert.ok(nid(s) >= 0 && nid(
 assert.deepEqual(reminderText(task('a', { due: '2026-10-17' }), 'Work', at(2026, 10, 16, 9)),
   { title: 'Task a', body: 'Due tomorrow at 09:00 · Work' });
 assert.equal(reminderText(task('a', { due: '2026-10-16' }), null, at(2026, 10, 16, 9)).body, 'Due today at 09:00');
-assert.equal(reminderText(task('a', { dueTime: null }), 'Work', at(2026, 10, 18, 9)).body, 'Due Tue, Oct 20 · Work');
+assert.equal(reminderText(task('a', { dueTime: null }), 'Work', at(2026, 10, 18, 9)).body, 'Due Tue · 20/10/2026 · Work');
 assert.equal(reminderText(task('a', { due: '2026-10-15' }), null, at(2026, 10, 16, 9)).body, 'Overdue, was due yesterday at 09:00');
-assert.equal(reminderText(task('a', { due: '2026-10-12' }), null, at(2026, 10, 16, 9)).body, 'Overdue, was due Mon, Oct 12 at 09:00');
+assert.equal(reminderText(task('a', { due: '2026-10-12' }), null, at(2026, 10, 16, 9)).body, 'Overdue, was due Mon · 12/10/2026 at 09:00');
 
 // plan: only active, open, dated tasks with a reminder; soonest first
 const plan = planReminders([

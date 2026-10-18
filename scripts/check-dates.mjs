@@ -5,8 +5,36 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   toISO, addDays, addMonths, addYears, daysBetween, nextOccurrence, isOverdue, fmtDue, monthGrid, reminderInstant,
-  defaultDateFormat, fmtDate, fmtDateOrRelative,
+  defaultDateFormat, fmtDate, fmtDateOrRelative, fmtDateLong, fmtRelative, setDefaultDateFormat, getDefaultDateFormat,
 } from '../src/dates.js';
+
+// app-wide format (Settings → Dates): explicit parameter, else the module default set by the store
+assert.equal(getDefaultDateFormat(), 'dmy');
+assert.equal(fmtDateLong('2026-10-23'), 'Fri · 23/10/2026');
+assert.equal(fmtDateLong('2026-10-23', '09:00', 'mdy'), 'Fri · 10/23/2026 · 09:00');
+assert.equal(fmtDateLong('2026-10-23', null, 'ymd'), 'Fri · 2026-10-23');
+{
+  const now = new Date(2026, 9, 16, 12).getTime();
+  const ago = (d) => now - d * 86400000;
+  assert.equal(fmtRelative(ago(0), now), 'today');
+  assert.equal(fmtRelative(ago(1), now), 'yesterday');
+  assert.equal(fmtRelative(ago(6), now), '6 days ago');
+  assert.equal(fmtRelative(ago(7), now), '09/10/2026', 'a week out becomes a date');
+  assert.equal(fmtRelative(ago(7), now, 'mdy'), '10/09/2026');
+  const at = (h) => new Date(2026, 9, 16, h);
+  assert.equal(fmtDue('2026-10-19', { now: at(10) }).label, 'Mon', 'within a week: weekday');
+  assert.equal(fmtDue('2026-10-23', { now: at(10) }).label, '23/10/2026', 'a week out: numeric');
+  assert.equal(fmtDue('2026-10-23', { now: at(10), format: 'mdy' }).label, '10/23/2026');
+  assert.equal(fmtDue('2026-10-23', { now: at(10), full: true, format: 'ymd' }).label, 'Due 2026-10-23');
+  assert.equal(fmtDue('2026-10-19', { now: at(10), full: true }).label, 'Due Mon 19/10/2026');
+  setDefaultDateFormat('ymd');
+  assert.equal(fmtDateLong('2026-10-23'), 'Fri · 2026-10-23', 'the store-set default applies when no format is passed');
+  assert.equal(fmtDue('2026-10-23', { now: at(10) }).label, '2026-10-23');
+  assert.equal(fmtRelative(ago(8), now), '2026-10-08');
+  setDefaultDateFormat('nope');
+  assert.equal(getDefaultDateFormat(), 'ymd', 'unknown formats are ignored');
+  setDefaultDateFormat('dmy');
+}
 
 // numeric dates (Settings → Dates): three formats, four-digit years, locale default
 assert.equal(fmtDate('2026-10-16', 'dmy'), '16/10/2026');

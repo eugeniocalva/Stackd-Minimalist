@@ -5,9 +5,10 @@
 
 import {
   S, UI, PRIORITY_COLORS, THEMES, allTags, tagUseCounts, priorityUseCount,
-  setTheme, addPriority, updatePriority, movePriority, deletePriority,
+  setTheme, setDateFormat, addPriority, updatePriority, movePriority, deletePriority,
   addLabel, renameLabel, deleteLabel, rerender,
 } from '../store.js';
+import { DATE_FORMATS, fmtDate, todayISO } from '../dates.js';
 import { resolvedTheme } from '../theme.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
@@ -20,7 +21,7 @@ const COLOR_NAME = { red: 'Red', amber: 'Amber', green: 'Green', blue: 'Blue', v
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
 
-/** section: 'appearance' | 'priorities' | 'labels' | 'automations' */
+/** section: 'appearance' | 'dates' | 'priorities' | 'labels' | 'automations' */
 export function openSettings(section) {
   UI.screen = 'settings';
   rerender();
@@ -99,6 +100,21 @@ export function settingsHTML() {
         </div>
       </div>
 
+      <span class="section-title list-label" id="settings-dates">Dates</span>
+      <div class="card list-card">
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon('calendar', 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Date format</span>
+            <span class="set-sub">Today is ${fmtDate(todayISO(), S.dateFormat)}</span>
+          </div>
+          <div class="segmented solid" role="radiogroup" aria-label="Date format">
+            ${DATE_FORMATS.map(([f, label]) => `<button class="seg ${S.dateFormat === f ? 'active' : ''}" role="radio" aria-checked="${S.dateFormat === f}" data-date-format="${f}" title="${fmtDate(todayISO(), f)}" aria-label="${label}, for example ${fmtDate(todayISO(), f)}">${label}</button>`).join('')}
+          </div>
+        </div>
+      </div>
+      <p class="hint set-hint">Used wherever a full date is written. Chips keep Today, Tomorrow and weekdays; the calendar's typed date fields follow your device.</p>
+
       <span class="section-title list-label" id="settings-priorities">Priorities</span>
       <div class="card list-card" data-priorities>
         ${S.priorities.map((p, i) => priorityRowHTML(p, i, n)).join('')}
@@ -167,6 +183,8 @@ export function bindSettings() {
 
   app.querySelectorAll('[data-theme-opt]').forEach((b) =>
     b.addEventListener('click', () => setTheme(b.dataset.themeOpt)));
+  app.querySelectorAll('[data-date-format]').forEach((b) =>
+    b.addEventListener('click', () => setDateFormat(b.dataset.dateFormat)));
 
   /* priorities */
   app.querySelectorAll('[data-prio]').forEach((row) => {

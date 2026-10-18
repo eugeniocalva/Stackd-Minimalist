@@ -335,15 +335,15 @@ that finding things works the same everywhere.*
 ### US-09 — Date format setting (app-wide)
 *As a user, I want dates written the way I read them.*
 
-- [ ] AC-09.1 Settings gets a **Dates** section (after Appearance) with a
+- [x] AC-09.1 Settings gets a **Dates** section (after Appearance) with a
       segmented control **Date format**: `dd/mm/yyyy` · `mm/dd/yyyy` ·
       `yyyy-mm-dd`, each option showing today's date as its example.
       Persisted as `S.dateFormat`.
-- [ ] AC-09.2 Default on first run: derived from the device locale
+- [x] AC-09.2 Default on first run: derived from the device locale
       (`en-US` → `mm/dd/yyyy`, ISO-style locales such as `sv`, `lt`, `zh`
       → `yyyy-mm-dd`, everything else → `dd/mm/yyyy`); an existing store
       with no value gets the same derivation once and keeps it.
-- [ ] AC-09.3 **Scope, app-wide**: every date the app *writes* in full
+- [x] AC-09.3 **Scope, app-wide**: every date the app *writes* in full
       numerals — note rows and detail footers (US-03 / US-04), the
       "Archived 3 days ago" fallbacks once older than 7 days, the task
       detail's Due / Start values, the reminder helper line in the Schedule
@@ -355,10 +355,10 @@ that finding things works the same everywhere.*
       the device locale and the app cannot restyle; they stay native (the
       calendar grid above them is the primary way to pick a date). The
       month header ("October 2026") and weekday initials are unaffected.
-- [ ] AC-09.4 Two-digit years are never used ("16/10/2026", not
+- [x] AC-09.4 Two-digit years are never used ("16/10/2026", not
       "16/10/26") to keep the three formats unambiguous. Weeks still start
       on Monday regardless of the format.
-- [ ] AC-09.5 Changing the format re-renders immediately and is covered by
+- [x] AC-09.5 Changing the format re-renders immediately and is covered by
       `check-dates.mjs` (formatting of a fixed date in the three formats).
 
 ---

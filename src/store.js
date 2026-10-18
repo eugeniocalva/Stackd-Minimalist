@@ -4,7 +4,10 @@
    layer. Schema: docs/architecture.md §3. */
 
 import { uid } from './util.js';
-import { daysFrom, nextOccurrence, addDays, daysBetween, reminderInstant, defaultDateFormat } from './dates.js';
+import {
+  daysFrom, nextOccurrence, addDays, daysBetween, reminderInstant,
+  defaultDateFormat, isDateFormat, setDefaultDateFormat,
+} from './dates.js';
 import { reminderKey } from './reminders.js';
 import { sanitize, toText } from './richtext.js';
 
@@ -102,7 +105,8 @@ function withSettings(state) {
   /* Notes (1.4.0): no migration, just defaults */
   state.notes ??= [];
   state.notesSort ??= 'created-desc';
-  state.dateFormat ??= defaultDateFormat();
+  if (!isDateFormat(state.dateFormat)) state.dateFormat = defaultDateFormat();
+  setDefaultDateFormat(state.dateFormat);   // every date the app writes follows it
   return state;
 }
 
@@ -622,6 +626,12 @@ export function newList() {
 export function setTheme(theme) {
   if (!THEMES.includes(theme) || S.theme === theme) return;
   S.theme = theme; commit();
+}
+
+/** Settings › Dates (PRD-notes US-09): app-wide, re-renders at once. */
+export function setDateFormat(format) {
+  if (!isDateFormat(format) || S.dateFormat === format) return;
+  S.dateFormat = format; setDefaultDateFormat(format); commit();
 }
 
 export function addPriority(name) {

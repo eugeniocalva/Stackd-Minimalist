@@ -83,8 +83,10 @@ export function reminderInstant(due, dueTime, reminder) {
   return d.getTime() - reminder * 60000;
 }
 
-/** Chip label + tone. Tone: overdue (red), soon (amber, ≤ 3 days), neutral. */
-export function fmtDue(due, { full = false, dueTime = null, now = new Date() } = {}) {
+/** Chip label + tone. Tone: overdue (red), soon (amber, ≤ 3 days), neutral.
+    Within a week the chip says Today / Tomorrow / Fri; from 7 days out it is
+    the numeric date in the Settings format (PRD-notes AC-09.3). */
+export function fmtDue(due, { full = false, dueTime = null, now = new Date(), format = DEFAULT_FORMAT } = {}) {
   const d = parse(due);
   const today = new Date(now); today.setHours(0, 0, 0, 0);
   const days = Math.round((d - today) / 86400000);
@@ -95,20 +97,20 @@ export function fmtDue(due, { full = false, dueTime = null, now = new Date() } =
   else if (days === 0) label = 'Today';
   else if (days === 1) label = 'Tomorrow';
   else if (days < 7) label = d.toLocaleDateString('en-US', { weekday: 'short' });
-  else label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  else label = fmtDate(due, format);
   if (full) {
     label = 'Due ' + (days >= 0 && days < 7 && days > 1
-      ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+      ? `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${fmtDate(due, format)}`
       : days === 0 ? 'today' : days === 1 ? 'tomorrow'
-      : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      : fmtDate(due, format));
   }
   if (dueTime && days >= 0) label += ` ${dueTime}`;
   return { label, cls, days };
 }
 
-/** 'Fri, Oct 23' (+ ' · 09:00' when a time is set) */
-export function fmtDateLong(due, dueTime = null) {
-  const label = parse(due).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+/** 'Fri · 23/10/2026' (+ ' · 09:00' when a time is set), in the Settings format. */
+export function fmtDateLong(due, dueTime = null, format = DEFAULT_FORMAT) {
+  const label = `${parse(due).toLocaleDateString('en-US', { weekday: 'short' })} · ${fmtDate(due, format)}`;
   return dueTime ? `${label} · ${dueTime}` : label;
 }
 
@@ -118,18 +120,26 @@ export const fmtMonth = (year, month) =>
 export const fmtTime = (ts) =>
   new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-/** "today" · "yesterday" · "3 days ago" · "Oct 2" */
-export function fmtRelative(ts, now = Date.now()) {
+/** "today" · "yesterday" · "3 days ago" (under a week) · then the numeric date. */
+export function fmtRelative(ts, now = Date.now(), format = DEFAULT_FORMAT) {
   const days = Math.floor((now - ts) / 86400000);
   if (days <= 0) return 'today';
   if (days === 1) return 'yesterday';
-  if (days < 30) return `${days} days ago`;
-  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (days < 7) return `${days} days ago`;
+  return fmtDate(ts, format);
 }
 
 /* ── Numeric dates (Settings → Dates, PRD-notes US-09) ──────────────── */
 
 export const DATE_FORMATS = [['dmy', 'dd/mm/yyyy'], ['mdy', 'mm/dd/yyyy'], ['ymd', 'yyyy-mm-dd']];
+export const isDateFormat = (f) => DATE_FORMATS.some(([v]) => v === f);
+
+/* The app-wide format. The store sets it from S.dateFormat on load and on
+   change; every formatter below defaults to it, so callers need no
+   parameter. Checks pass the format explicitly. */
+let DEFAULT_FORMAT = 'dmy';
+export function setDefaultDateFormat(f) { if (isDateFormat(f)) DEFAULT_FORMAT = f; }
+export const getDefaultDateFormat = () => DEFAULT_FORMAT;
 
 /* Languages whose everyday date order is year-first. */
 const YMD_LANGS = new Set(['sv', 'lt', 'hu', 'zh', 'ja', 'ko', 'eu', 'mn']);
@@ -145,7 +155,7 @@ export function defaultDateFormat(locale = globalThis.navigator?.language) {
 
 /** 'YYYY-MM-DD' or epoch ms → '16/10/2026' · '10/16/2026' · '2026-10-16'.
     Always a four-digit year so dmy and mdy can never be confused. */
-export function fmtDate(value, format = 'dmy') {
+export function fmtDate(value, format = DEFAULT_FORMAT) {
   const d = typeof value === 'number' ? new Date(value) : parse(value);
   const y = d.getFullYear(), m = pad(d.getMonth() + 1), day = pad(d.getDate());
   if (format === 'mdy') return `${m}/${day}/${y}`;
@@ -154,7 +164,7 @@ export function fmtDate(value, format = 'dmy') {
 }
 
 /** 'Today' · 'Yesterday' · fmtDate — by local calendar day. */
-export function fmtDateOrRelative(ts, format = 'dmy', now = Date.now()) {
+export function fmtDateOrRelative(ts, format = DEFAULT_FORMAT, now = Date.now()) {
   const a = new Date(ts); a.setHours(0, 0, 0, 0);
   const b = new Date(now); b.setHours(0, 0, 0, 0);
   const days = Math.round((b - a) / 86400000);

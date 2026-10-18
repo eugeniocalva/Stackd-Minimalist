@@ -72,7 +72,7 @@
     }
     return d.getTime() - reminder * 6e4;
   }
-  function fmtDue(due, { full = false, dueTime = null, now = /* @__PURE__ */ new Date() } = {}) {
+  function fmtDue(due, { full = false, dueTime = null, now = /* @__PURE__ */ new Date(), format = DEFAULT_FORMAT } = {}) {
     const d = parse(due);
     const today = new Date(now);
     today.setHours(0, 0, 0, 0);
@@ -84,25 +84,31 @@
     else if (days === 0) label = "Today";
     else if (days === 1) label = "Tomorrow";
     else if (days < 7) label = d.toLocaleDateString("en-US", { weekday: "short" });
-    else label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    else label = fmtDate(due, format);
     if (full) {
-      label = "Due " + (days >= 0 && days < 7 && days > 1 ? d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : days === 0 ? "today" : days === 1 ? "tomorrow" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+      label = "Due " + (days >= 0 && days < 7 && days > 1 ? `${d.toLocaleDateString("en-US", { weekday: "short" })} ${fmtDate(due, format)}` : days === 0 ? "today" : days === 1 ? "tomorrow" : fmtDate(due, format));
     }
     if (dueTime && days >= 0) label += ` ${dueTime}`;
     return { label, cls, days };
   }
-  function fmtDateLong(due, dueTime = null) {
-    const label = parse(due).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  function fmtDateLong(due, dueTime = null, format = DEFAULT_FORMAT) {
+    const label = `${parse(due).toLocaleDateString("en-US", { weekday: "short" })} · ${fmtDate(due, format)}`;
     return dueTime ? `${label} · ${dueTime}` : label;
   }
   var fmtMonth = (year, month) => new Date(year, month, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
   var fmtTime = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  function fmtRelative(ts, now = Date.now()) {
+  function fmtRelative(ts, now = Date.now(), format = DEFAULT_FORMAT) {
     const days = Math.floor((now - ts) / 864e5);
     if (days <= 0) return "today";
     if (days === 1) return "yesterday";
-    if (days < 30) return `${days} days ago`;
-    return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    if (days < 7) return `${days} days ago`;
+    return fmtDate(ts, format);
+  }
+  var DATE_FORMATS = [["dmy", "dd/mm/yyyy"], ["mdy", "mm/dd/yyyy"], ["ymd", "yyyy-mm-dd"]];
+  var isDateFormat = (f) => DATE_FORMATS.some(([v]) => v === f);
+  var DEFAULT_FORMAT = "dmy";
+  function setDefaultDateFormat(f) {
+    if (isDateFormat(f)) DEFAULT_FORMAT = f;
   }
   var YMD_LANGS = /* @__PURE__ */ new Set(["sv", "lt", "hu", "zh", "ja", "ko", "eu", "mn"]);
   function defaultDateFormat(locale = globalThis.navigator?.language) {
@@ -111,14 +117,14 @@
     if (YMD_LANGS.has(l.split("-")[0])) return "ymd";
     return "dmy";
   }
-  function fmtDate(value, format = "dmy") {
+  function fmtDate(value, format = DEFAULT_FORMAT) {
     const d = typeof value === "number" ? new Date(value) : parse(value);
     const y = d.getFullYear(), m = pad(d.getMonth() + 1), day = pad(d.getDate());
     if (format === "mdy") return `${m}/${day}/${y}`;
     if (format === "ymd") return `${y}-${m}-${day}`;
     return `${day}/${m}/${y}`;
   }
-  function fmtDateOrRelative(ts, format = "dmy", now = Date.now()) {
+  function fmtDateOrRelative(ts, format = DEFAULT_FORMAT, now = Date.now()) {
     const a = new Date(ts);
     a.setHours(0, 0, 0, 0);
     const b = new Date(now);
@@ -468,7 +474,8 @@
     state.labels ??= [];
     state.notes ??= [];
     state.notesSort ??= "created-desc";
-    state.dateFormat ??= defaultDateFormat();
+    if (!isDateFormat(state.dateFormat)) state.dateFormat = defaultDateFormat();
+    setDefaultDateFormat(state.dateFormat);
     return state;
   }
   function upgradeV1(v1) {
@@ -1013,6 +1020,12 @@
   function setTheme(theme) {
     if (!THEMES.includes(theme) || S.theme === theme) return;
     S.theme = theme;
+    commit();
+  }
+  function setDateFormat(format) {
+    if (!isDateFormat(format) || S.dateFormat === format) return;
+    S.dateFormat = format;
+    setDefaultDateFormat(format);
     commit();
   }
   function addPriority(name) {
@@ -2052,6 +2065,21 @@
         </div>
       </div>
 
+      <span class="section-title list-label" id="settings-dates">Dates</span>
+      <div class="card list-card">
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon("calendar", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Date format</span>
+            <span class="set-sub">Today is ${fmtDate(todayISO(), S.dateFormat)}</span>
+          </div>
+          <div class="segmented solid" role="radiogroup" aria-label="Date format">
+            ${DATE_FORMATS.map(([f, label]) => `<button class="seg ${S.dateFormat === f ? "active" : ""}" role="radio" aria-checked="${S.dateFormat === f}" data-date-format="${f}" title="${fmtDate(todayISO(), f)}" aria-label="${label}, for example ${fmtDate(todayISO(), f)}">${label}</button>`).join("")}
+          </div>
+        </div>
+      </div>
+      <p class="hint set-hint">Used wherever a full date is written. Chips keep Today, Tomorrow and weekdays; the calendar's typed date fields follow your device.</p>
+
       <span class="section-title list-label" id="settings-priorities">Priorities</span>
       <div class="card list-card" data-priorities>
         ${S.priorities.map((p, i) => priorityRowHTML(p, i, n)).join("")}
@@ -2123,6 +2151,7 @@
   function bindSettings() {
     bindScrollShadow();
     app.querySelectorAll("[data-theme-opt]").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.themeOpt)));
+    app.querySelectorAll("[data-date-format]").forEach((b) => b.addEventListener("click", () => setDateFormat(b.dataset.dateFormat)));
     app.querySelectorAll("[data-prio]").forEach((row) => {
       const id = row.dataset.prio;
       const p = S.priorities.find((x) => x.id === id);
