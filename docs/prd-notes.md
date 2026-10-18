@@ -467,7 +467,7 @@ half-written note and the main document is not rewritten on every keystroke.
   and richtext assertions); Lighthouse PWA "installable" still passes.
 
 ### Definition of done
-Each phase in the (to be written) architecture update ends with its AC
+Each phase in `docs/architecture.md` §14 (Phases 7–13) ends with its AC
 checklist ticked and a commit; the last phase bumps `VERSION`, rebuilds the
 bundle, updates `README.md` and pushes `main`. QA follows
 `agents/qa_tester.md` against this document and appends to
@@ -529,5 +529,5 @@ can be reversed by editing the AC it names.
 - **Copy** of a note gets a fresh `createdAt` and a reset checklist, so it
   behaves like a new note in every sort (AC-04.5).
 
-No open questions remain. Next step: the architecture update
-(`docs/architecture.md`) with phases, then the build.
+No open questions remain. The architecture and phased plan are in
+`docs/architecture.md` Part II (§9–§17); the build follows those phases.
