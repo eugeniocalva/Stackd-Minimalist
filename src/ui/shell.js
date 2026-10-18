@@ -1,7 +1,7 @@
 /* App chrome: onboarding, mobile Boards menu, mobile bottom nav + FAB,
    desktop shell with sidebar. */
 
-import { S, UI, listById, taskById, openCount, folderTasks, addTask, newList, commit, rerender } from '../store.js';
+import { S, UI, listById, taskById, openCount, folderTasks, activeNotes, addTask, newList, commit, rerender } from '../store.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import {
@@ -12,6 +12,7 @@ import { detailHTML, bindDetail } from './detail.js';
 import { foldersHTML, bindFolders, openFolder } from './folders.js';
 import { openSheet } from './addsheet.js';
 import { settingsHTML, bindSettings, openSettings } from './settings.js';
+import { notesHTML, bindNotes, openNotes, focusComposer } from './notes.js';
 
 /* — onboarding — */
 
@@ -52,6 +53,7 @@ function bindFolderLinks() {
   app.querySelectorAll('[data-open-folder]').forEach((el) =>
     el.addEventListener('click', () => openFolder(el.dataset.openFolder)));
   app.querySelector('[data-open-settings]')?.addEventListener('click', () => openSettings());
+  app.querySelector('[data-open-notes]')?.addEventListener('click', () => openNotes());
 }
 
 /* — mobile: Boards menu — */
@@ -76,6 +78,14 @@ export function listsMenuHTML() {
         <div class="lrow newlist" data-newlist>
           <span class="lrow-icon">${icon('plus', 18)}</span>
           <span class="lname">New board…</span>
+        </div>
+      </div>
+      <span class="section-title list-label">Notes</span>
+      <div class="card list-card">
+        <div class="lrow" data-open-notes>
+          <span class="lrow-icon">${icon('note', 18)}</span>
+          <span class="lname">Notes</span>
+          <span class="lcount num">${activeNotes().length}</span>
         </div>
       </div>
       <span class="section-title list-label">Folders</span>
@@ -122,9 +132,10 @@ export function mobileNavHTML() {
     <div class="nav-pill">
       ${item('lists', 'Boards', 'grid')}
       ${item('list', 'Tasks', 'tasks')}
+      ${item('notes', 'Notes', 'note')}
       ${item('folders', 'Folders', 'folder')}
     </div>
-    <button class="nav-fab" data-add aria-label="Add task">${icon('plus', 28)}</button>
+    <button class="nav-fab" data-add aria-label="${UI.screen === 'notes' ? 'New note' : 'Add task'}">${icon('plus', 28)}</button>
   </nav>`;
 }
 
@@ -134,9 +145,10 @@ export function bindMobileNav() {
       const target = b.dataset.nav;
       if (UI.screen === target) return;
       if (target === 'folders') { openFolder(UI.folder); return; }
+      if (target === 'notes') { openNotes(); return; }
       UI.screen = target; rerender();
     }));
-  app.querySelector('.nav-fab')?.addEventListener('click', () => openSheet());
+  app.querySelector('.nav-fab')?.addEventListener('click', () => (UI.screen === 'notes' ? focusComposer() : openSheet()));
 }
 
 /* — desktop shell — */
@@ -146,6 +158,7 @@ export function desktopHTML() {
   const main = UI.screen === 'detail' ? detailHTML()
     : UI.screen === 'folders' ? foldersHTML()
     : UI.screen === 'settings' ? settingsHTML()
+    : UI.screen === 'notes' ? notesHTML()
     : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
@@ -156,7 +169,7 @@ export function desktopHTML() {
   /* a read-only (archived / deleted) detail belongs to the Folders section */
   const inFolders = UI.screen === 'folders'
     || (UI.screen === 'detail' && taskById(UI.detailId)?.status !== 'active');
-  const onBoard = !inFolders && UI.screen !== 'settings';
+  const onBoard = !inFolders && UI.screen !== 'settings' && UI.screen !== 'notes';
   return `
   <div class="shell">
     <aside class="sidebar">
@@ -168,6 +181,11 @@ export function desktopHTML() {
         <span class="count num">${openCount(l.id)}</span>
       </div>`).join('')}
       <div class="side-newlist"><button class="btn btn-secondary" data-newlist>${icon('plus', 16)}New board</button></div>
+      <div class="side-item side-notes ${UI.screen === 'notes' ? 'active' : ''}" data-open-notes>
+        ${icon('note', 16)}
+        <span class="name">Notes</span>
+        <span class="count num">${activeNotes().length}</span>
+      </div>
       <span class="section-title side-label">Folders</span>
       ${folderEntries().map((f) => `
       <div class="side-item ${inFolders && UI.folder === f.tab ? 'active' : ''}" data-open-folder="${f.tab}">
@@ -198,6 +216,7 @@ export function bindDesktop() {
   if (UI.screen === 'detail') { bindDetail(); return; }
   if (UI.screen === 'folders') { bindFolders(); return; }
   if (UI.screen === 'settings') { bindSettings(); return; }
+  if (UI.screen === 'notes') { bindNotes(); return; }
   bindViewbar();
   bindChecks();
   app.querySelector('[data-add]')?.addEventListener('click', () => openSheet());

@@ -4,8 +4,9 @@
    layer. Schema: docs/architecture.md §3. */
 
 import { uid } from './util.js';
-import { daysFrom, nextOccurrence, addDays, daysBetween, reminderInstant } from './dates.js';
+import { daysFrom, nextOccurrence, addDays, daysBetween, reminderInstant, defaultDateFormat } from './dates.js';
 import { reminderKey } from './reminders.js';
+import { sanitize, toText } from './richtext.js';
 
 export const STORE_KEY = 'stackd-v2';
 const LEGACY_KEY = 'stackd-v1';
@@ -27,6 +28,14 @@ const defaultPriorities = () => [
   { id: 'low', name: 'Low', color: 'gray' },
 ];
 export const THEMES = ['light', 'dark', 'system'];
+/* Notes (docs/prd-notes.md): list order and the composer draft's own key. */
+export const NOTES_SORTS = [
+  ['manual', 'Manual'],
+  ['created-desc', 'Created · newest first'], ['created-asc', 'Created · oldest first'],
+  ['updated-desc', 'Edited · newest first'], ['updated-asc', 'Edited · oldest first'],
+];
+export const NOTE_COLORS = PRIORITY_COLORS;
+export const NOTE_DRAFT_KEY = 'stackd-note-draft';
 /* reminder = minutes before the due time; null = none */
 export const REMINDER_OPTIONS = [
   [null, 'None'], [0, 'At time of due'], [10, '10 minutes before'],
@@ -44,11 +53,16 @@ export let S = migrate();
 
 /* transient UI state (not persisted) */
 export const UI = {
-  screen: 'list',        // 'lists' | 'list' | 'detail' | 'folders' | 'settings'
+  screen: 'list',        // 'lists' | 'list' | 'detail' | 'folders' | 'settings' | 'notes' | 'note'
   folder: 'archived',    // which tab the folders screen shows
-  detailId: null,
+  folderKind: 'tasks',   // 'tasks' | 'notes' — segment inside a folder
+  detailId: null,        // task id on 'detail', note id on 'note'
   sortMenu: false,
   refocusAddsub: false,
+  composer: { expanded: false, formatOpen: false, focus: null },   // Notes composer; focus = field to refocus after a render
+  query: '',             // search text of the current screen; cleared on screen / board change
+  tagFilter: null,       // Notes: tag chip filter
+  searchOpen: false,     // mobile: search field expanded from its icon
 };
 export const isDesktop = window.matchMedia('(min-width: 900px)');
 
@@ -82,6 +96,10 @@ function withSettings(state) {
   state.theme ??= 'system';
   state.priorities ??= defaultPriorities();
   state.labels ??= [];   // labels created in Settings; tags on tasks count too
+  /* Notes (1.4.0): no migration, just defaults */
+  state.notes ??= [];
+  state.notesSort ??= 'created-desc';
+  state.dateFormat ??= defaultDateFormat();
   return state;
 }
 
@@ -119,6 +137,34 @@ export function blankTask(listId, title, extra = {}) {
     ...extra,
   };
 }
+
+/** A note with every field at its default (schema: docs/architecture.md §10). */
+export function blankNote(extra = {}) {
+  const now = Date.now();
+  return {
+    id: uid(), order: 0, title: '', body: '', color: null, tags: [], checklist: null,
+    status: 'active', archivedAt: null, deletedAt: null,
+    createdAt: now, updatedAt: now,
+    ...extra,
+  };
+}
+
+/* — composer draft: its own key, no commit, no render — */
+
+export const blankDraft = () => ({ title: '', body: '', color: null, tags: [], checklist: null });
+
+export function loadDraft() {
+  const d = read(NOTE_DRAFT_KEY);
+  if (!d || typeof d !== 'object') return null;
+  const draft = { ...blankDraft(), ...d, body: sanitize(d.body), tags: normalizeTags(d.tags || []) };
+  if (!NOTE_COLORS.includes(draft.color)) draft.color = null;
+  if (draft.checklist !== null && !Array.isArray(draft.checklist)) draft.checklist = null;
+  return draft;
+}
+export function saveDraft(draft) {
+  try { localStorage.setItem(NOTE_DRAFT_KEY, JSON.stringify({ ...draft, savedAt: Date.now() })); } catch { /* storage full or unavailable: the in-memory draft still works */ }
+}
+export function clearDraft() { localStorage.removeItem(NOTE_DRAFT_KEY); }
 
 function seed() {
   const work = 'work', personal = 'personal', shopping = 'shopping', family = 'family';
@@ -178,13 +224,39 @@ export function folderTasks(status) {
   return S.tasks.filter((t) => t.status === status).sort((a, b) => b[key] - a[key]);
 }
 
-export const allTags = () =>
-  normalizeTags([...S.labels, ...S.tasks.filter((t) => t.status !== 'deleted').flatMap((t) => t.tags)]);
+/* tags and notes share one pool (PRD-notes Q3) */
+const tagged = () => [...S.tasks, ...S.notes].filter((x) => x.status !== 'deleted');
+export const allTags = () => normalizeTags([...S.labels, ...tagged().flatMap((x) => x.tags)]);
 
 const sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
-/** Non-deleted tasks carrying the tag (case-insensitive). */
-export const tagUseCount = (name) =>
-  S.tasks.filter((t) => t.status !== 'deleted' && t.tags.some((x) => sameTag(x, name))).length;
+/** Non-deleted tasks and notes carrying the tag (case-insensitive). */
+export const tagUseCount = (name) => tagged().filter((x) => x.tags.some((t) => sameTag(t, name))).length;
+
+/* — notes — */
+
+export const noteById = (id) => S.notes.find((n) => n.id === id);   // any status
+export const activeNotes = () => S.notes.filter((n) => n.status === 'active');
+
+/** Manual: by order. Date sorts: by the field, ties by order. */
+export function sortedNotes(sort = S.notesSort) {
+  const ns = activeNotes();
+  const [field, dir] = sort === 'manual' ? [null, 1]
+    : [sort.startsWith('updated') ? 'updatedAt' : 'createdAt', sort.endsWith('asc') ? 1 : -1];
+  ns.sort((a, b) => {
+    if (field && a[field] !== b[field]) return (a[field] - b[field]) * dir;
+    return a.order - b.order;
+  });
+  return ns;
+}
+
+export const checklistProgress = (n) => (n.checklist && n.checklist.length
+  ? { done: n.checklist.filter((c) => c.done).length, total: n.checklist.length } : null);
+
+/** Open items first, then ticked ones, each in authoring order (PRD-notes Q14). */
+export const sortedChecklist = (items) => [...items.filter((c) => !c.done), ...items.filter((c) => c.done)];
+
+export const noteIsEmpty = (n) =>
+  !n.title.trim() && toText(n.body).trim() === '' && !(n.checklist || []).some((c) => c.text.trim());
 
 export const priorityById = (id) => S.priorities.find((p) => p.id === id);
 export const priorityName = (id) => priorityById(id)?.name || 'None';
@@ -257,6 +329,29 @@ export function addTask(draft) {
 export function setPriority(id, priority) {
   const t = taskById(id); if (!t) return;
   t.priority = priority; touch(t); commit();
+}
+
+/* — notes — */
+
+/** Normalised checklist: trimmed text, empty items dropped; null stays null. */
+const cleanChecklist = (items) => (items === null || items === undefined ? null
+  : items.map((c) => ({ id: c.id || uid(), text: String(c.text ?? '').trim(), done: !!c.done })).filter((c) => c.text));
+
+/** The composer's Add: a new note goes first in manual order; the draft is cleared. */
+export function addNote(draft) {
+  const n = blankNote({
+    title: String(draft.title ?? '').trim(),
+    body: sanitize(draft.body),
+    color: NOTE_COLORS.includes(draft.color) ? draft.color : null,
+    tags: normalizeTags(draft.tags || []),
+    checklist: cleanChecklist(draft.checklist),
+    order: Math.min(0, ...activeNotes().map((x) => x.order)) - 1,
+  });
+  if (noteIsEmpty(n)) return null;
+  S.notes.push(n);
+  clearDraft();
+  commit();
+  return n;
 }
 
 export function setTitle(id, title) {

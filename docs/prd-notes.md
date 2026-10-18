@@ -93,35 +93,35 @@ light and dark mode, and survive a reload (localStorage). Touch targets are
 ### US-01 — Reach Notes from anywhere
 *As a user, I want Notes to be a first-class area next to Boards and Folders.*
 
-- [ ] AC-01.1 Desktop sidebar: a **Notes** item with a live count of active
+- [x] AC-01.1 Desktop sidebar: a **Notes** item with a live count of active
       notes, between the Boards section and the Folders section.
-- [ ] AC-01.2 Mobile: a **Notes** item in the bottom nav pill, so it reads
+- [x] AC-01.2 Mobile: a **Notes** item in the bottom nav pill, so it reads
       **Boards · Tasks · Notes · Folders**. The mobile Boards menu also
       lists Notes.
-- [ ] AC-01.3 On the Notes screen the **+** FAB focuses the composer (and
+- [x] AC-01.3 On the Notes screen the **+** FAB focuses the composer (and
       scrolls it into view) instead of opening the add-task sheet.
-- [ ] AC-01.4 The Notes screen has the same sticky header as a board: title
+- [x] AC-01.4 The Notes screen has the same sticky header as a board: title
       **Notes** in Manrope, kicker "12 notes", then the **search bar**
       (US-08) and, on the right, the **sort** control (US-07).
-- [ ] AC-01.5 Empty state under the composer: "No notes yet. Write one
+- [x] AC-01.5 Empty state under the composer: "No notes yet. Write one
       above."
 
 ### US-02 — Composer: capture a note like Keep
 *As a user, I want a single box where I start typing and only see the extra
 controls once I need them.*
 
-- [ ] AC-02.1 **Collapsed**: one surface card at the top of the Notes screen
+- [x] AC-02.1 **Collapsed**: one surface card at the top of the Notes screen
       with the placeholder "Take a note…" and, on the right, a checklist
       icon (AC-02.6 shortcut). Nothing else. If a draft exists, the card
       shows "Draft: ‹title or first words›" instead of the placeholder.
-- [ ] AC-02.2 **Expanded** (click, tap or keyboard focus anywhere in the
+- [x] AC-02.2 **Expanded** (click, tap or keyboard focus anywhere in the
       card): the card grows to show, top to bottom, a **Title** line
       (single line, plain text, Manrope, placeholder "Title"), a **note**
       area (multi-line, auto-growing, placeholder "Take a note…", line
       breaks preserved) and the **toolbar**. Focus lands in the field the
       user clicked, otherwise in the note area. The card animates between
       the two states (respecting `prefers-reduced-motion`).
-- [ ] AC-02.3 **Toolbar**, left to right: **Format** (Aa), **Tag**,
+- [x] AC-02.3 **Toolbar**, left to right: **Format** (Aa), **Tag**,
       **Colour**, **Checklist** icons; on the far right a primary button
       **Add**. Each icon has an `aria-label` and a desktop tooltip. Icons
       that are "on" (format row open, tags added, colour chosen, checklist
@@ -133,35 +133,35 @@ controls once I need them.*
       the caret. Shortcuts: `Ctrl/⌘+B`, `Ctrl/⌘+I`, `Ctrl/⌘+U`,
       `Ctrl/⌘+Shift+X`. The title never takes formatting. Pasted text keeps
       only these four styles and line breaks; everything else is stripped.
-- [ ] AC-02.5 **Tag icon** opens the existing tag picker: suggestions come
+- [x] AC-02.5 **Tag icon** opens the existing tag picker: suggestions come
       from the shared pool (`allTags()`: Settings › Labels plus tags on
       tasks and notes). Chosen tags show as removable chips between the
       note area and the toolbar. Same rules as tasks: trimmed, leading `#`
       stripped, case-insensitive duplicates ignored.
-- [ ] AC-02.6 **Colour icon** opens a small popover with seven swatches:
+- [x] AC-02.6 **Colour icon** opens a small popover with seven swatches:
       **None** plus red, amber, green, blue, violet, gray — the
       `PRIORITY_COLORS` tokens. Choosing one shows the **colour bar on the
       left edge of the composer card** (AC-06.2) so the user sees the
       result before adding; the title and body text keep their normal
       colour. Each swatch has a name for screen readers; the chosen one is
       marked with a check.
-- [ ] AC-02.7 **Checklist icon** toggles a checklist section under the note
+- [x] AC-02.7 **Checklist icon** toggles a checklist section under the note
       area (the card grows). It starts with one empty item; **Enter** adds
       the next item, **Backspace** on an empty item removes it and moves
       focus up, each item has a checkbox and a ✕ on hover/focus. Toggling
       the icon off with non-empty items asks "Remove checklist?" (confirm);
       with only empty items it just hides. The collapsed-state checklist
       icon (AC-02.1) expands the composer with the checklist already open.
-- [ ] AC-02.8 **Add** is disabled while title, note and every checklist
+- [x] AC-02.8 **Add** is disabled while title, note and every checklist
       item are empty (whitespace only counts as empty). Adding creates the
       note with `createdAt = updatedAt = now`, puts it at the top of the
       list, collapses the composer back to AC-02.1, clears the draft and
       shows a toast "Note added" with an **Open** action. A note with a
       checklist but no title or body is allowed.
-- [ ] AC-02.9 **Keyboard**: `Ctrl/⌘ + Enter` adds from any field; `Esc`
+- [x] AC-02.9 **Keyboard**: `Ctrl/⌘ + Enter` adds from any field; `Esc`
       collapses the composer; `Tab` moves Title → note → checklist →
       toolbar → Add.
-- [ ] AC-02.10 **Leaving with content**: click outside, Esc, opening a
+- [x] AC-02.10 **Leaving with content**: click outside, Esc, opening a
       note, switching to a board, Folders or Settings, closing the app —
       the draft is **always kept, never added or discarded**. The composer
       collapses to the "Draft: …" state and reopens with title, body,
@@ -176,19 +176,19 @@ controls once I need them.*
 ### US-03 — Note list: see everything like Notion
 *As a user, I want my existing notes as a calm list, not a wall of cards.*
 
-- [ ] AC-03.1 Under the composer, notes appear as **flush rows with
+- [x] AC-03.1 Under the composer, notes appear as **flush rows with
       hairline dividers inside one surface card** (the task-row pattern),
       in the order chosen by the sort control (US-07); default **newest
       first by creation date**. A newly added note is the first row in
       every sort except "oldest first".
-- [ ] AC-03.2 Each row shows, left to right: the **colour bar** (AC-06.2,
+- [x] AC-03.2 Each row shows, left to right: the **colour bar** (AC-06.2,
       absent when the note has no colour); the **title** in the normal text
       colour — if the note has no title, the first line of the body (plain
       text, formatting stripped) in its place, truncated with an ellipsis;
       the **tag chips** (neutral pills, max 3 shown + "+2"); a **checklist
       indicator** when a checklist exists: the checklist icon with the
       progress "2/5"; and on the right the **dates** (AC-03.3).
-- [ ] AC-03.3 **Date on the row**: a single right-aligned date in secondary text,
+- [x] AC-03.3 **Date on the row**: a single right-aligned date in secondary text,
       prefixed by a one-word label that says which date it is, following
       the active sort — "Created 11/10/26" when sorting by creation date,
       "Edited 16/10/26" when sorting by edit date or manually. Relative
@@ -196,7 +196,7 @@ controls once I need them.*
       Dates use the Date format setting (US-09). Both full dates are always
       visible in the detail (AC-04.1). The abbreviated "C.D." / "L.U."
       labels are not used: they need decoding and fail screen readers.
-- [ ] AC-03.4 (Should) A second line with a one-line **preview** of the
+- [x] AC-03.4 (Should) A second line with a one-line **preview** of the
       body in secondary text (formatting stripped), truncated; hidden when
       the body is empty or was used as the title.
 - [ ] AC-03.5 Tapping a row opens the note (US-04). Rows have the same
@@ -205,9 +205,9 @@ controls once I need them.*
 - [ ] AC-03.6 Tapping a tag chip in a row filters the list to that tag; an
       active filter shows as a removable chip under the search bar
       ("#meeting ✕") and combines with the search text.
-- [ ] AC-03.7 The list shows **active** notes only. Archived and deleted
+- [x] AC-03.7 The list shows **active** notes only. Archived and deleted
       notes live in the Folders (US-05).
-- [ ] AC-03.8 Long lists stay smooth up to 500 notes (plain rendering, no
+- [x] AC-03.8 Long lists stay smooth up to 500 notes (plain rendering, no
       virtualisation needed below that).
 
 ### US-04 — Open, read and edit a note
@@ -261,11 +261,11 @@ colour or tags, without a separate "edit mode".*
       notes as well as tasks; the "used by" counts include notes.
 
 ### US-06 — Design, accessibility and platform parity
-- [ ] AC-06.1 Everything uses the Finance tokens: the composer is a surface
+- [x] AC-06.1 Everything uses the Finance tokens: the composer is a surface
       card with the 1 px border and soft shadow; the expanded composer gets
       the elevated shadow; toolbar icons come from `icons.js` (add `text`,
       `tag`, `palette`, `checklist`, `note`, `search`, `sort-az`).
-- [ ] AC-06.2 **Colour bar**: a **3 px wide bar,
+- [x] AC-06.2 **Colour bar**: a **3 px wide bar,
       fully rounded, inset 4 px from the row's top and bottom, sitting in
       the row's left padding** so the text column does not shift between
       coloured and uncoloured rows. Colour = the token's **text** variant
@@ -273,10 +273,10 @@ colour or tags, without a separate "edit mode".*
       light and dark surfaces. The same bar appears on the composer card
       (AC-02.6) and the detail content block (AC-04.1). No tinting of
       title, background or chips.
-- [ ] AC-06.3 Colour is never the only cue: the detail shows the colour's
+- [x] AC-06.3 Colour is never the only cue: the detail shows the colour's
       name next to the swatch, and the row's `aria-label` includes it
       ("Weekly sync, blue").
-- [ ] AC-06.4 Screen readers: the composer is a `form` with a visible label
+- [x] AC-06.4 Screen readers: the composer is a `form` with a visible label
       ("New note"); the toolbar and Format row are `toolbar`s with labelled
       toggle buttons (`aria-pressed`); checklist items are real checkboxes;
       the note list is a `list`; search is a `search` landmark.

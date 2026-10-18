@@ -74,10 +74,12 @@ export function confirmDialog(title, body, { confirmLabel = 'Confirm', danger = 
 
 const itemHTML = (it, i) => it.divider
   ? '<div class="menu-divider"></div>'
-  : `<button class="menu-item ${it.danger ? 'danger' : ''}" data-i="${i}">${it.icon ? icon(it.icon) : ''}${
-    it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ''}<span>${esc(it.label)}</span></button>`;
+  : `<button class="menu-item ${it.danger ? 'danger' : ''}" data-i="${i}" role="menuitemradio" aria-checked="${!!it.checked}">${it.icon ? icon(it.icon) : ''}${
+    it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ''}${
+    it.swatch === 'none' ? '<span class="swatch swatch-none"></span>' : ''}<span>${esc(it.label)}</span>${
+    it.checked ? `<span class="menu-check">${icon('check')}</span>` : ''}</button>`;
 
-/** items: [{ label, icon?, swatch?, danger?, onClick }, { divider: true }, …] */
+/** items: [{ label, icon?, swatch?, checked?, danger?, onClick }, { divider: true }, …] */
 export function openMenu(anchorEl, items) {
   const bind = (root, close) => {
     root.querySelectorAll('.menu-item').forEach((b) =>

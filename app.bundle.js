@@ -104,6 +104,30 @@
     if (days < 30) return `${days} days ago`;
     return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   }
+  var YMD_LANGS = /* @__PURE__ */ new Set(["sv", "lt", "hu", "zh", "ja", "ko", "eu", "mn"]);
+  function defaultDateFormat(locale = globalThis.navigator?.language) {
+    const l = String(locale || "").toLowerCase();
+    if (l === "en-us" || l === "en") return "mdy";
+    if (YMD_LANGS.has(l.split("-")[0])) return "ymd";
+    return "dmy";
+  }
+  function fmtDate(value, format = "dmy") {
+    const d = typeof value === "number" ? new Date(value) : parse(value);
+    const y = d.getFullYear(), m = pad(d.getMonth() + 1), day = pad(d.getDate());
+    if (format === "mdy") return `${m}/${day}/${y}`;
+    if (format === "ymd") return `${y}-${m}-${day}`;
+    return `${day}/${m}/${y}`;
+  }
+  function fmtDateOrRelative(ts, format = "dmy", now = Date.now()) {
+    const a = new Date(ts);
+    a.setHours(0, 0, 0, 0);
+    const b = new Date(now);
+    b.setHours(0, 0, 0, 0);
+    const days = Math.round((b - a) / 864e5);
+    if (days === 0) return "Today";
+    if (days === 1) return "Yesterday";
+    return fmtDate(ts, format);
+  }
   function daysLeft(deletedAt, retentionDays, now = Date.now()) {
     return Math.max(0, Math.ceil((deletedAt + retentionDays * 864e5 - now) / 864e5));
   }
@@ -244,6 +268,99 @@
     };
   }
 
+  // src/richtext.js
+  var ALLOWED_TAGS = ["br"];
+  var INLINE_MAP = { b: "b", strong: "b", i: "i", em: "i", u: "u", s: "s", strike: "s", del: "s" };
+  var BLOCK = /* @__PURE__ */ new Set(["p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "section", "article"]);
+  var DROP_CONTENT = /<(script|style|head|title|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+  var TOKEN = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\/?([a-zA-Z][a-zA-Z0-9]*)(?:\s[^>]*)?\/?>|<[^>]*>/g;
+  var ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  var escText = (s) => s.replace(/[<>"']/g, (c) => ESC[c]).replace(/&(?!#?\w+;)/g, "&amp;");
+  function sanitize(html) {
+    const src = String(html ?? "").replace(DROP_CONTENT, "");
+    const out = [];
+    const open = [];
+    let last = 0, atStart = true, boundary = false;
+    const flushBoundary = () => {
+      if (boundary && !atStart) out.push("<br>");
+      boundary = false;
+    };
+    const pushText = (text) => {
+      if (!text) return;
+      if (text.trim()) {
+        flushBoundary();
+        atStart = false;
+      }
+      out.push(escText(text));
+    };
+    const closeTo = (name) => {
+      const i = open.lastIndexOf(name);
+      if (i === -1) return;
+      while (open.length > i) out.push(`</${open.pop()}>`);
+    };
+    for (const m of src.matchAll(TOKEN)) {
+      pushText(src.slice(last, m.index));
+      last = m.index + m[0].length;
+      const raw = m[1] ? m[1].toLowerCase() : null;
+      if (!raw) continue;
+      const closing = m[0][1] === "/";
+      if (raw === "br") {
+        if (ALLOWED_TAGS.includes("br") && !atStart) out.push("<br>");
+        boundary = false;
+        continue;
+      }
+      if (BLOCK.has(raw)) {
+        boundary = true;
+        continue;
+      }
+      const mapped = INLINE_MAP[raw];
+      if (!mapped || !ALLOWED_TAGS.includes(mapped)) continue;
+      if (closing) closeTo(mapped);
+      else if (!open.includes(mapped)) {
+        flushBoundary();
+        out.push(`<${mapped}>`);
+        open.push(mapped);
+      }
+    }
+    pushText(src.slice(last));
+    while (open.length) out.push(`</${open.pop()}>`);
+    return out.join("").replace(/^(?:\s|<br>)+/, "").replace(/(?:<br>|\s)+$/, "").replace(/(?:<br>){3,}/g, "<br><br>");
+  }
+  var fromPlain = (text) => sanitize(escText(String(text ?? "")).replace(/\r?\n/g, "<br>"));
+  var ENTITY = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+  var decode = (s) => s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e) => {
+    if (e[0] === "#") {
+      const code = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : all;
+    }
+    return ENTITY[e.toLowerCase()] ?? all;
+  });
+  function toText(html) {
+    const src = String(html ?? "").replace(DROP_CONTENT, "");
+    let s = "", last = 0, boundary = false;
+    const text = (t) => {
+      if (!t) return;
+      if (t.trim() && boundary) {
+        s += "\n";
+        boundary = false;
+      }
+      s += t;
+    };
+    for (const m of src.matchAll(TOKEN)) {
+      text(src.slice(last, m.index));
+      last = m.index + m[0].length;
+      const raw = m[1] ? m[1].toLowerCase() : null;
+      if (raw === "br") {
+        s += "\n";
+        boundary = false;
+      } else if (raw && BLOCK.has(raw)) boundary = true;
+    }
+    text(src.slice(last));
+    return decode(s).replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
+  }
+  var firstLine = (html) => toText(html).split("\n").find((l) => l.trim()) || "";
+  var isEmpty = (html) => toText(html).trim() === "";
+
   // src/store.js
   var STORE_KEY = "stackd-v2";
   var LEGACY_KEY = "stackd-v1";
@@ -262,6 +379,8 @@
     { id: "low", name: "Low", color: "gray" }
   ];
   var THEMES = ["light", "dark", "system"];
+  var NOTE_COLORS = PRIORITY_COLORS;
+  var NOTE_DRAFT_KEY = "stackd-note-draft";
   var REMINDER_OPTIONS = [
     [null, "None"],
     [0, "At time of due"],
@@ -275,12 +394,23 @@
   var S = migrate();
   var UI = {
     screen: "list",
-    // 'lists' | 'list' | 'detail' | 'folders' | 'settings'
+    // 'lists' | 'list' | 'detail' | 'folders' | 'settings' | 'notes' | 'note'
     folder: "archived",
     // which tab the folders screen shows
+    folderKind: "tasks",
+    // 'tasks' | 'notes' — segment inside a folder
     detailId: null,
+    // task id on 'detail', note id on 'note'
     sortMenu: false,
-    refocusAddsub: false
+    refocusAddsub: false,
+    composer: { expanded: false, formatOpen: false, focus: null },
+    // Notes composer; focus = field to refocus after a render
+    query: "",
+    // search text of the current screen; cleared on screen / board change
+    tagFilter: null,
+    // Notes: tag chip filter
+    searchOpen: false
+    // mobile: search field expanded from its icon
   };
   var isDesktop = window.matchMedia("(min-width: 900px)");
   function read(key) {
@@ -323,6 +453,9 @@
     state.theme ??= "system";
     state.priorities ??= defaultPriorities();
     state.labels ??= [];
+    state.notes ??= [];
+    state.notesSort ??= "created-desc";
+    state.dateFormat ??= defaultDateFormat();
     return state;
   }
   function upgradeV1(v1) {
@@ -374,6 +507,42 @@
       updatedAt: now,
       ...extra
     };
+  }
+  function blankNote(extra = {}) {
+    const now = Date.now();
+    return {
+      id: uid(),
+      order: 0,
+      title: "",
+      body: "",
+      color: null,
+      tags: [],
+      checklist: null,
+      status: "active",
+      archivedAt: null,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      ...extra
+    };
+  }
+  var blankDraft = () => ({ title: "", body: "", color: null, tags: [], checklist: null });
+  function loadDraft() {
+    const d = read(NOTE_DRAFT_KEY);
+    if (!d || typeof d !== "object") return null;
+    const draft2 = { ...blankDraft(), ...d, body: sanitize(d.body), tags: normalizeTags(d.tags || []) };
+    if (!NOTE_COLORS.includes(draft2.color)) draft2.color = null;
+    if (draft2.checklist !== null && !Array.isArray(draft2.checklist)) draft2.checklist = null;
+    return draft2;
+  }
+  function saveDraft(draft2) {
+    try {
+      localStorage.setItem(NOTE_DRAFT_KEY, JSON.stringify({ ...draft2, savedAt: Date.now() }));
+    } catch {
+    }
+  }
+  function clearDraft() {
+    localStorage.removeItem(NOTE_DRAFT_KEY);
   }
   function seed() {
     const work = "work", personal = "personal", shopping = "shopping", family = "family";
@@ -433,9 +602,22 @@
     const key = status === "archived" ? "archivedAt" : "deletedAt";
     return S.tasks.filter((t) => t.status === status).sort((a, b) => b[key] - a[key]);
   }
-  var allTags = () => normalizeTags([...S.labels, ...S.tasks.filter((t) => t.status !== "deleted").flatMap((t) => t.tags)]);
+  var tagged = () => [...S.tasks, ...S.notes].filter((x) => x.status !== "deleted");
+  var allTags = () => normalizeTags([...S.labels, ...tagged().flatMap((x) => x.tags)]);
   var sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
-  var tagUseCount = (name) => S.tasks.filter((t) => t.status !== "deleted" && t.tags.some((x) => sameTag(x, name))).length;
+  var tagUseCount = (name) => tagged().filter((x) => x.tags.some((t) => sameTag(t, name))).length;
+  var activeNotes = () => S.notes.filter((n) => n.status === "active");
+  function sortedNotes(sort = S.notesSort) {
+    const ns = activeNotes();
+    const [field, dir] = sort === "manual" ? [null, 1] : [sort.startsWith("updated") ? "updatedAt" : "createdAt", sort.endsWith("asc") ? 1 : -1];
+    ns.sort((a, b) => {
+      if (field && a[field] !== b[field]) return (a[field] - b[field]) * dir;
+      return a.order - b.order;
+    });
+    return ns;
+  }
+  var checklistProgress = (n) => n.checklist && n.checklist.length ? { done: n.checklist.filter((c) => c.done).length, total: n.checklist.length } : null;
+  var noteIsEmpty = (n) => !n.title.trim() && toText(n.body).trim() === "" && !(n.checklist || []).some((c) => c.text.trim());
   var priorityById = (id) => S.priorities.find((p) => p.id === id);
   var priorityName = (id) => priorityById(id)?.name || "None";
   var priorityUseCount = (id) => S.tasks.filter((t) => t.status !== "deleted" && t.priority === id).length;
@@ -510,17 +692,17 @@
     touch(t);
     commit();
   }
-  function addTask(draft) {
-    const t = blankTask(draft.listId, draft.title, {
-      priority: draft.priority,
-      tags: normalizeTags(draft.tags || []),
-      start: draft.start || null,
-      due: draft.due || null,
-      dueTime: draft.dueTime || null,
-      recur: draft.recur || "none",
-      reminder: draft.reminder ?? null,
-      lane: draft.lane || "backlog",
-      done: draft.lane === "done",
+  function addTask(draft2) {
+    const t = blankTask(draft2.listId, draft2.title, {
+      priority: draft2.priority,
+      tags: normalizeTags(draft2.tags || []),
+      start: draft2.start || null,
+      due: draft2.due || null,
+      dueTime: draft2.dueTime || null,
+      recur: draft2.recur || "none",
+      reminder: draft2.reminder ?? null,
+      lane: draft2.lane || "backlog",
+      done: draft2.lane === "done",
       order: nextOrder()
     });
     armReminder(t);
@@ -533,6 +715,22 @@
     t.priority = priority;
     touch(t);
     commit();
+  }
+  var cleanChecklist = (items) => items === null || items === void 0 ? null : items.map((c) => ({ id: c.id || uid(), text: String(c.text ?? "").trim(), done: !!c.done })).filter((c) => c.text);
+  function addNote(draft2) {
+    const n = blankNote({
+      title: String(draft2.title ?? "").trim(),
+      body: sanitize(draft2.body),
+      color: NOTE_COLORS.includes(draft2.color) ? draft2.color : null,
+      tags: normalizeTags(draft2.tags || []),
+      checklist: cleanChecklist(draft2.checklist),
+      order: Math.min(0, ...activeNotes().map((x) => x.order)) - 1
+    });
+    if (noteIsEmpty(n)) return null;
+    S.notes.push(n);
+    clearDraft();
+    commit();
+    return n;
   }
   function setTitle(id, title) {
     const t = taskById(id);
@@ -1038,7 +1236,14 @@
     monitor: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
     flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
     zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
-    settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>'
+    settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    /* Notes (1.4.0) */
+    note: '<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/>',
+    text: '<path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>',
+    palette: '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
+    checklist: '<path d="M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344"/><path d="m9 11 3 3L22 4"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'
   };
   function icon(name, size = 20) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PATHS[name]}</svg>`;
@@ -1113,7 +1318,7 @@
       ov.querySelector("[data-ok]").focus();
     });
   }
-  var itemHTML = (it, i) => it.divider ? '<div class="menu-divider"></div>' : `<button class="menu-item ${it.danger ? "danger" : ""}" data-i="${i}">${it.icon ? icon(it.icon) : ""}${it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ""}<span>${esc(it.label)}</span></button>`;
+  var itemHTML = (it, i) => it.divider ? '<div class="menu-divider"></div>' : `<button class="menu-item ${it.danger ? "danger" : ""}" data-i="${i}" role="menuitemradio" aria-checked="${!!it.checked}">${it.icon ? icon(it.icon) : ""}${it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ""}${it.swatch === "none" ? '<span class="swatch swatch-none"></span>' : ""}<span>${esc(it.label)}</span>${it.checked ? `<span class="menu-check">${icon("check")}</span>` : ""}</button>`;
   function openMenu(anchorEl, items) {
     const bind = (root, close2) => {
       root.querySelectorAll(".menu-item").forEach((b) => b.addEventListener("click", () => {
@@ -1417,7 +1622,7 @@
 
   // src/ui/addsheet.js
   function openSheet({ lane } = {}) {
-    const draft = {
+    const draft2 = {
       listId: S.currentList,
       title: "",
       due: null,
@@ -1468,7 +1673,7 @@
     <div class="chip-group">
       <span class="microlabel">Board</span>
       <div class="chip-row" data-list>
-        ${S.lists.map((l) => `<button class="chip ${l.id === draft.listId ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("")}
+        ${S.lists.map((l) => `<button class="chip ${l.id === draft2.listId ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("")}
       </div>
     </div>
     <button class="btn btn-primary btn-block" data-submit>Add task</button>
@@ -1488,19 +1693,19 @@
     q("[data-due]").addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
       if (!chip) return;
-      const resetSchedule = () => Object.assign(draft, { start: null, dueTime: null, recur: "none", reminder: null });
+      const resetSchedule = () => Object.assign(draft2, { start: null, dueTime: null, recur: "none", reminder: null });
       const pickChip = q("[data-pick]");
       if (chip.dataset.pick !== void 0) {
         openSchedule({
-          schedule: draft,
-          done: draft.lane === "done",
+          schedule: draft2,
+          done: draft2.lane === "done",
           onSave: (sch) => {
-            Object.assign(draft, sch);
-            selectOne("[data-due]", draft.due ? chip : null);
-            chip.textContent = draft.due ? fmtDue(draft.due, { dueTime: draft.dueTime }).label + (draft.recur !== "none" ? " ↻" : "") : "Pick date…";
+            Object.assign(draft2, sch);
+            selectOne("[data-due]", draft2.due ? chip : null);
+            chip.textContent = draft2.due ? fmtDue(draft2.due, { dueTime: draft2.dueTime }).label + (draft2.recur !== "none" ? " ↻" : "") : "Pick date…";
           },
           onRemove: () => {
-            draft.due = null;
+            draft2.due = null;
             resetSchedule();
             selectOne("[data-due]", null);
             chip.textContent = "Pick date…";
@@ -1511,17 +1716,17 @@
       resetSchedule();
       pickChip.textContent = "Pick date…";
       if (chip.classList.contains("on")) {
-        draft.due = null;
+        draft2.due = null;
         selectOne("[data-due]", null);
       } else {
-        draft.due = chip.dataset.val;
+        draft2.due = chip.dataset.val;
         selectOne("[data-due]", chip);
       }
     });
     q("[data-priority]").addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
       if (!chip) return;
-      draft.priority = chip.dataset.val;
+      draft2.priority = chip.dataset.val;
       selectOne("[data-priority]", chip);
     });
     q("[data-tags]").addEventListener("click", (e) => {
@@ -1530,7 +1735,7 @@
       if (chip.dataset.addtag !== void 0) {
         const name = prompt("Tag name")?.trim().replace(/^#/, "");
         if (!name) return;
-        draft.tags.push(name);
+        draft2.tags.push(name);
         const nc = document.createElement("button");
         nc.className = "chip on";
         nc.dataset.val = name;
@@ -1540,23 +1745,23 @@
       }
       chip.classList.toggle("on");
       const v = chip.dataset.val;
-      draft.tags = chip.classList.contains("on") ? [...draft.tags, v] : draft.tags.filter((t) => t !== v);
+      draft2.tags = chip.classList.contains("on") ? [...draft2.tags, v] : draft2.tags.filter((t) => t !== v);
     });
     q("[data-list]").addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
       if (!chip) return;
-      draft.listId = chip.dataset.val;
+      draft2.listId = chip.dataset.val;
       selectOne("[data-list]", chip);
     });
     const submit = () => {
-      draft.title = q(".sheet-title").value.trim();
-      if (!draft.title) {
+      draft2.title = q(".sheet-title").value.trim();
+      if (!draft2.title) {
         q(".sheet-title").focus();
         return;
       }
       close();
-      S.currentList = draft.listId;
-      addTask(draft);
+      S.currentList = draft2.listId;
+      addTask(draft2);
     };
     q("[data-submit]").addEventListener("click", submit);
     q(".sheet-title").addEventListener("keydown", (e) => {
@@ -1741,12 +1946,12 @@
       save2(v);
     });
   }
-  function bindAdd(selector, add) {
+  function bindAdd(selector, add2) {
     const input = app.querySelector(selector);
     const take = () => {
       const v = input.value.trim();
       input.value = "";
-      if (v) add(v);
+      if (v) add2(v);
     };
     input.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
@@ -2236,7 +2441,7 @@
       chip.classList.toggle("on", has(name));
       emit();
     });
-    const add = () => {
+    const add2 = () => {
       const [name] = normalizeTags([input.value]);
       input.value = "";
       if (!name) return;
@@ -2249,9 +2454,9 @@
       else q("[data-pool]").insertAdjacentHTML("afterbegin", chipHTML(name, true));
       input.focus();
     };
-    q("[data-tag-add]").addEventListener("click", add);
+    q("[data-tag-add]").addEventListener("click", add2);
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") add();
+      if (e.key === "Enter") add2();
     });
   }
   var chipHTML = (name, on) => `<button class="chip ${on ? "on" : ""}" data-val="${esc(name)}">#${esc(name)}</button>`;
@@ -2607,6 +2812,351 @@
     });
   }
 
+  // src/ui/noteeditor.js
+  var COLOR_NAME2 = { red: "Red", amber: "Amber", green: "Green", blue: "Blue", violet: "Violet", gray: "Gray" };
+  var colorName = (c) => c ? COLOR_NAME2[c] : "No colour";
+  var colorBarHTML = (color) => color ? `<span class="cbar pc-${color}" aria-hidden="true"></span>` : "";
+  function draftPreview(d) {
+    if (noteIsEmpty(d)) return "";
+    const text = d.title.trim() || firstLine(d.body) || (d.checklist || []).map((c) => c.text.trim()).find(Boolean) || "";
+    return `Draft: ${text}`;
+  }
+  function collapsedHTML(d) {
+    const preview = draftPreview(d);
+    return `
+  <div class="composer-collapsed">
+    <button type="button" class="composer-placeholder ${preview ? "has-draft" : ""}" data-expand="body">${preview ? esc(preview) : "Take a note…"}</button>
+    <button type="button" class="ne-tool" data-expand="checklist" aria-label="New checklist" title="New checklist">${icon("checklist")}</button>
+  </div>`;
+  }
+  function checklistHTML(items) {
+    return `
+  <div class="ne-checks" role="group" aria-label="Checklist">
+    ${items.map((c) => `
+    <div class="ne-ci-row ${c.done ? "done" : ""}" data-ci-row="${c.id}">
+      <input type="checkbox" class="check sm" data-ci-done="${c.id}" ${c.done ? "checked" : ""} aria-label="Done">
+      <input class="ne-ci" data-ci="${c.id}" value="${esc(c.text)}" placeholder="List item" autocomplete="off" aria-label="List item">
+      <button type="button" class="s-del" data-ci-del="${c.id}" aria-label="Remove item" tabindex="-1">${icon("x", 16)}</button>
+    </div>`).join("")}
+  </div>`;
+  }
+  function editorHTML(v, { mode = "composer", expanded = true } = {}) {
+    const wrap = (inner2, cls) => `<form class="composer card ${cls}" data-editor data-mode="${mode}" aria-label="New note">${colorBarHTML(v.color)}${inner2}</form>`;
+    if (mode === "composer" && !expanded) return wrap(collapsedHTML(v), "");
+    const inner = `
+  <div class="ne">
+    <input class="ne-title" data-f="title" value="${esc(v.title)}" placeholder="Title" maxlength="200" autocomplete="off" aria-label="Title">
+    <div class="ne-body" data-f="body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Note" data-placeholder="Take a note…">${v.body}</div>
+    ${v.checklist ? checklistHTML(v.checklist) : ""}
+    ${v.tags.length ? `
+    <div class="ne-chips">${v.tags.map((t) => `<button type="button" class="chip sm removable" data-tag-remove="${esc(t)}" aria-label="Remove tag ${esc(t)}">#${esc(t)}${icon("x", 14)}</button>`).join("")}</div>` : ""}
+    <div class="ne-toolbar" role="toolbar" aria-label="Note tools">
+      <button type="button" class="ne-tool" data-tool="format" aria-label="Formatting" title="Formatting comes in a later update" disabled>${icon("text")}</button>
+      <button type="button" class="ne-tool ${v.tags.length ? "on" : ""}" data-tool="tags" aria-label="Tags" title="Tags">${icon("tag")}</button>
+      <button type="button" class="ne-tool ${v.color ? "on" : ""}" data-tool="color" aria-label="Colour: ${colorName(v.color)}" title="Colour">${icon("palette")}${v.color ? `<span class="swatch tool-swatch pc-${v.color}"></span>` : ""}</button>
+      <button type="button" class="ne-tool" data-tool="checklist" aria-pressed="${!!v.checklist}" aria-label="Checklist" title="Checklist">${icon("checklist")}</button>
+      <span class="spacer"></span>
+      ${mode === "composer" ? `<button type="submit" class="btn btn-primary btn-sm" data-add ${noteIsEmpty(v) ? "disabled" : ""}>Add</button>` : ""}
+    </div>
+  </div>`;
+    return wrap(inner, "expanded");
+  }
+  var newItem = () => ({ id: uid(), text: "", done: false });
+  var emptyBody = (el) => /^(?:<div>)?(?:<br>)?(?:<\/div>)?$/i.test(el.innerHTML.trim());
+  function caretToEnd(el) {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    r.collapse(false);
+    const s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  }
+  function focusField(root, key) {
+    if (!key || !root) return;
+    let el = null;
+    if (key === "title") el = root.querySelector('[data-f="title"]');
+    else if (key === "body") el = root.querySelector('[data-f="body"]');
+    else if (key.startsWith("ci:")) el = root.querySelector(`[data-ci="${key.slice(3)}"]`);
+    if (!el) return;
+    el.focus();
+    if (el.isContentEditable) caretToEnd(el);
+    else if (el.value) el.setSelectionRange(el.value.length, el.value.length);
+  }
+  function bindEditor(host, opts) {
+    const { get, set, mode = "composer" } = opts;
+    const expanded = () => opts.expanded ? opts.expanded() : true;
+    const render2 = (focus) => {
+      host.innerHTML = editorHTML(get(), { mode, expanded: expanded() });
+      bind();
+      focusField(host.querySelector("[data-editor]"), focus);
+    };
+    function bind() {
+      const root = host.querySelector("[data-editor]");
+      if (!root) return;
+      const q = (s) => root.querySelector(s);
+      const qa = (s) => [...root.querySelectorAll(s)];
+      const updateAdd = () => {
+        const b = q("[data-add]");
+        if (b) b.disabled = noteIsEmpty(get());
+      };
+      root.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (!noteIsEmpty(get())) opts.onAdd?.();
+      });
+      qa("[data-expand]").forEach((b) => {
+        b.addEventListener("click", () => opts.onExpand?.(b.dataset.expand));
+        if (b.dataset.expand === "body") b.addEventListener("focus", () => opts.onExpand?.("body"));
+      });
+      if (!expanded() && mode === "composer") return;
+      root.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+          e.preventDefault();
+          if (!noteIsEmpty(get())) opts.onAdd?.();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          opts.onCollapse?.();
+        }
+      });
+      const title = q('[data-f="title"]');
+      title.addEventListener("input", () => {
+        set({ title: title.value });
+        updateAdd();
+      });
+      title.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          focusField(root, "body");
+        }
+      });
+      const body = q('[data-f="body"]');
+      body.addEventListener("input", () => {
+        if (emptyBody(body)) body.innerHTML = "";
+        set({ body: sanitize(body.innerHTML) });
+        updateAdd();
+      });
+      body.addEventListener("paste", (e) => {
+        e.preventDefault();
+        const html = e.clipboardData.getData("text/html");
+        const text = e.clipboardData.getData("text/plain");
+        const ins = html ? sanitize(html) : fromPlain(text);
+        if (!document.execCommand("insertHTML", false, ins)) document.execCommand("insertText", false, text);
+      });
+      const items = () => get().checklist || [];
+      const setItems = (list) => set({ checklist: list });
+      qa("[data-ci]").forEach((input) => {
+        const id = input.dataset.ci;
+        const item = () => items().find((c) => c.id === id);
+        input.addEventListener("input", () => {
+          const c = item();
+          if (c) c.text = input.value;
+          setItems(items());
+          updateAdd();
+        });
+        input.addEventListener("keydown", (e) => {
+          const list = items(), i = list.findIndex((c) => c.id === id);
+          if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            const n = newItem();
+            list.splice(i + 1, 0, n);
+            setItems(list);
+            render2(`ci:${n.id}`);
+          } else if (e.key === "Backspace" && input.value === "" && list.length) {
+            e.preventDefault();
+            list.splice(i, 1);
+            setItems(list.length ? list : list);
+            render2(i > 0 ? `ci:${list[i - 1].id}` : "body");
+          }
+        });
+      });
+      qa("[data-ci-done]").forEach((cb) => cb.addEventListener("change", () => {
+        const c = items().find((x) => x.id === cb.dataset.ciDone);
+        if (!c) return;
+        c.done = cb.checked;
+        setItems(items());
+        cb.closest(".ne-ci-row").classList.toggle("done", cb.checked);
+      }));
+      qa("[data-ci-del]").forEach((b) => b.addEventListener("click", () => {
+        const list = items(), i = list.findIndex((c) => c.id === b.dataset.ciDel);
+        list.splice(i, 1);
+        setItems(list);
+        render2(list[i] ? `ci:${list[i].id}` : list[i - 1] ? `ci:${list[i - 1].id}` : "body");
+      }));
+      qa("[data-tag-remove]").forEach((b) => b.addEventListener("click", () => {
+        const name = b.dataset.tagRemove.toLowerCase();
+        set({ tags: get().tags.filter((t) => t.toLowerCase() !== name) });
+        render2(null);
+      }));
+      q('[data-tool="tags"]').addEventListener("click", () => {
+        openTagPicker({ tags: get().tags, onChange: (tags) => {
+          set({ tags });
+          render2(null);
+        } });
+      });
+      q('[data-tool="color"]').addEventListener("click", (e) => {
+        const current = get().color;
+        const pick = (color) => {
+          set({ color });
+          render2("body");
+        };
+        openMenu(e.currentTarget, [
+          { label: "None", swatch: "none", checked: !current, onClick: () => pick(null) },
+          ...NOTE_COLORS.map((c) => ({ label: COLOR_NAME2[c], swatch: c, checked: current === c, onClick: () => pick(c) }))
+        ]);
+      });
+      q('[data-tool="checklist"]').addEventListener("click", async () => {
+        const list = get().checklist;
+        if (!list) {
+          const n = newItem();
+          setItems([n]);
+          render2(`ci:${n.id}`);
+          return;
+        }
+        if (list.some((c) => c.text.trim())) {
+          const ok = await confirmDialog("Remove checklist?", "Its items are removed from this note.", { confirmLabel: "Remove", danger: true });
+          if (!ok) return;
+        }
+        setItems(null);
+        render2("body");
+      });
+    }
+    bind();
+    return { render: render2, focus: (key) => focusField(host.querySelector("[data-editor]"), key) };
+  }
+
+  // src/ui/notes.js
+  var draft = loadDraft() || blankDraft();
+  var saveTimer = null;
+  var persist = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveDraft(draft), 300);
+  };
+  var persistNow = () => {
+    clearTimeout(saveTimer);
+    saveDraft(draft);
+  };
+  var editor = null;
+  function openNotes() {
+    UI.screen = "notes";
+    UI.query = "";
+    UI.tagFilter = null;
+    UI.sortMenu = false;
+    UI.composer.expanded = false;
+    rerender();
+  }
+  function expand(target = "body") {
+    if (target === "checklist") {
+      if (!draft.checklist) {
+        draft.checklist = [{ id: uid(), text: "", done: false }];
+        persist();
+      }
+      target = `ci:${draft.checklist[0].id}`;
+    }
+    if (UI.composer.expanded) {
+      editor?.focus(target);
+      return;
+    }
+    UI.composer.expanded = true;
+    UI.composer.focus = target;
+    rerender();
+  }
+  function collapse() {
+    if (!UI.composer.expanded) return;
+    UI.composer.expanded = false;
+    persistNow();
+    if (UI.screen === "notes") rerender();
+  }
+  function focusComposer() {
+    expand("body");
+    app.querySelector("[data-editor]")?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+  function add() {
+    const d = draft;
+    draft = blankDraft();
+    UI.composer.expanded = false;
+    const n = addNote(d);
+    if (!n) {
+      draft = d;
+      UI.composer.expanded = true;
+      rerender();
+      return;
+    }
+    toast("Note added", { action: { label: "Open", onClick: () => openNote(n.id) } });
+  }
+  document.addEventListener("click", (e) => {
+    if (!UI.composer.expanded) return;
+    if (!e.target.isConnected) return;
+    if (e.target.closest("[data-editor], .overlay, .menu-popover, .menu-backdrop, .toast")) return;
+    collapse();
+  });
+  function openNote(id) {
+    const row = app.querySelector(`.nrow[data-id="${id}"]`);
+    if (!row) return;
+    row.scrollIntoView({ block: "center", behavior: "smooth" });
+    row.classList.add("flash");
+    setTimeout(() => row.classList.remove("flash"), 1200);
+  }
+  var MAX_CHIPS = 3;
+  function noteRowHTML(n, { dateLabel: dateLabel2 = "Created" } = {}) {
+    const hasTitle = !!n.title.trim();
+    const title = hasTitle ? n.title : firstLine(n.body) || (n.checklist || []).map((c) => c.text.trim()).find(Boolean) || "Untitled";
+    const preview = hasTitle && !isEmpty(n.body) ? firstLine(n.body) : "";
+    const chips = n.tags.slice(0, MAX_CHIPS).map((t) => `<span class="tag">#${esc(t)}</span>`);
+    if (n.tags.length > MAX_CHIPS) chips.push(`<span class="tag">+${n.tags.length - MAX_CHIPS}</span>`);
+    const p = checklistProgress(n);
+    if (p) chips.push(`<span class="t-sub num" aria-label="Checklist, ${p.done} of ${p.total} done">${icon("checklist", 12)}${p.done}/${p.total}</span>`);
+    const when = fmtDateOrRelative(dateLabel2 === "Created" ? n.createdAt : n.updatedAt, S.dateFormat);
+    return `
+  <div class="row nrow" data-id="${n.id}" aria-label="${esc(title)}${n.color ? `, ${colorName(n.color)}` : ""}">
+    ${colorBarHTML(n.color)}
+    <div class="t-main">
+      <div class="nrow-line">
+        <span class="t-title ${hasTitle ? "" : "untitled"}">${esc(title)}</span>
+        <span class="nrow-date num">${dateLabel2} ${esc(when)}</span>
+      </div>
+      ${chips.length ? `<div class="t-meta">${chips.join("")}</div>` : ""}
+      ${preview ? `<span class="nrow-preview">${esc(preview)}</span>` : ""}
+    </div>
+  </div>`;
+  }
+  var dateLabel = () => S.notesSort.startsWith("created") ? "Created" : "Edited";
+  function notesHTML() {
+    const notes = sortedNotes();
+    const total = activeNotes().length;
+    return `
+  <div class="screen notes-screen">
+    <header class="page-head">
+      <div class="page-title-row">
+        <h1 class="page-title-text">Notes</h1>
+        <span class="kicker">${total ? `${total} note${total === 1 ? "" : "s"}` : "No notes"}</span>
+      </div>
+    </header>
+    <div class="scroll-area">
+      <div data-composer-host>${editorHTML(draft, { mode: "composer", expanded: UI.composer.expanded })}</div>
+      ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel() })).join("")}</div>` : '<p class="empty">No notes yet. Write one above.</p>'}
+    </div>
+  </div>`;
+  }
+  function bindNotes() {
+    bindScrollShadow();
+    const host = app.querySelector("[data-composer-host]");
+    editor = bindEditor(host, {
+      mode: "composer",
+      get: () => draft,
+      set: (patch) => {
+        Object.assign(draft, patch);
+        persist();
+      },
+      expanded: () => UI.composer.expanded,
+      onAdd: add,
+      onCollapse: collapse,
+      onExpand: expand
+    });
+    if (UI.composer.focus) {
+      editor.focus(UI.composer.focus);
+      UI.composer.focus = null;
+    }
+  }
+
   // src/ui/shell.js
   function onboardingHTML() {
     return `
@@ -2641,6 +3191,7 @@
   function bindFolderLinks() {
     app.querySelectorAll("[data-open-folder]").forEach((el) => el.addEventListener("click", () => openFolder(el.dataset.openFolder)));
     app.querySelector("[data-open-settings]")?.addEventListener("click", () => openSettings());
+    app.querySelector("[data-open-notes]")?.addEventListener("click", () => openNotes());
   }
   function listsMenuHTML() {
     return `
@@ -2662,6 +3213,14 @@
         <div class="lrow newlist" data-newlist>
           <span class="lrow-icon">${icon("plus", 18)}</span>
           <span class="lname">New board…</span>
+        </div>
+      </div>
+      <span class="section-title list-label">Notes</span>
+      <div class="card list-card">
+        <div class="lrow" data-open-notes>
+          <span class="lrow-icon">${icon("note", 18)}</span>
+          <span class="lname">Notes</span>
+          <span class="lcount num">${activeNotes().length}</span>
         </div>
       </div>
       <span class="section-title list-label">Folders</span>
@@ -2705,9 +3264,10 @@
     <div class="nav-pill">
       ${item("lists", "Boards", "grid")}
       ${item("list", "Tasks", "tasks")}
+      ${item("notes", "Notes", "note")}
       ${item("folders", "Folders", "folder")}
     </div>
-    <button class="nav-fab" data-add aria-label="Add task">${icon("plus", 28)}</button>
+    <button class="nav-fab" data-add aria-label="${UI.screen === "notes" ? "New note" : "Add task"}">${icon("plus", 28)}</button>
   </nav>`;
   }
   function bindMobileNav() {
@@ -2718,14 +3278,18 @@
         openFolder(UI.folder);
         return;
       }
+      if (target === "notes") {
+        openNotes();
+        return;
+      }
       UI.screen = target;
       rerender();
     }));
-    app.querySelector(".nav-fab")?.addEventListener("click", () => openSheet());
+    app.querySelector(".nav-fab")?.addEventListener("click", () => UI.screen === "notes" ? focusComposer() : openSheet());
   }
   function desktopHTML() {
     const list = listById(S.currentList);
-    const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : `
+    const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
       ${viewbarHTML()}
@@ -2733,7 +3297,7 @@
     </header>
     ${S.view === "kanban" ? kanbanHTML({ desktop: true }) : desktopTableHTML()}`;
     const inFolders = UI.screen === "folders" || UI.screen === "detail" && taskById(UI.detailId)?.status !== "active";
-    const onBoard = !inFolders && UI.screen !== "settings";
+    const onBoard = !inFolders && UI.screen !== "settings" && UI.screen !== "notes";
     return `
   <div class="shell">
     <aside class="sidebar">
@@ -2745,6 +3309,11 @@
         <span class="count num">${openCount(l.id)}</span>
       </div>`).join("")}
       <div class="side-newlist"><button class="btn btn-secondary" data-newlist>${icon("plus", 16)}New board</button></div>
+      <div class="side-item side-notes ${UI.screen === "notes" ? "active" : ""}" data-open-notes>
+        ${icon("note", 16)}
+        <span class="name">Notes</span>
+        <span class="count num">${activeNotes().length}</span>
+      </div>
       <span class="section-title side-label">Folders</span>
       ${folderEntries().map((f) => `
       <div class="side-item ${inFolders && UI.folder === f.tab ? "active" : ""}" data-open-folder="${f.tab}">
@@ -2784,6 +3353,10 @@
       bindSettings();
       return;
     }
+    if (UI.screen === "notes") {
+      bindNotes();
+      return;
+    }
     bindViewbar();
     bindChecks();
     app.querySelector("[data-add]")?.addEventListener("click", () => openSheet());
@@ -2819,13 +3392,14 @@
       app.innerHTML = desktopHTML();
       bindDesktop();
     } else {
-      const screen = UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : mobileListHTML();
-      const withNav = UI.screen !== "detail";
+      const screen = UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : mobileListHTML();
+      const withNav = UI.screen !== "detail" && !(UI.screen === "notes" && UI.composer.expanded);
       app.innerHTML = screen + (withNav ? mobileNavHTML() : "");
       if (UI.screen === "lists") bindListsMenu();
       else if (UI.screen === "detail") bindDetail();
       else if (UI.screen === "folders") bindFolders();
       else if (UI.screen === "settings") bindSettings();
+      else if (UI.screen === "notes") bindNotes();
       else bindMobileList();
       if (withNav) bindMobileNav();
     }

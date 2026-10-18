@@ -5,7 +5,30 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   toISO, addDays, addMonths, addYears, daysBetween, nextOccurrence, isOverdue, fmtDue, monthGrid, reminderInstant,
+  defaultDateFormat, fmtDate, fmtDateOrRelative,
 } from '../src/dates.js';
+
+// numeric dates (Settings → Dates): three formats, four-digit years, locale default
+assert.equal(fmtDate('2026-10-16', 'dmy'), '16/10/2026');
+assert.equal(fmtDate('2026-10-16', 'mdy'), '10/16/2026');
+assert.equal(fmtDate('2026-10-16', 'ymd'), '2026-10-16');
+assert.equal(fmtDate('2026-01-05'), '05/01/2026');                                // dmy is the fallback
+assert.equal(fmtDate(new Date(2026, 9, 16, 23, 30).getTime(), 'dmy'), '16/10/2026'); // epoch ms, local day
+assert.equal(defaultDateFormat('en-US'), 'mdy');
+assert.equal(defaultDateFormat('en'), 'mdy');
+assert.equal(defaultDateFormat('en-GB'), 'dmy');
+assert.equal(defaultDateFormat('pt-PT'), 'dmy');
+assert.equal(defaultDateFormat('sv-SE'), 'ymd');
+assert.equal(defaultDateFormat('ja-JP'), 'ymd');
+assert.equal(defaultDateFormat(undefined), 'dmy');
+{
+  const now = new Date(2026, 9, 16, 9, 0).getTime();
+  const at = (d, h) => new Date(2026, 9, d, h).getTime();
+  assert.equal(fmtDateOrRelative(at(16, 0), 'dmy', now), 'Today');
+  assert.equal(fmtDateOrRelative(at(15, 23), 'dmy', now), 'Yesterday');
+  assert.equal(fmtDateOrRelative(at(14, 23), 'mdy', now), '10/14/2026');
+  assert.equal(fmtDateOrRelative(at(17, 1), 'ymd', now), '2026-10-17');        // a future day is just a date
+}
 
 // local-time ISO, never UTC
 assert.equal(toISO(new Date(2026, 9, 16, 23, 30)), '2026-10-16');

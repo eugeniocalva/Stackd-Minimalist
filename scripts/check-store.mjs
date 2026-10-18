@@ -125,6 +125,46 @@ store.deleteLabel('q3');
 assert.equal(store.tagUseCount('Q3'), 0);
 assert.deepEqual(find('Prepare Q3 review deck').tags, []);
 
+// notes (1.4.0, Phase 7): defaults on an existing store, draft key, add, sort, shared tags
+assert.deepEqual(S.notes, []);
+assert.equal(S.notesSort, 'created-desc');
+assert.ok(['dmy', 'mdy', 'ymd'].includes(S.dateFormat));
+assert.equal(store.loadDraft(), null);
+store.saveDraft({ title: ' Draft ', body: '<div>x</div><b>y</b>', color: 'teal', tags: ['#A', 'a'], checklist: null });
+{
+  const d = store.loadDraft();
+  assert.equal(d.body, 'x<br>y', 'draft body is re-sanitised on load');
+  assert.equal(d.color, null, 'unknown colour is dropped');
+  assert.deepEqual(d.tags, ['A']);
+  assert.ok(mem.has(store.NOTE_DRAFT_KEY));
+}
+assert.equal(store.addNote({ title: '  ', body: '<br>', tags: [], color: null, checklist: [{ id: 'c', text: ' ', done: false }] }), null, 'an empty draft is never added');
+const n1 = store.addNote({ title: 'First', body: 'one<br>two', color: 'blue', tags: ['#Meeting'], checklist: null });
+assert.ok(!mem.has(store.NOTE_DRAFT_KEY), 'adding clears the draft');
+assert.equal(n1.order, -1);
+assert.equal(n1.createdAt, n1.updatedAt);
+assert.deepEqual(n1.tags, ['Meeting']);
+const n2 = store.addNote({ title: '', body: '', color: null, tags: [], checklist: [{ id: 'a', text: ' milk ', done: true }, { id: 'b', text: '', done: false }] });
+assert.equal(n2.order, -2, 'a new note goes first in manual order');
+assert.deepEqual(n2.checklist, [{ id: 'a', text: 'milk', done: true }], 'empty items are dropped');
+assert.deepEqual(store.checklistProgress(n2), { done: 1, total: 1 });
+assert.equal(store.checklistProgress(n1), null);
+assert.equal(store.noteIsEmpty(n2), false);
+n1.createdAt = 1000; n1.updatedAt = 5000; n2.createdAt = 2000; n2.updatedAt = 3000;
+const ids = (sort) => store.sortedNotes(sort).map((n) => n.id);
+assert.deepEqual(ids('manual'), [n2.id, n1.id]);
+assert.deepEqual(ids('created-desc'), [n2.id, n1.id]);
+assert.deepEqual(ids('created-asc'), [n1.id, n2.id]);
+assert.deepEqual(ids('updated-desc'), [n1.id, n2.id]);
+assert.deepEqual(ids('updated-asc'), [n2.id, n1.id]);
+assert.deepEqual(store.sortedChecklist([{ id: 1, done: true }, { id: 2, done: false }, { id: 3, done: true }, { id: 4, done: false }]).map((c) => c.id), [2, 4, 1, 3]);
+assert.ok(store.allTags().includes('Meeting'), 'note tags join the shared pool');
+assert.equal(store.tagUseCount('meeting'), 1);
+n1.status = 'deleted';
+assert.ok(!store.allTags().includes('Meeting'), 'deleted notes leave the pool');
+assert.deepEqual(ids('manual'), [n2.id]);
+assert.ok(JSON.parse(mem.get(store.STORE_KEY)).notes.length === 2, 'notes are persisted in the main document');
+
 // v1 migration arms migrated reminders (fresh module instance, v1 store only)
 mem.clear();
 mem.set('stackd-v1', JSON.stringify({

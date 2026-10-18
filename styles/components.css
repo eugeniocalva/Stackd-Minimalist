@@ -361,3 +361,55 @@
 .pc-gray { --pc-bg: var(--bg-surface-dim); --pc-fg: var(--text-secondary); }
 .tag.pc { background: var(--pc-bg); color: var(--pc-fg); }
 .swatch { width: 14px; height: 14px; flex: none; border-radius: 50%; background: var(--pc-fg); }
+.swatch-none { background: none; border: 2px solid var(--text-tertiary); }
+.menu-check { margin-left: auto; display: inline-flex; color: var(--color-accent); }
+.menu-item .menu-check svg { width: 18px; height: 18px; color: inherit; }
+
+/* ── Notes: colour bar, composer, editor (1.4.0) ─────────────────────── */
+/* 3 px bar in the row's left padding; the text column never shifts (AC-06.2) */
+.cbar { position: absolute; left: -10px; top: 6px; bottom: 6px; width: 3px; border-radius: var(--radius-full); background: var(--pc-fg); }
+.nrow { position: relative; }
+.composer { position: relative; padding: var(--space-3) var(--space-4); transition: box-shadow var(--dur-view) ease; }
+.composer .cbar { left: 6px; top: 12px; bottom: 12px; }
+.composer.expanded { box-shadow: var(--shadow-float); }
+.composer-collapsed { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; }
+.composer-placeholder {
+  flex: 1; min-width: 0; min-height: 40px; padding: 0 var(--space-1); text-align: left;
+  font-size: var(--text-base); color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.composer-placeholder.has-draft { color: var(--text-secondary); font-weight: 500; }
+.ne { display: flex; flex-direction: column; gap: var(--space-2); }
+.ne-title {
+  width: 100%; border: 0; background: none; padding: 4px var(--space-1); outline: none;
+  font-family: var(--font-family-display); font-weight: 800; font-size: var(--text-lg); letter-spacing: -0.01em;
+  color: var(--text-primary); caret-color: var(--color-accent);
+}
+.ne-title::placeholder { color: var(--text-tertiary); font-weight: 700; }
+.ne-body {
+  min-height: 44px; padding: 4px var(--space-1); outline: none; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-size: var(--text-base); line-height: 1.5; color: var(--text-primary); caret-color: var(--color-accent);
+}
+.ne-body:empty::before { content: attr(data-placeholder); color: var(--text-tertiary); pointer-events: none; }
+.ne-checks { display: flex; flex-direction: column; border-top: 1px solid var(--color-border); padding-top: var(--space-1); }
+.ne-ci-row { display: flex; align-items: center; gap: var(--space-3); min-height: 40px; }
+.ne-ci-row.done .ne-ci { text-decoration: line-through; color: var(--text-tertiary); }
+.ne-ci { flex: 1; min-width: 0; min-height: 36px; border: 0; background: none; outline: none; font-size: var(--text-sm); color: var(--text-primary); caret-color: var(--color-accent); }
+.ne-ci::placeholder { color: var(--text-tertiary); }
+.ne-ci-row .s-del { opacity: 0; }
+.ne-ci-row:hover .s-del, .ne-ci-row:focus-within .s-del { opacity: 1; }
+.ne-chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 2px var(--space-1); }
+.ne-toolbar { display: flex; align-items: center; gap: 2px; padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+.ne-toolbar .spacer { flex: 1; }
+.ne-tool {
+  position: relative; width: 40px; height: 40px; flex: none; border-radius: 50%; color: var(--text-secondary);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background-color var(--dur-quick) ease, color var(--dur-quick) ease, transform var(--dur-quick) var(--ease-spring);
+}
+.ne-tool::after { content: ''; position: absolute; inset: -2px; }
+.ne-tool:hover:not(:disabled) { background: var(--bg-surface-sunken); color: var(--text-primary); }
+.ne-tool:active:not(:disabled) { transform: scale(0.9); }
+.ne-tool.on, .ne-tool[aria-pressed="true"] { background: var(--color-primary-bg); color: var(--color-accent); }
+.ne-tool:disabled { opacity: 0.35; cursor: default; }
+.ne-tool svg { width: 20px; height: 20px; }
+.ne-tool .tool-swatch { position: absolute; right: 5px; bottom: 5px; width: 9px; height: 9px; box-shadow: 0 0 0 2px var(--bg-surface); }
+@media (prefers-reduced-motion: reduce) { .composer { transition: none; } }

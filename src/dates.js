@@ -127,6 +127,42 @@ export function fmtRelative(ts, now = Date.now()) {
   return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+/* ── Numeric dates (Settings → Dates, PRD-notes US-09) ──────────────── */
+
+export const DATE_FORMATS = [['dmy', 'dd/mm/yyyy'], ['mdy', 'mm/dd/yyyy'], ['ymd', 'yyyy-mm-dd']];
+
+/* Languages whose everyday date order is year-first. */
+const YMD_LANGS = new Set(['sv', 'lt', 'hu', 'zh', 'ja', 'ko', 'eu', 'mn']);
+
+/** First-run default from the device locale: en-US → mdy, year-first
+    languages → ymd, everything else → dmy. */
+export function defaultDateFormat(locale = globalThis.navigator?.language) {
+  const l = String(locale || '').toLowerCase();
+  if (l === 'en-us' || l === 'en') return 'mdy';
+  if (YMD_LANGS.has(l.split('-')[0])) return 'ymd';
+  return 'dmy';
+}
+
+/** 'YYYY-MM-DD' or epoch ms → '16/10/2026' · '10/16/2026' · '2026-10-16'.
+    Always a four-digit year so dmy and mdy can never be confused. */
+export function fmtDate(value, format = 'dmy') {
+  const d = typeof value === 'number' ? new Date(value) : parse(value);
+  const y = d.getFullYear(), m = pad(d.getMonth() + 1), day = pad(d.getDate());
+  if (format === 'mdy') return `${m}/${day}/${y}`;
+  if (format === 'ymd') return `${y}-${m}-${day}`;
+  return `${day}/${m}/${y}`;
+}
+
+/** 'Today' · 'Yesterday' · fmtDate — by local calendar day. */
+export function fmtDateOrRelative(ts, format = 'dmy', now = Date.now()) {
+  const a = new Date(ts); a.setHours(0, 0, 0, 0);
+  const b = new Date(now); b.setHours(0, 0, 0, 0);
+  const days = Math.round((b - a) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return fmtDate(ts, format);
+}
+
 /** Whole days left before a deleted task is purged (0 = today). */
 export function daysLeft(deletedAt, retentionDays, now = Date.now()) {
   return Math.max(0, Math.ceil((deletedAt + retentionDays * 86400000 - now) / 86400000));
