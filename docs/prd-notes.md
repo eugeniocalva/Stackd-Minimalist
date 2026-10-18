@@ -202,7 +202,7 @@ controls once I need them.*
 - [x] AC-03.5 Tapping a row opens the note (US-04). Rows have the same
       hover / pressed states as task rows and are reachable with Tab +
       Enter.
-- [ ] AC-03.6 Tapping a tag chip in a row filters the list to that tag; an
+- [x] AC-03.6 Tapping a tag chip in a row filters the list to that tag; an
       active filter shows as a removable chip under the search bar
       ("#meeting ✕") and combines with the search text.
 - [x] AC-03.7 The list shows **active** notes only. Archived and deleted
@@ -311,13 +311,13 @@ hand when no rule fits.*
 *As a user, I want a search bar at the top of Notes and of every board, so
 that finding things works the same everywhere.*
 
-- [ ] AC-08.1 **Notes**: a search field under the header kicker (placeholder
+- [x] AC-08.1 **Notes**: a search field under the header kicker (placeholder
       "Search notes"), with a clear ✕. Typing filters the list as you type
       (debounced 150 ms), matching case- and accent-insensitively against
       title, body text (formatting stripped), checklist items and tags.
       Matches keep the active sort. Empty result: "No notes match ‹query›."
       The composer stays visible above the results.
-- [ ] AC-08.2 **Boards**: the same field under each board's header
+- [x] AC-08.2 **Boards**: the same field under each board's header
       (placeholder "Search tasks"), filtering **the current board only**
       against title, tags and subtask text. In List view the rows filter;
       in Kanban every lane filters, lanes with no match stay in place with
@@ -325,11 +325,11 @@ that finding things works the same everywhere.*
       filters its rows; the header kicker reads "3 of 12 tasks". Empty result: "No tasks match
       ‹query›." Drag-to-reorder and lane drag are disabled while a query is
       active.
-- [ ] AC-08.3 The query is per screen and transient: switching board or
+- [x] AC-08.3 The query is per screen and transient: switching board or
       area clears it; back from a detail returns to the filtered list with
       the query intact. `Esc` in the field clears it; `/` focuses the field
       on desktop.
-- [ ] AC-08.4 Mobile: the field collapses to a search icon in the header
+- [x] AC-08.4 Mobile: the field collapses to a search icon in the header
       and expands full-width on tap, so the header stays one line.
 
 ### US-09 — Date format setting (app-wide)

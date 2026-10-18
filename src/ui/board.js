@@ -13,6 +13,13 @@ import { icon } from './icons.js';
 import { openSheet } from './addsheet.js';
 import { deleteWithUndo, completeTask } from './actions.js';
 import { openSettings } from './settings.js';
+import { filterTasks } from '../search.js';
+import { queryFor, searchToggleHTML, searchFieldHTML, bindSearch } from './search.js';
+
+/** The board's tasks after sort and search (PRD-notes AC-08.2). */
+export const visibleTasks = (listId) => filterTasks(sortedTasks(listId), UI.query);
+/** Call before rendering a board's header: resets the query when the board changed. */
+export const boardKey = () => queryFor(`list:${S.currentList}`);
 
 /* — shared partials — */
 
@@ -63,15 +70,18 @@ export function dueChipHTML(t, { prefix = false } = {}) {
 }
 
 export function kanbanHTML({ desktop = false } = {}) {
-  const ts = tasksOf(S.currentList);
+  boardKey();
+  const all = tasksOf(S.currentList);
+  const ts = filterTasks(all, UI.query);
   const lanes = LANES.map((lane) => {
     const cards = ts.filter((t) => t.lane === lane.id);
+    const inLane = all.filter((t) => t.lane === lane.id).length;
     const headCls = lane.id === 'inprogress' ? 'active' : lane.id === 'done' ? 'muted' : '';
     return `
     <div class="lane" data-lane="${lane.id}">
       <div class="lane-head ${headCls}">
         <span class="lane-name">${lane.name}</span>
-        <span class="lane-count num">${cards.length}</span>
+        <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
       </div>
       <div class="lane-cards">
         ${cards.map((t) => t.done ? `
@@ -102,12 +112,16 @@ export function kanbanHTML({ desktop = false } = {}) {
 /* — mobile: board screen — */
 
 export function mobileListHTML() {
+  boardKey();
   const list = listById(S.currentList);
-  const ts = sortedTasks(S.currentList);
-  const headCount = S.view === 'kanban'
-    ? `${tasksOf(S.currentList).length} tasks` : `${openCount(S.currentList)} open`;
+  const ts = visibleTasks(S.currentList);
+  const total = tasksOf(S.currentList).length;
+  const headCount = UI.query ? `${ts.length} of ${total} task${total === 1 ? '' : 's'}`
+    : S.view === 'kanban' ? `${total} tasks` : `${openCount(S.currentList)} open`;
+  const field = searchFieldHTML({ placeholder: 'Search tasks' });
   const body = S.view === 'kanban' ? kanbanHTML() : `
     <div class="scroll-area">
+      ${!ts.length && UI.query ? `<p class="empty">No tasks match “${esc(UI.query)}”.</p>` : ''}
       ${ts.length ? `
       <span class="hint list-hint">Double-tap to complete · long-press to delete</span>
       <div class="card list-card">
@@ -118,19 +132,20 @@ export function mobileListHTML() {
             <span class="t-title">${esc(t.title)}</span>
             ${t.done ? '' : taskMetaHTML(t)}
           </div>
-          ${t.done ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
+          ${t.done || UI.query ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
         </div>`).join('')}
       </div>`
-      : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
+      : UI.query ? '' : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
     </div>`;
   return `
   <div class="screen">
     <header class="page-head">
       <div class="page-title-row">
         <button class="page-title" data-lists aria-label="Switch board"><span>${esc(list.name)}</span>${icon('chevronDown')}</button>
-        <span class="kicker">${headCount}</span>
+        <span class="head-right"><span class="kicker">${headCount}</span>${searchToggleHTML()}</span>
       </div>
       ${viewbarHTML()}
+      ${field ? `<div class="search-row">${field}</div>` : ''}
     </header>
     ${body}
   </div>`;
@@ -138,6 +153,7 @@ export function mobileListHTML() {
 
 export function bindMobileList() {
   bindViewbar();
+  bindSearch(app);
   bindScrollShadow();
   app.querySelector('[data-lists]').addEventListener('click', () => { UI.screen = 'lists'; rerender(); });
   bindChecks();
@@ -153,7 +169,8 @@ export function bindMobileList() {
 /* — desktop: table — */
 
 export function desktopTableHTML() {
-  const ts = sortedTasks(S.currentList);
+  boardKey();
+  const ts = visibleTasks(S.currentList);
   return `
   <div class="quickadd">
     <input class="input" placeholder="Add a task — press Enter" data-quickadd>
@@ -176,15 +193,16 @@ export function desktopTableHTML() {
         ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
       </div>`;
     }).join('')}
-    ${ts.length ? '' : '<p class="empty">No tasks yet. Add one above.</p>'}
+    ${ts.length ? '' : `<p class="empty">${UI.query ? `No tasks match “${esc(UI.query)}”.` : 'No tasks yet. Add one above.'}</p>`}
   </div>
-  <span class="hint">Drag rows to reprioritize · double-click a task to complete</span>`;
+  <span class="hint">${UI.query ? 'Clear the search to reorder' : 'Drag rows to reprioritize'} · double-click a task to complete</span>`;
 }
 
-/** bindReorder options for a task row: manual sort only, never a done task. */
+/** bindReorder options for a task row: manual sort only, never a done task,
+    never while a search narrows the list. */
 export const taskReorder = (t, rowSel) => ({
   rowSel,
-  enabled: () => S.sort === 'manual' && !t.done,
+  enabled: () => S.sort === 'manual' && !t.done && !UI.query,
   onDrop: (beforeId) => reorderTask(t.id, beforeId),
 });
 
@@ -306,7 +324,8 @@ export function bindCard(card, task) {
     let dragging = false, overLane = null, held = false;
     const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
     const isTouch = e.pointerType === 'touch';
-    const holdTimer = isTouch ? setTimeout(() => { held = true; startDrag(); }, 350) : null;
+    const canDrag = !UI.query;      // a filtered board is tap-only (AC-08.2)
+    const holdTimer = isTouch && canDrag ? setTimeout(() => { held = true; startDrag(); }, 350) : null;
     const startDrag = () => {
       dragging = true;
       try { card.setPointerCapture(pid); } catch {}
@@ -316,7 +335,7 @@ export function bindCard(card, task) {
     card.addEventListener('touchmove', blockScroll, { passive: false });
     const move = (ev) => {
       const dist = Math.hypot(ev.clientX - sx, ev.clientY - sy);
-      if (!dragging && !isTouch && dist > 8) startDrag();
+      if (!dragging && !isTouch && dist > 8 && canDrag) startDrag();
       if (!dragging) { if (isTouch && dist > 10 && holdTimer) clearTimeout(holdTimer); return; }
       const lane = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.lane');
       if (overLane && overLane !== lane) overLane.classList.remove('dropover');

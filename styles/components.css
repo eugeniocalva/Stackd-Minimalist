@@ -420,3 +420,23 @@
 .composer.mode-detail .ne-body { min-height: 120px; }
 .composer.mode-detail .ne-title { font-size: var(--text-2xl); }
 @media (prefers-reduced-motion: reduce) { .composer { transition: none; } }
+
+/* ── Search field (1.4.0) ────────────────────────────────────────────── */
+.head-right { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+.search-toggle { background: transparent; color: var(--text-secondary); width: 36px; height: 36px; }
+.search-toggle:hover { background: var(--bg-surface-sunken); }
+.search-field { position: relative; display: flex; align-items: center; flex: 1; min-width: 0; }
+.search-ico { position: absolute; left: 13px; display: flex; color: var(--text-tertiary); pointer-events: none; }
+.search-input { min-height: 40px; padding: 0 38px 0 38px; font-size: var(--text-sm); border-radius: var(--radius-full); }
+.search-input::-webkit-search-cancel-button, .search-input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+.search-clear {
+  position: absolute; right: 6px; width: 28px; height: 28px; border-radius: 50%; color: var(--text-tertiary);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.search-clear:hover { background: var(--bg-surface-sunken); color: var(--text-primary); }
+.search-clear.hidden { display: none; }
+.search-row { display: flex; }
+.filterline { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.tag-btn { cursor: pointer; transition: background-color var(--dur-quick) ease, color var(--dur-quick) ease; }
+.tag-btn:hover { background: var(--bg-surface-dim); color: var(--text-primary); }
+@media (max-width: 899px) { .notes-bar.searching .sortwrap { display: none; } }

@@ -6,7 +6,7 @@ import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import {
   viewbarHTML, kanbanHTML, desktopTableHTML,
-  bindViewbar, bindChecks, bindKanban, bindRowGestures, bindReorder, taskReorder, bindScrollShadow,
+  bindViewbar, bindChecks, bindKanban, bindRowGestures, bindReorder, taskReorder, bindScrollShadow, boardKey,
 } from './board.js';
 import { detailHTML, bindDetail } from './detail.js';
 import { foldersHTML, bindFolders, openFolder } from './folders.js';
@@ -14,6 +14,7 @@ import { openSheet } from './addsheet.js';
 import { settingsHTML, bindSettings, openSettings } from './settings.js';
 import { notesHTML, bindNotes, openNotes, focusComposer } from './notes.js';
 import { noteDetailHTML, bindNoteDetail } from './notedetail.js';
+import { searchFieldHTML, bindSearch } from './search.js';
 
 /* — onboarding — */
 
@@ -156,6 +157,7 @@ export function bindMobileNav() {
 
 export function desktopHTML() {
   const list = listById(S.currentList);
+  if (!['detail', 'folders', 'settings', 'notes', 'note'].includes(UI.screen)) boardKey();
   const main = UI.screen === 'detail' ? detailHTML()
     : UI.screen === 'folders' ? foldersHTML()
     : UI.screen === 'settings' ? settingsHTML()
@@ -164,6 +166,7 @@ export function desktopHTML() {
     : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
+      ${searchFieldHTML({ placeholder: 'Search tasks' })}
       ${viewbarHTML()}
       ${S.view === 'kanban' ? `<button class="btn btn-primary btn-sm" data-add>${icon('plus', 18)}Add task</button>` : ''}
     </header>
@@ -223,6 +226,7 @@ export function bindDesktop() {
   if (UI.screen === 'notes') { bindNotes(); return; }
   if (UI.screen === 'note') { bindNoteDetail(); return; }
   bindViewbar();
+  bindSearch(app);
   bindChecks();
   app.querySelector('[data-add]')?.addEventListener('click', () => openSheet());
   const qa = app.querySelector('[data-quickadd]');

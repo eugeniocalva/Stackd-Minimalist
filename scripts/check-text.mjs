@@ -58,4 +58,35 @@ assert.equal(isEmpty('   '), true);
 assert.equal(isEmpty('&nbsp;'), true);
 assert.equal(isEmpty('x'), false);
 
+// search matching (src/search.js): case- and accent-insensitive, every term must hit
+const { normalize, matches, filterTasks, filterNotes } = await import('../src/search.js');
+assert.equal(normalize('Café À-la-carte'), 'cafe a-la-carte');
+assert.equal(matches('', ['anything']), true);
+assert.equal(matches('  ', ['anything']), true);
+assert.equal(matches('cafe', ['Café']), true);
+assert.equal(matches('CAFÉ', ['cafe']), true);
+assert.equal(matches('budget review', ['Agenda', 'budget', 'Review notes']), true, 'terms may hit different fields');
+assert.equal(matches('budget review', ['budget only']), false);
+const tasks = [
+  { title: 'Email vendor', tags: ['Vendor'], subtasks: [] },
+  { title: 'Plan trip', tags: [], subtasks: [{ title: 'Book hotel' }] },
+  { title: 'Water plants', tags: ['home'], subtasks: [] },
+];
+assert.deepEqual(filterTasks(tasks, '').map((t) => t.title), ['Email vendor', 'Plan trip', 'Water plants']);
+assert.deepEqual(filterTasks(tasks, 'vendor').map((t) => t.title), ['Email vendor']);
+assert.deepEqual(filterTasks(tasks, 'hotel').map((t) => t.title), ['Plan trip'], 'subtask titles count');
+assert.deepEqual(filterTasks(tasks, 'home').map((t) => t.title), ['Water plants'], 'tags count');
+const notes = [
+  { title: 'Weekly sync', body: 'Agenda for <b>Monday</b><br>Budget', tags: ['meeting'], checklist: [{ text: 'Pull numbers' }] },
+  { title: '', body: 'Café ideas', tags: ['food'], checklist: null },
+  { title: 'Shopping', body: '', tags: ['food', 'home'], checklist: [{ text: 'Milk' }] },
+];
+assert.deepEqual(filterNotes(notes, '', null).length, 3);
+assert.deepEqual(filterNotes(notes, 'monday').map((n) => n.title), ['Weekly sync'], 'body text, tags stripped');
+assert.deepEqual(filterNotes(notes, 'numbers').map((n) => n.title), ['Weekly sync'], 'checklist text counts');
+assert.deepEqual(filterNotes(notes, 'cafe').map((n) => n.body), ['Café ideas']);
+assert.deepEqual(filterNotes(notes, '', 'Food').map((n) => n.tags[0]), ['food', 'food'], 'tag filter is case-insensitive');
+assert.deepEqual(filterNotes(notes, 'milk', 'food').map((n) => n.title), ['Shopping'], 'tag AND query');
+assert.deepEqual(filterNotes(notes, 'monday', 'food'), [], 'tag AND query: no cross match');
+
 console.log('check-text: ok');

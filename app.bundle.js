@@ -414,10 +414,16 @@
     // Notes composer; focus = field to refocus after a render
     query: "",
     // search text of the current screen; cleared on screen / board change
+    queryKey: null,
+    // which screen / board the query belongs to (ui/search.js queryFor)
     tagFilter: null,
     // Notes: tag chip filter
-    searchOpen: false
+    searchOpen: false,
     // mobile: search field expanded from its icon
+    searchFocus: false,
+    // refocus the search field after the next render
+    searchCaret: null
+    // [start, end] to restore with it
   };
   var isDesktop = window.matchMedia("(min-width: 900px)");
   function read(key) {
@@ -2153,7 +2159,121 @@
     bindAdd("[data-add-label]", addLabel);
   }
 
+  // src/search.js
+  var normalize = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  function matches(query, fields) {
+    const terms = normalize(query).split(/\s+/).filter(Boolean);
+    if (!terms.length) return true;
+    const hay = fields.map(normalize).join("\n");
+    return terms.every((t) => hay.includes(t));
+  }
+  function filterTasks(tasks, query) {
+    if (!normalize(query).trim()) return tasks;
+    return tasks.filter((t) => matches(query, [t.title, ...t.tags, ...t.subtasks.map((s) => s.title)]));
+  }
+  function filterNotes(notes, query, tag = null) {
+    let ns = notes;
+    if (tag) {
+      const key = tag.toLowerCase();
+      ns = ns.filter((n) => n.tags.some((x) => x.toLowerCase() === key));
+    }
+    if (!normalize(query).trim()) return ns;
+    return ns.filter((n) => matches(query, [n.title, toText(n.body), ...(n.checklist || []).map((c) => c.text), ...n.tags]));
+  }
+
+  // src/ui/search.js
+  function queryFor(key) {
+    if (UI.queryKey !== key) {
+      UI.queryKey = key;
+      UI.query = "";
+      UI.searchOpen = false;
+      UI.tagFilter = null;
+    }
+    return UI.query;
+  }
+  var searchOpen = () => isDesktop.matches || UI.searchOpen || !!UI.query;
+  var searchToggleHTML = () => searchOpen() ? "" : `<button class="icon-btn search-toggle" data-search-open aria-label="Search">${icon("search", 20)}</button>`;
+  function searchFieldHTML({ placeholder }) {
+    if (!searchOpen()) return "";
+    const v = UI.query;
+    return `
+  <div class="search-field" role="search">
+    <span class="search-ico" aria-hidden="true">${icon("search", 16)}</span>
+    <input class="input search-input" type="search" data-search value="${esc(v)}" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}" autocomplete="off" enterkeyhint="search">
+    <button class="search-clear ${v || !isDesktop.matches ? "" : "hidden"}" data-search-clear aria-label="${v ? "Clear search" : "Close search"}">${icon("x", 16)}</button>
+  </div>`;
+  }
+  function bindSearch(root) {
+    root.querySelector("[data-search-open]")?.addEventListener("click", () => {
+      UI.searchOpen = true;
+      UI.searchFocus = true;
+      rerender();
+    });
+    const input = root.querySelector("[data-search]");
+    if (!input) return;
+    const clearBtn = root.querySelector("[data-search-clear]");
+    let timer = null;
+    const apply = (value) => {
+      clearTimeout(timer);
+      timer = null;
+      if (value === UI.query) return;
+      UI.query = value;
+      UI.searchFocus = true;
+      UI.searchCaret = [input.selectionStart, input.selectionEnd];
+      rerender();
+    };
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => apply(input.value), 150);
+      clearBtn?.classList.toggle("hidden", !input.value && isDesktop.matches);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      if (input.value) {
+        input.value = "";
+        apply("");
+        return;
+      }
+      if (!isDesktop.matches) {
+        UI.searchOpen = false;
+        rerender();
+      } else input.blur();
+    });
+    clearBtn?.addEventListener("click", () => {
+      if (!isDesktop.matches) UI.searchOpen = false;
+      input.value = "";
+      if (UI.query) {
+        UI.query = "";
+        UI.searchFocus = isDesktop.matches;
+        rerender();
+      } else if (!isDesktop.matches) rerender();
+    });
+    if (UI.searchFocus) {
+      UI.searchFocus = false;
+      input.focus();
+      const [s, e] = UI.searchCaret || [input.value.length, input.value.length];
+      try {
+        input.setSelectionRange(s, e);
+      } catch {
+      }
+      UI.searchCaret = null;
+    }
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    if (t.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    const input = document.querySelector("[data-search]");
+    if (!input) return;
+    e.preventDefault();
+    input.focus();
+    input.select();
+  });
+
   // src/ui/board.js
+  var visibleTasks = (listId) => filterTasks(sortedTasks(listId), UI.query);
+  var boardKey = () => queryFor(`list:${S.currentList}`);
   function viewbarHTML() {
     const sortLabels = { manual: "Sort", due: "Due date", priority: "Priority" };
     return `
@@ -2195,15 +2315,18 @@
     return `<span class="tag ${d.cls}">${lead}${esc(d.label)}${rep}</span>`;
   }
   function kanbanHTML({ desktop = false } = {}) {
-    const ts = tasksOf(S.currentList);
+    boardKey();
+    const all = tasksOf(S.currentList);
+    const ts = filterTasks(all, UI.query);
     const lanes = LANES.map((lane) => {
       const cards = ts.filter((t) => t.lane === lane.id);
+      const inLane = all.filter((t) => t.lane === lane.id).length;
       const headCls = lane.id === "inprogress" ? "active" : lane.id === "done" ? "muted" : "";
       return `
     <div class="lane" data-lane="${lane.id}">
       <div class="lane-head ${headCls}">
         <span class="lane-name">${lane.name}</span>
-        <span class="lane-count num">${cards.length}</span>
+        <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
       </div>
       <div class="lane-cards">
         ${cards.map((t) => t.done ? `
@@ -2229,11 +2352,15 @@
   <div class="board ${desktop ? "cols3" : ""}">${lanes}</div>`;
   }
   function mobileListHTML() {
+    boardKey();
     const list = listById(S.currentList);
-    const ts = sortedTasks(S.currentList);
-    const headCount = S.view === "kanban" ? `${tasksOf(S.currentList).length} tasks` : `${openCount(S.currentList)} open`;
+    const ts = visibleTasks(S.currentList);
+    const total = tasksOf(S.currentList).length;
+    const headCount = UI.query ? `${ts.length} of ${total} task${total === 1 ? "" : "s"}` : S.view === "kanban" ? `${total} tasks` : `${openCount(S.currentList)} open`;
+    const field = searchFieldHTML({ placeholder: "Search tasks" });
     const body = S.view === "kanban" ? kanbanHTML() : `
     <div class="scroll-area">
+      ${!ts.length && UI.query ? `<p class="empty">No tasks match “${esc(UI.query)}”.</p>` : ""}
       ${ts.length ? `
       <span class="hint list-hint">Double-tap to complete · long-press to delete</span>
       <div class="card list-card">
@@ -2244,24 +2371,26 @@
             <span class="t-title">${esc(t.title)}</span>
             ${t.done ? "" : taskMetaHTML(t)}
           </div>
-          ${t.done ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
+          ${t.done || UI.query ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
         </div>`).join("")}
-      </div>` : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
+      </div>` : UI.query ? "" : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
     </div>`;
     return `
   <div class="screen">
     <header class="page-head">
       <div class="page-title-row">
         <button class="page-title" data-lists aria-label="Switch board"><span>${esc(list.name)}</span>${icon("chevronDown")}</button>
-        <span class="kicker">${headCount}</span>
+        <span class="head-right"><span class="kicker">${headCount}</span>${searchToggleHTML()}</span>
       </div>
       ${viewbarHTML()}
+      ${field ? `<div class="search-row">${field}</div>` : ""}
     </header>
     ${body}
   </div>`;
   }
   function bindMobileList() {
     bindViewbar();
+    bindSearch(app);
     bindScrollShadow();
     app.querySelector("[data-lists]").addEventListener("click", () => {
       UI.screen = "lists";
@@ -2277,7 +2406,8 @@
     bindKanban();
   }
   function desktopTableHTML() {
-    const ts = sortedTasks(S.currentList);
+    boardKey();
+    const ts = visibleTasks(S.currentList);
     return `
   <div class="quickadd">
     <input class="input" placeholder="Add a task — press Enter" data-quickadd>
@@ -2299,13 +2429,13 @@
         ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
       </div>`;
     }).join("")}
-    ${ts.length ? "" : '<p class="empty">No tasks yet. Add one above.</p>'}
+    ${ts.length ? "" : `<p class="empty">${UI.query ? `No tasks match “${esc(UI.query)}”.` : "No tasks yet. Add one above."}</p>`}
   </div>
-  <span class="hint">Drag rows to reprioritize · double-click a task to complete</span>`;
+  <span class="hint">${UI.query ? "Clear the search to reorder" : "Drag rows to reprioritize"} · double-click a task to complete</span>`;
   }
   var taskReorder = (t, rowSel) => ({
     rowSel,
-    enabled: () => S.sort === "manual" && !t.done,
+    enabled: () => S.sort === "manual" && !t.done && !UI.query,
     onDrop: (beforeId) => reorderTask(t.id, beforeId)
   });
   function bindViewbar() {
@@ -2435,7 +2565,8 @@
       let dragging = false, overLane = null, held = false;
       const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
       const isTouch = e.pointerType === "touch";
-      const holdTimer = isTouch ? setTimeout(() => {
+      const canDrag = !UI.query;
+      const holdTimer = isTouch && canDrag ? setTimeout(() => {
         held = true;
         startDrag();
       }, 350) : null;
@@ -2453,7 +2584,7 @@
       card.addEventListener("touchmove", blockScroll, { passive: false });
       const move = (ev) => {
         const dist = Math.hypot(ev.clientX - sx, ev.clientY - sy);
-        if (!dragging && !isTouch && dist > 8) startDrag();
+        if (!dragging && !isTouch && dist > 8 && canDrag) startDrag();
         if (!dragging) {
           if (isTouch && dist > 10 && holdTimer) clearTimeout(holdTimer);
           return;
@@ -3344,8 +3475,8 @@
     collapse();
   });
   var MAX_CHIPS = 3;
-  function noteMetaHTML(n) {
-    const chips = n.tags.slice(0, MAX_CHIPS).map((t) => `<span class="tag">#${esc(t)}</span>`);
+  function noteMetaHTML(n, { links = false } = {}) {
+    const chips = n.tags.slice(0, MAX_CHIPS).map((t) => links ? `<button type="button" class="tag tag-btn" data-tagfilter="${esc(t)}" aria-label="Show notes tagged ${esc(t)}">#${esc(t)}</button>` : `<span class="tag">#${esc(t)}</span>`);
     if (n.tags.length > MAX_CHIPS) chips.push(`<span class="tag">+${n.tags.length - MAX_CHIPS}</span>`);
     const p = checklistProgress(n);
     if (p) chips.push(`<span class="t-sub num" aria-label="Checklist, ${p.done} of ${p.total} done">${icon("checklist", 12)}${p.done}/${p.total}</span>`);
@@ -3364,7 +3495,7 @@
         <span class="t-title ${hasTitle ? "" : "untitled"}">${esc(title)}</span>
         <span class="nrow-date num">${dateLabel2} ${esc(when)}</span>
       </div>
-      ${noteMetaHTML(n)}
+      ${noteMetaHTML(n, { links: true })}
       ${preview ? `<span class="nrow-preview">${esc(preview)}</span>` : ""}
     </div>
     ${grip ? `<span class="grip" aria-hidden="true">${icon("grip")}</span>` : ""}
@@ -3382,7 +3513,8 @@
   var canReorder = () => S.notesSort === "manual" && !UI.query && !UI.tagFilter;
   function sortbarHTML() {
     return `
-  <div class="viewbar notes-bar">
+  <div class="viewbar notes-bar ${searchOpen() ? "searching" : ""}">
+    ${searchFieldHTML({ placeholder: "Search notes" })}
     <span class="sortwrap">
       <button class="sortbtn ${S.notesSort !== DEFAULT_SORT ? "on" : ""}" data-sortbtn aria-haspopup="menu" aria-expanded="${UI.sortMenu}">${icon("sort")}${SHORT[S.notesSort]}</button>
       ${UI.sortMenu ? `
@@ -3404,20 +3536,29 @@
     }));
   }
   function notesHTML() {
-    const notes = sortedNotes();
-    const total = activeNotes().length;
+    queryFor("notes");
+    const all = sortedNotes();
+    const total = all.length;
+    const filtering = !!(UI.query || UI.tagFilter);
+    const notes = filtering ? filterNotes(all, UI.query, UI.tagFilter) : all;
+    const kicker = !total ? "No notes" : filtering ? `${notes.length} of ${total} note${total === 1 ? "" : "s"}` : `${total} note${total === 1 ? "" : "s"}`;
+    const empty = !total ? "No notes yet. Write one above." : UI.query ? `No notes match “${esc(UI.query)}”.` : `No notes with #${esc(UI.tagFilter)}.`;
     return `
   <div class="screen notes-screen">
     <header class="page-head">
       <div class="page-title-row">
         <h1 class="page-title-text">Notes</h1>
-        <span class="kicker">${total ? `${total} note${total === 1 ? "" : "s"}` : "No notes"}</span>
+        <span class="head-right"><span class="kicker">${kicker}</span>${searchToggleHTML()}</span>
       </div>
       ${sortbarHTML()}
+      ${UI.tagFilter ? `
+      <div class="filterline">
+        <button type="button" class="chip sm on removable" data-tagfilter-clear aria-label="Remove tag filter ${esc(UI.tagFilter)}">#${esc(UI.tagFilter)}${icon("x", 14)}</button>
+      </div>` : ""}
     </header>
     <div class="scroll-area">
       <div data-composer-host>${editorHTML(draft, { mode: "composer", expanded: UI.composer.expanded })}</div>
-      ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder() })).join("")}</div>` : '<p class="empty">No notes yet. Write one above.</p>'}
+      ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder() })).join("")}</div>` : `<p class="empty">${empty}</p>`}
       ${notes.length > 1 && canReorder() ? '<span class="hint">Drag the handle to reorder</span>' : ""}
     </div>
   </div>`;
@@ -3442,9 +3583,20 @@
       UI.composer.focus = null;
     }
     bindSortbar();
+    bindSearch(app);
+    app.querySelector("[data-tagfilter-clear]")?.addEventListener("click", () => {
+      UI.tagFilter = null;
+      rerender();
+    });
     app.querySelectorAll(".nrow").forEach((row) => {
       const id = row.dataset.id;
       row.addEventListener("click", (e) => {
+        const tag = e.target.closest("[data-tagfilter]");
+        if (tag) {
+          UI.tagFilter = tag.dataset.tagfilter;
+          rerender();
+          return;
+        }
         if (e.target.closest(".grip") || row.dataset.dragged) {
           delete row.dataset.dragged;
           return;
@@ -3713,9 +3865,11 @@
   }
   function desktopHTML() {
     const list = listById(S.currentList);
+    if (!["detail", "folders", "settings", "notes", "note"].includes(UI.screen)) boardKey();
     const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
+      ${searchFieldHTML({ placeholder: "Search tasks" })}
       ${viewbarHTML()}
       ${S.view === "kanban" ? `<button class="btn btn-primary btn-sm" data-add>${icon("plus", 18)}Add task</button>` : ""}
     </header>
@@ -3787,6 +3941,7 @@
       return;
     }
     bindViewbar();
+    bindSearch(app);
     bindChecks();
     app.querySelector("[data-add]")?.addEventListener("click", () => openSheet());
     const qa = app.querySelector("[data-quickadd]");

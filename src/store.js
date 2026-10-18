@@ -61,8 +61,11 @@ export const UI = {
   refocusAddsub: false,
   composer: { expanded: false, formatOpen: false, focus: null },   // Notes composer; focus = field to refocus after a render
   query: '',             // search text of the current screen; cleared on screen / board change
+  queryKey: null,        // which screen / board the query belongs to (ui/search.js queryFor)
   tagFilter: null,       // Notes: tag chip filter
   searchOpen: false,     // mobile: search field expanded from its icon
+  searchFocus: false,    // refocus the search field after the next render
+  searchCaret: null,     // [start, end] to restore with it
 };
 export const isDesktop = window.matchMedia('(min-width: 900px)');
 

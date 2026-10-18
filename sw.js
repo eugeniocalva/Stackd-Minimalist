@@ -14,6 +14,8 @@ const SHELL = [
   'src/notify.js',
   'src/theme.js',
   'src/richtext.js',
+  'src/search.js',
+  'src/ui/search.js',
   'src/ui/shell.js',
   'src/ui/notes.js',
   'src/ui/noteeditor.js',
