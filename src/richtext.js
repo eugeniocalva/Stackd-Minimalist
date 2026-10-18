@@ -1,11 +1,12 @@
-/* Note bodies are a sanitised HTML subset (PRD-notes §05): text, <br> and —
-   from Phase 12 — <b> <i> <u> <s>. This module is pure string work with a
-   small tokenizer, no DOM, so scripts/check-text.mjs runs it under Node and
-   the app never round-trips untrusted markup through innerHTML. Every body
-   satisfies sanitize(body) === body. */
+/* Note bodies are a sanitised HTML subset (PRD-notes §05): text, <br>, <b>,
+   <i>, <u> and <s>. The sanitiser is pure string work with a small
+   tokenizer, no DOM, so scripts/check-text.mjs runs it under Node and the
+   app never round-trips untrusted markup through innerHTML. Every body
+   satisfies sanitize(body) === body. The inline-style commands at the bottom
+   are the one DOM-touching part (used by the editor only). */
 
-/** Tags a body may contain. Phase 7: line breaks only. */
-export const ALLOWED_TAGS = ['br'];
+/** Tags a body may contain (PRD-notes Q10). */
+export const ALLOWED_TAGS = ['br', 'b', 'i', 'u', 's'];
 
 /* Tag names mapped onto the subset; anything else is dropped (its text stays). */
 const INLINE_MAP = { b: 'b', strong: 'b', i: 'i', em: 'i', u: 'u', s: 's', strike: 's', del: 's' };
@@ -57,8 +58,9 @@ export function sanitize(html) {
   while (open.length) out.push(`</${open.pop()}>`);
   return out.join('')
     .replace(/^(?:\s|<br>)+/, '')                         // leading breaks / space
-    .replace(/(?:<br>|\s)+$/, '')                         // trailing breaks / space
-    .replace(/(?:<br>){3,}/g, '<br><br>');                // at most one blank line
+    .replace(/(?:<br>|\s)+((?:<\/[bius]>)*)$/, '$1')      // trailing breaks / space, also inside closing tags
+    .replace(/(?:<br>){3,}/g, '<br><br>')                 // at most one blank line
+    .replace(/<([bius])><\/\1>/g, '');                    // empty inline tags
 }
 
 /** Plain text → body: escape and turn newlines into <br>. */
@@ -94,3 +96,28 @@ export function toText(html) {
 export const firstLine = (html) => toText(html).split('\n').find((l) => l.trim()) || '';
 
 export const isEmpty = (html) => toText(html).trim() === '';
+
+/* ── Inline styles in the editor (DOM; PRD-notes AC-02.4) ────────────── */
+
+/** [command, label, glyph] in toolbar order. */
+export const FORMATS = [
+  ['bold', 'Bold', 'B'], ['italic', 'Italic', 'I'], ['underline', 'Underline', 'U'], ['strikeThrough', 'Strikethrough', 'S'],
+];
+
+/** Keyboard shortcuts (with Ctrl / ⌘): key → command. */
+export const SHORTCUTS = { b: 'bold', i: 'italic', u: 'underline', 'shift+x': 'strikeThrough' };
+
+/** Toggle an inline style on the selection or at the caret. execCommand is
+    deprecated but still the only zero-dependency way to do this in every
+    browser; this is the single place to swap it for a Range implementation.
+    Tags, never CSS, so the sanitiser keeps the result. */
+export function exec(cmd) {
+  try { document.execCommand('styleWithCSS', false, false); } catch { /* unsupported: tags are the default anyway */ }
+  return document.execCommand(cmd, false, null);
+}
+
+/** Which styles apply at the caret / selection, for aria-pressed. */
+export function stateAt() {
+  const q = (c) => { try { return document.queryCommandState(c); } catch { return false; } };
+  return { bold: q('bold'), italic: q('italic'), underline: q('underline'), strikeThrough: q('strikeThrough') };
+}

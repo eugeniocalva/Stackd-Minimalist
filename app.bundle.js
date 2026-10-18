@@ -275,7 +275,7 @@
   }
 
   // src/richtext.js
-  var ALLOWED_TAGS = ["br"];
+  var ALLOWED_TAGS = ["br", "b", "i", "u", "s"];
   var INLINE_MAP = { b: "b", strong: "b", i: "i", em: "i", u: "u", s: "s", strike: "s", del: "s" };
   var BLOCK = /* @__PURE__ */ new Set(["p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "section", "article"]);
   var DROP_CONTENT = /<(script|style|head|title|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
@@ -330,7 +330,7 @@
     }
     pushText(src.slice(last));
     while (open.length) out.push(`</${open.pop()}>`);
-    return out.join("").replace(/^(?:\s|<br>)+/, "").replace(/(?:<br>|\s)+$/, "").replace(/(?:<br>){3,}/g, "<br><br>");
+    return out.join("").replace(/^(?:\s|<br>)+/, "").replace(/(?:<br>|\s)+((?:<\/[bius]>)*)$/, "$1").replace(/(?:<br>){3,}/g, "<br><br>").replace(/<([bius])><\/\1>/g, "");
   }
   var fromPlain = (text) => sanitize(escText(String(text ?? "")).replace(/\r?\n/g, "<br>"));
   var ENTITY = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
@@ -366,6 +366,30 @@
   }
   var firstLine = (html) => toText(html).split("\n").find((l) => l.trim()) || "";
   var isEmpty = (html) => toText(html).trim() === "";
+  var FORMATS = [
+    ["bold", "Bold", "B"],
+    ["italic", "Italic", "I"],
+    ["underline", "Underline", "U"],
+    ["strikeThrough", "Strikethrough", "S"]
+  ];
+  var SHORTCUTS = { b: "bold", i: "italic", u: "underline", "shift+x": "strikeThrough" };
+  function exec(cmd) {
+    try {
+      document.execCommand("styleWithCSS", false, false);
+    } catch {
+    }
+    return document.execCommand(cmd, false, null);
+  }
+  function stateAt() {
+    const q = (c) => {
+      try {
+        return document.queryCommandState(c);
+      } catch {
+        return false;
+      }
+    };
+    return { bold: q("bold"), italic: q("italic"), underline: q("underline"), strikeThrough: q("strikeThrough") };
+  }
 
   // src/store.js
   var STORE_KEY = "stackd-v2";
@@ -3075,7 +3099,13 @@
     </div>`).join("")}
   </div>`;
   }
-  function editorHTML(v, { mode = "composer", expanded = true } = {}) {
+  function formatRowHTML() {
+    return `
+    <div class="ne-format" role="toolbar" aria-label="Text formatting">
+      ${FORMATS.map(([cmd, label, glyph]) => `<button type="button" class="ne-tool ne-fmt" data-fmt="${cmd}" aria-pressed="false" aria-label="${label}" title="${label}"><span class="fmt-glyph fmt-${cmd}">${glyph}</span></button>`).join("")}
+    </div>`;
+  }
+  function editorHTML(v, { mode = "composer", expanded = true, formatOpen = false } = {}) {
     const wrap = (inner2, cls) => `<form class="composer card ${cls} mode-${mode}" data-editor data-mode="${mode}" aria-label="${mode === "detail" ? "Note" : "New note"}">${colorBarHTML(v.color)}${inner2}</form>`;
     if (mode === "composer" && !expanded) return wrap(collapsedHTML(v), "");
     const inner = `
@@ -3085,8 +3115,9 @@
     ${v.checklist ? checklistHTML(v.checklist) : ""}
     ${v.tags.length ? `
     <div class="ne-chips">${v.tags.map((t) => `<button type="button" class="chip sm removable" data-tag-remove="${esc(t)}" aria-label="Remove tag ${esc(t)}">#${esc(t)}${icon("x", 14)}</button>`).join("")}</div>` : ""}
+    ${formatOpen ? formatRowHTML() : ""}
     <div class="ne-toolbar" role="toolbar" aria-label="Note tools">
-      <button type="button" class="ne-tool" data-tool="format" aria-label="Formatting" title="Formatting comes in a later update" disabled>${icon("text")}</button>
+      <button type="button" class="ne-tool" data-tool="format" aria-pressed="${formatOpen}" aria-label="Formatting" title="Formatting">${icon("text")}</button>
       <button type="button" class="ne-tool ${v.tags.length ? "on" : ""}" data-tool="tags" aria-label="Tags" title="Tags">${icon("tag")}</button>
       <button type="button" class="ne-tool ${v.color ? "on" : ""} ${mode === "detail" && v.color ? "ne-tool-wide" : ""}" data-tool="color" aria-label="Colour: ${colorName(v.color)}" title="Colour">${icon("palette")}${v.color ? `<span class="swatch tool-swatch pc-${v.color}"></span>` : ""}${mode === "detail" && v.color ? `<span class="ne-tool-text">${colorName(v.color)}</span>` : ""}</button>
       <button type="button" class="ne-tool" data-tool="checklist" aria-pressed="${!!v.checklist}" aria-label="Checklist" title="Checklist">${icon("checklist")}</button>
@@ -3120,8 +3151,13 @@
   function bindEditor(host, opts) {
     const { get, set, mode = "composer" } = opts;
     const expanded = () => opts.expanded ? opts.expanded() : true;
+    let formatOpen = opts.formatOpen ? opts.formatOpen() : false;
+    const setFormatOpen = (v) => {
+      formatOpen = v;
+      opts.onFormatToggle?.(v);
+    };
     const render2 = (focus) => {
-      host.innerHTML = editorHTML(get(), { mode, expanded: expanded() });
+      host.innerHTML = editorHTML(get(), { mode, expanded: expanded(), formatOpen });
       bind();
       focusField(host.querySelector("[data-editor]"), focus);
     };
@@ -3168,6 +3204,27 @@
         if (emptyBody(body)) body.innerHTML = "";
         set({ body: sanitize(body.innerHTML) });
         updateAdd();
+      });
+      const applyFormat = (cmd) => {
+        if (document.activeElement !== body) focusField(root, "body");
+        exec(cmd);
+        reflectFormat(root);
+      };
+      body.addEventListener("keydown", (e) => {
+        if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+        const key = `${e.shiftKey ? "shift+" : ""}${e.key.toLowerCase()}`;
+        const cmd = SHORTCUTS[key];
+        if (!cmd) return;
+        e.preventDefault();
+        applyFormat(cmd);
+      });
+      q('[data-tool="format"]').addEventListener("click", () => {
+        setFormatOpen(!formatOpen);
+        render2(document.activeElement === body || !formatOpen ? "body" : null);
+      });
+      qa("[data-fmt]").forEach((b) => {
+        b.addEventListener("mousedown", (e) => e.preventDefault());
+        b.addEventListener("click", () => applyFormat(b.dataset.fmt));
       });
       body.addEventListener("paste", (e) => {
         e.preventDefault();
@@ -3261,6 +3318,15 @@
     bind();
     return { render: render2, focus: (key) => focusField(host.querySelector("[data-editor]"), key) };
   }
+  function reflectFormat(root) {
+    const state = stateAt();
+    root.querySelectorAll("[data-fmt]").forEach((b) => b.setAttribute("aria-pressed", String(!!state[b.dataset.fmt])));
+  }
+  document.addEventListener("selectionchange", () => {
+    const body = document.activeElement;
+    if (!body?.matches?.(".ne-body")) return;
+    reflectFormat(body.closest("[data-editor]"));
+  });
 
   // src/ui/notedetail.js
   function openNote(id) {
@@ -3586,7 +3652,7 @@
       </div>` : ""}
     </header>
     <div class="scroll-area">
-      <div data-composer-host>${editorHTML(draft, { mode: "composer", expanded: UI.composer.expanded })}</div>
+      <div data-composer-host>${editorHTML(draft, { mode: "composer", expanded: UI.composer.expanded, formatOpen: UI.composer.formatOpen })}</div>
       ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder() })).join("")}</div>` : `<p class="empty">${empty}</p>`}
       ${notes.length > 1 && canReorder() ? '<span class="hint">Drag the handle to reorder</span>' : ""}
     </div>
@@ -3603,6 +3669,10 @@
         persist();
       },
       expanded: () => UI.composer.expanded,
+      formatOpen: () => UI.composer.formatOpen,
+      onFormatToggle: (v) => {
+        UI.composer.formatOpen = v;
+      },
       onAdd: add,
       onCollapse: collapse,
       onExpand: expand

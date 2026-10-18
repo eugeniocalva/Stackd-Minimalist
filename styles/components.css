@@ -412,6 +412,16 @@
 .ne-tool:disabled { opacity: 0.35; cursor: default; }
 .ne-tool svg { width: 20px; height: 20px; }
 .ne-tool .tool-swatch { position: absolute; right: 5px; bottom: 5px; width: 9px; height: 9px; box-shadow: 0 0 0 2px var(--bg-surface); }
+/* inline styles (AC-02.4): the Format row and the marks inside a body */
+.ne-format { display: flex; gap: 2px; padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+.fmt-glyph { font-family: var(--font-family-display); font-size: 15px; font-weight: 700; line-height: 1; }
+.fmt-italic { font-style: italic; }
+.fmt-underline { text-decoration: underline; text-underline-offset: 2px; }
+.fmt-strikeThrough { text-decoration: line-through; }
+.ne-body b, .note-ro-body b { font-weight: 700; }
+.ne-body i, .note-ro-body i { font-style: italic; }
+.ne-body u, .note-ro-body u { text-decoration: underline; text-underline-offset: 2px; }
+.ne-body s, .note-ro-body s { text-decoration: line-through; }
 /* detail mode: the colour's name sits next to its swatch (AC-06.3) */
 .ne-tool-wide { width: auto; padding: 0 12px 0 8px; border-radius: var(--radius-full); gap: 6px; }
 .ne-tool-wide .tool-swatch { position: static; box-shadow: none; width: 10px; height: 10px; }

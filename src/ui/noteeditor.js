@@ -7,7 +7,7 @@
    caret alone while typing. */
 
 import { NOTE_COLORS, noteIsEmpty } from '../store.js';
-import { sanitize, fromPlain, firstLine } from '../richtext.js';
+import { sanitize, fromPlain, firstLine, FORMATS, SHORTCUTS, exec, stateAt } from '../richtext.js';
 import { esc, uid } from '../util.js';
 import { icon } from './icons.js';
 import { openMenu, confirmDialog } from './primitives.js';
@@ -50,8 +50,17 @@ function checklistHTML(items) {
   </div>`;
 }
 
+/** The second toolbar row (AC-02.4): one toggle per inline style. */
+function formatRowHTML() {
+  return `
+    <div class="ne-format" role="toolbar" aria-label="Text formatting">
+      ${FORMATS.map(([cmd, label, glyph]) =>
+        `<button type="button" class="ne-tool ne-fmt" data-fmt="${cmd}" aria-pressed="false" aria-label="${label}" title="${label}"><span class="fmt-glyph fmt-${cmd}">${glyph}</span></button>`).join('')}
+    </div>`;
+}
+
 /** v: NoteDraft | Note (body already sanitised). */
-export function editorHTML(v, { mode = 'composer', expanded = true } = {}) {
+export function editorHTML(v, { mode = 'composer', expanded = true, formatOpen = false } = {}) {
   const wrap = (inner, cls) =>
     `<form class="composer card ${cls} mode-${mode}" data-editor data-mode="${mode}" aria-label="${mode === 'detail' ? 'Note' : 'New note'}">${colorBarHTML(v.color)}${inner}</form>`;
   if (mode === 'composer' && !expanded) return wrap(collapsedHTML(v), '');
@@ -63,8 +72,9 @@ export function editorHTML(v, { mode = 'composer', expanded = true } = {}) {
     ${v.tags.length ? `
     <div class="ne-chips">${v.tags.map((t) =>
       `<button type="button" class="chip sm removable" data-tag-remove="${esc(t)}" aria-label="Remove tag ${esc(t)}">#${esc(t)}${icon('x', 14)}</button>`).join('')}</div>` : ''}
+    ${formatOpen ? formatRowHTML() : ''}
     <div class="ne-toolbar" role="toolbar" aria-label="Note tools">
-      <button type="button" class="ne-tool" data-tool="format" aria-label="Formatting" title="Formatting comes in a later update" disabled>${icon('text')}</button>
+      <button type="button" class="ne-tool" data-tool="format" aria-pressed="${formatOpen}" aria-label="Formatting" title="Formatting">${icon('text')}</button>
       <button type="button" class="ne-tool ${v.tags.length ? 'on' : ''}" data-tool="tags" aria-label="Tags" title="Tags">${icon('tag')}</button>
       <button type="button" class="ne-tool ${v.color ? 'on' : ''} ${mode === 'detail' && v.color ? 'ne-tool-wide' : ''}" data-tool="color" aria-label="Colour: ${colorName(v.color)}" title="Colour">${icon('palette')}${v.color ? `<span class="swatch tool-swatch pc-${v.color}"></span>` : ''}${mode === 'detail' && v.color ? `<span class="ne-tool-text">${colorName(v.color)}</span>` : ''}</button>
       <button type="button" class="ne-tool" data-tool="checklist" aria-pressed="${!!v.checklist}" aria-label="Checklist" title="Checklist">${icon('checklist')}</button>
@@ -108,9 +118,11 @@ function focusField(root, key) {
 export function bindEditor(host, opts) {
   const { get, set, mode = 'composer' } = opts;
   const expanded = () => (opts.expanded ? opts.expanded() : true);
+  let formatOpen = opts.formatOpen ? opts.formatOpen() : false;
+  const setFormatOpen = (v) => { formatOpen = v; opts.onFormatToggle?.(v); };
 
   const render = (focus) => {
-    host.innerHTML = editorHTML(get(), { mode, expanded: expanded() });
+    host.innerHTML = editorHTML(get(), { mode, expanded: expanded(), formatOpen });
     bind();
     focusField(host.querySelector('[data-editor]'), focus);
   };
@@ -149,6 +161,27 @@ export function bindEditor(host, opts) {
       if (emptyBody(body)) body.innerHTML = '';
       set({ body: sanitize(body.innerHTML) });
       updateAdd();
+    });
+    /* inline styles: shortcuts on the body, buttons on the Format row (AC-02.4) */
+    const applyFormat = (cmd) => {
+      if (document.activeElement !== body) focusField(root, 'body');
+      exec(cmd);
+      reflectFormat(root);
+    };
+    body.addEventListener('keydown', (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const key = `${e.shiftKey ? 'shift+' : ''}${e.key.toLowerCase()}`;
+      const cmd = SHORTCUTS[key];
+      if (!cmd) return;
+      e.preventDefault(); applyFormat(cmd);
+    });
+    q('[data-tool="format"]').addEventListener('click', () => {
+      setFormatOpen(!formatOpen);
+      render(document.activeElement === body || !formatOpen ? 'body' : null);
+    });
+    qa('[data-fmt]').forEach((b) => {
+      b.addEventListener('mousedown', (e) => e.preventDefault());   // keep the body's selection
+      b.addEventListener('click', () => applyFormat(b.dataset.fmt));
     });
     body.addEventListener('paste', (e) => {
       e.preventDefault();
@@ -224,3 +257,15 @@ export function bindEditor(host, opts) {
   bind();
   return { render, focus: (key) => focusField(host.querySelector('[data-editor]'), key) };
 }
+
+/* Format-row buttons mirror the style at the caret. One listener for every
+   editor on the page: it finds the body that has focus. */
+function reflectFormat(root) {
+  const state = stateAt();
+  root.querySelectorAll('[data-fmt]').forEach((b) => b.setAttribute('aria-pressed', String(!!state[b.dataset.fmt])));
+}
+document.addEventListener('selectionchange', () => {
+  const body = document.activeElement;
+  if (!body?.matches?.('.ne-body')) return;
+  reflectFormat(body.closest('[data-editor]'));
+});

@@ -1,10 +1,11 @@
 /* Checks for src/richtext.js (note bodies: sanitised HTML subset) — `npm run
-   check`. Pure string module, so no browser stand-ins are needed. Phase 7:
-   the whitelist is <br> only; Phase 12 widens it and extends these. */
+   check`. Pure string module, so no browser stand-ins are needed. */
 import assert from 'node:assert/strict';
-import { ALLOWED_TAGS, sanitize, fromPlain, toText, firstLine, isEmpty } from '../src/richtext.js';
+import { ALLOWED_TAGS, sanitize, fromPlain, toText, firstLine, isEmpty, FORMATS, SHORTCUTS } from '../src/richtext.js';
 
-assert.deepEqual(ALLOWED_TAGS, ['br']);
+assert.deepEqual(ALLOWED_TAGS, ['br', 'b', 'i', 'u', 's']);
+assert.deepEqual(FORMATS.map((f) => f[0]), ['bold', 'italic', 'underline', 'strikeThrough']);
+assert.deepEqual(Object.values(SHORTCUTS), ['bold', 'italic', 'underline', 'strikeThrough']);
 
 // plain text passes through; stray angle brackets and ampersands are escaped
 assert.equal(sanitize('hello'), 'hello');
@@ -20,8 +21,24 @@ assert.equal(sanitize('<p>one</p><p>two</p>'), 'one<br>two');
 assert.equal(sanitize('<br><br>one<br><br><br>two<br><br>'), 'one<br><br>two');
 assert.equal(sanitize('<div><br></div>'), '');
 
-// every other tag goes, its text stays; attributes and dangerous content never survive
-assert.equal(sanitize('<b>bold</b> and <i>it</i>'), 'bold and it');     // Phase 7: no inline styles yet
+// the four inline styles survive, their synonyms are mapped, everything else goes (text stays)
+assert.equal(sanitize('<b>bold</b> and <i>it</i>'), '<b>bold</b> and <i>it</i>');
+assert.equal(sanitize('<strong>s</strong> <em>e</em> <strike>k</strike> <del>d</del> <u>u</u>'), '<b>s</b> <i>e</i> <s>k</s> <s>d</s> <u>u</u>');
+assert.equal(sanitize('<b class="x" style="color:red" onclick="evil()">bold</b>'), '<b>bold</b>', 'attributes on inline tags are dropped');
+assert.equal(sanitize('<b><i>both</i></b> <i><u>two</u></i>'), '<b><i>both</i></b> <i><u>two</u></i>', 'nesting kept');
+assert.equal(sanitize('<b>open'), '<b>open</b>', 'unclosed tags are closed');
+assert.equal(sanitize('<b><i>x</b>y</i>'), '<b><i>x</i></b>y', 'mis-nesting is balanced, stray closers ignored');
+assert.equal(sanitize('<b></b>a<i> </i>b'), 'a<i> </i>b', 'empty inline tags are dropped');
+assert.equal(sanitize('<b>text<br></b>'), '<b>text</b>', 'a trailing break inside a tag is trimmed');
+assert.equal(sanitize('<b>a</b><b>b</b>'), '<b>a</b><b>b</b>');
+// what contenteditable produces (Chrome) and what gets pasted (web page, Word)
+assert.equal(sanitize('<div><b>a</b></div><div><br></div><div>b</div>'), '<b>a</b><br><br>b');
+assert.equal(sanitize('<b>bold<div>next line</div></b>'), '<b>bold<br>next line</b>');
+assert.equal(sanitize('<h1>Title</h1><p>Some <strong>bold</strong>, <em>it</em> and <a href="https://x.y" target="_blank">a link</a>.</p><ul><li>one</li><li>two</li></ul>'),
+  'Title<br>Some <b>bold</b>, <i>it</i> and a link.<br>one<br>two');
+assert.equal(sanitize('<p class=MsoNormal><b><span style=\'font-size:12.0pt;font-family:"Calibri"\'>Bold</span></b> plain<o:p></o:p></p><p class=MsoNormal><u>under</u></p>'),
+  '<b>Bold</b> plain<br><u>under</u>');
+assert.equal(sanitize('<span style="font-weight:bold">css bold</span>'), 'css bold', 'CSS-only styling is not kept (tags only)');
 assert.equal(sanitize('<a href="https://x" onclick="evil()">link</a>'), 'link');
 assert.equal(sanitize('<img src=x onerror=alert(1)>pic'), 'pic');
 assert.equal(sanitize('<script>alert(1)</script>safe<style>p{}</style>'), 'safe');
@@ -29,7 +46,7 @@ assert.equal(sanitize('<!-- c -->text<span style="color:red">red</span>'), 'text
 assert.equal(sanitize('<br onclick="x()">a'), 'a');                       // attributes on br are dropped too
 
 // idempotent
-for (const s of ['one<br>two', 'a &lt; b', '<div>x</div><div>y</div>', '<b>q</b> &amp; r']) {
+for (const s of ['one<br>two', 'a &lt; b', '<div>x</div><div>y</div>', '<b>q</b> &amp; r', '<b><i>x</i></b><br><u>y</u>', '<b>open', '<b><i>x</b>y</i>']) {
   assert.equal(sanitize(sanitize(s)), sanitize(s));
 }
 
@@ -46,6 +63,7 @@ assert.equal(toText('one<br>two'), 'one\ntwo');
 assert.equal(toText('<div>one</div><div>two</div>'), 'one\ntwo');
 assert.equal(toText('a &lt; b &amp; c &#39;d&#39; &#x41;'), "a < b & c 'd' A");
 assert.equal(toText('<b>bold</b> x'), 'bold x');
+assert.equal(toText('<b><i>a</i></b><br><u>b</u> <s>c</s>'), 'a\nb c', 'styles never reach search or previews');
 assert.equal(toText('<script>no</script>yes'), 'yes');
 assert.equal(toText(fromPlain('round\ntrip')), 'round\ntrip');
 

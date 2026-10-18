@@ -174,7 +174,7 @@ export function notesHTML() {
       </div>` : ''}
     </header>
     <div class="scroll-area">
-      <div data-composer-host>${editorHTML(draft, { mode: 'composer', expanded: UI.composer.expanded })}</div>
+      <div data-composer-host>${editorHTML(draft, { mode: 'composer', expanded: UI.composer.expanded, formatOpen: UI.composer.formatOpen })}</div>
       ${notes.length
         ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder() })).join('')}</div>`
         : `<p class="empty">${empty}</p>`}
@@ -191,6 +191,8 @@ export function bindNotes() {
     get: () => draft,
     set: (patch) => { Object.assign(draft, patch); persist(); },
     expanded: () => UI.composer.expanded,
+    formatOpen: () => UI.composer.formatOpen,
+    onFormatToggle: (v) => { UI.composer.formatOpen = v; },
     onAdd: add,
     onCollapse: collapse,
     onExpand: expand,

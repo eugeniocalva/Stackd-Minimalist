@@ -126,7 +126,7 @@ controls once I need them.*
       **Add**. Each icon has an `aria-label` and a desktop tooltip. Icons
       that are "on" (format row open, tags added, colour chosen, checklist
       shown) are drawn in the active state.
-- [ ] AC-02.4 **Format icon** toggles a second toolbar row with four
+- [x] AC-02.4 **Format icon** toggles a second toolbar row with four
       toggle buttons: **Bold · Italic · Underline · Strikethrough**; the
       main toolbar stays at four icons + Add. They apply to the selection in the note area, or to what
       is typed next when nothing is selected, and reflect the formatting at

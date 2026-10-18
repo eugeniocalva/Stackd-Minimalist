@@ -133,7 +133,7 @@ assert.equal(store.loadDraft(), null);
 store.saveDraft({ title: ' Draft ', body: '<div>x</div><b>y</b>', color: 'teal', tags: ['#A', 'a'], checklist: null });
 {
   const d = store.loadDraft();
-  assert.equal(d.body, 'x<br>y', 'draft body is re-sanitised on load');
+  assert.equal(d.body, 'x<br><b>y</b>', 'draft body is re-sanitised on load');
   assert.equal(d.color, null, 'unknown colour is dropped');
   assert.deepEqual(d.tags, ['A']);
   assert.ok(mem.has(store.NOTE_DRAFT_KEY));
