@@ -60,7 +60,7 @@ jobs:
 
       # The `runner` context does not exist at job level, so the temp paths are
       # set here and exported to every later step. The version is the one the
-      # web app ships (sw.js VERSION 'stackd-v1.4.0' -> 1.4.0).
+      # web app ships (sw.js VERSION 'stackd-v1.4.1' -> 1.4.1).
       - name: Paths, version and build number
         env:
           BUILD_INPUT: ${{ inputs.build_number }}
@@ -126,10 +126,14 @@ jobs:
       - name: Sync web assets and plugins (pod install)
         run: npx cap sync ios
 
-      - name: Check the reminders plugin landed
+      - name: Check the native plugins landed
         run: |
           grep -q "CapacitorLocalNotifications" ios/App/Podfile \
             || { echo "::error::@capacitor/local-notifications is missing from the Podfile - reminders would not work"; exit 1; }
+          grep -q "CapacitorKeyboard" ios/App/Podfile \
+            || { echo "::error::@capacitor/keyboard is missing from the Podfile - the add sheet would scroll under the keyboard"; exit 1; }
+          grep -q "CapacitorHaptics" ios/App/Podfile \
+            || { echo "::error::@capacitor/haptics is missing from the Podfile - long-press would not vibrate"; exit 1; }
 
       # HTTPS only, no custom encryption: without this key every build waits in
       # TestFlight as "Missing Compliance" until it is answered by hand.

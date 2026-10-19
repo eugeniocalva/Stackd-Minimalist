@@ -1,5 +1,11 @@
 {
   "appId": "com.eugeniocalva.stackd",
   "appName": "Stack'd",
-  "webDir": "www"
+  "webDir": "www",
+  "plugins": {
+    "Keyboard": {
+      "resize": "native",
+      "resizeOnFullScreen": true
+    }
+  }
 }

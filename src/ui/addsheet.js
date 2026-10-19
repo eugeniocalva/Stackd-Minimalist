@@ -5,6 +5,7 @@ import { daysFrom, fmtDue } from '../dates.js';
 import { openSchedule } from './schedule.js';
 import { esc } from '../util.js';
 import { icon } from './icons.js';
+import { pinToViewport } from './primitives.js';
 
 export function openSheet({ lane } = {}) {
   const draft = {
@@ -56,8 +57,9 @@ export function openSheet({ lane } = {}) {
     <button class="btn btn-primary btn-block" data-submit>Add task</button>
   </div>`;
   document.body.appendChild(ov);
+  const unpin = pinToViewport(ov);
   const q = (s) => ov.querySelector(s);
-  const close = () => ov.remove();
+  const close = () => { unpin(); ov.remove(); };
   ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
   q('[data-close]').addEventListener('click', close);
   q('.sheet-title').focus();

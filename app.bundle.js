@@ -1464,12 +1464,32 @@
     });
     start();
   }
+  function pinToViewport(ov) {
+    const vv = window.visualViewport;
+    if (!vv) return () => {
+    };
+    const fit = () => {
+      const shrunk = vv.height < window.innerHeight - 1;
+      ov.style.height = shrunk ? `${vv.height}px` : "";
+      ov.style.top = shrunk ? `${vv.offsetTop}px` : "";
+      if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
+    };
+    vv.addEventListener("resize", fit);
+    vv.addEventListener("scroll", fit);
+    fit();
+    return () => {
+      vv.removeEventListener("resize", fit);
+      vv.removeEventListener("scroll", fit);
+    };
+  }
   function overlay(innerHTML, { onClose } = {}) {
     const ov = document.createElement("div");
     ov.className = "overlay";
     ov.innerHTML = innerHTML;
     document.body.appendChild(ov);
+    const unpin = pinToViewport(ov);
     const close = (result) => {
+      unpin();
       ov.remove();
       document.removeEventListener("keydown", onKey);
       onClose?.(result);
@@ -1860,8 +1880,12 @@
     <button class="btn btn-primary btn-block" data-submit>Add task</button>
   </div>`;
     document.body.appendChild(ov);
+    const unpin = pinToViewport(ov);
     const q = (s) => ov.querySelector(s);
-    const close = () => ov.remove();
+    const close = () => {
+      unpin();
+      ov.remove();
+    };
     ov.addEventListener("click", (e) => {
       if (e.target === ov) close();
     });
@@ -2014,6 +2038,21 @@
       if (!r) return;
       toast(`Done · next ${fmtDateLong(r.next.due)}`, { action: { label: "Undo", onClick: () => undoRollForward(id, r.prev) } });
     }, 400);
+  }
+
+  // src/haptics.js
+  var plugin2 = () => globalThis.Capacitor?.Plugins?.Haptics;
+  function buzz(style = "MEDIUM") {
+    const h = plugin2();
+    if (typeof h?.impact === "function") {
+      Promise.resolve(h.impact({ style })).catch(() => {
+      });
+      return;
+    }
+    try {
+      navigator.vibrate?.(style === "HEAVY" ? 40 : style === "LIGHT" ? 10 : 20);
+    } catch {
+    }
   }
 
   // src/ui/settings.js
@@ -2382,14 +2421,13 @@
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
       </div>
       <div class="lane-cards">
-        ${cards.map((t) => t.done ? `
-          <div class="kcard done-card" data-id="${t.id}">
-            <input type="checkbox" aria-label="Toggle complete" class="check sm" checked data-id="${t.id}">
-            <span class="t-title">${esc(t.title)}</span>
-          </div>` : `
-          <div class="kcard" data-id="${t.id}">
-            <span class="t-title">${esc(t.title)}</span>
-            ${taskMetaHTML(t)}
+        ${cards.map((t) => `
+          <div class="kcard ${t.done ? "done-card" : ""}" data-id="${t.id}">
+            <div class="kcard-line">
+              <input type="checkbox" aria-label="Toggle complete" class="check sm" ${t.done ? "checked" : ""} data-id="${t.id}">
+              <span class="t-title">${esc(t.title)}</span>
+            </div>
+            ${t.done ? "" : taskMetaHTML(t)}
           </div>`).join("")}
         ${lane.id === "done" && S.lastAuto ? `<span class="lane-note">Moved here automatically · ${fmtTime(S.lastAuto)}</span>` : `<button class="addcard" data-lane-add="${lane.id}">+ Add card</button>`}
       </div>
@@ -2415,7 +2453,7 @@
     <div class="scroll-area">
       ${!ts.length && UI.query ? `<p class="empty">No tasks match “${esc(UI.query)}”.</p>` : ""}
       ${ts.length ? `
-      <span class="hint list-hint">Double-tap to complete · long-press to delete</span>
+      <span class="hint list-hint">Double-tap to complete · long-press or swipe left to delete</span>
       <div class="card list-card">
         ${ts.map((t) => `
         <div class="row trow ${t.done ? "done" : ""}" data-id="${t.id}">
@@ -2425,6 +2463,7 @@
             ${t.done ? "" : taskMetaHTML(t)}
           </div>
           ${t.done || UI.query ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
+          <button class="swipe-del" data-del aria-label="Delete" tabindex="-1">${icon("trash", 20)}</button>
         </div>`).join("")}
       </div>` : UI.query ? "" : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
     </div>`;
@@ -2524,15 +2563,35 @@
     app.querySelectorAll("[data-lane-add]").forEach((b) => b.addEventListener("click", () => openSheet({ lane: b.dataset.laneAdd })));
     app.querySelector("[data-editrules]")?.addEventListener("click", () => openSettings("automations"));
   }
+  var openRow = null;
+  var slideRow = (row, x) => {
+    row.style.transform = x ? `translateX(${x}px)` : "";
+  };
+  function closeOpenRow() {
+    if (!openRow) return;
+    openRow.classList.remove("open");
+    slideRow(openRow, 0);
+    openRow = null;
+  }
+  document.addEventListener("pointerdown", (e) => {
+    if (openRow && !openRow.contains(e.target)) closeOpenRow();
+  });
   function bindRowGestures(el, task) {
     let clickTimer = null, lpTimer = null, lpFired = false, sx = 0, sy = 0;
+    const del = el.querySelector(".swipe-del");
+    const openWidth = () => del?.offsetWidth || 0;
+    let pressed = false, swiping = false, startX = 0;
     el.addEventListener("click", (e) => {
-      if (e.target.closest(".check,.grip") || el.dataset.dragged) {
+      if (e.target.closest(".check,.grip,.swipe-del") || el.dataset.dragged) {
         delete el.dataset.dragged;
         return;
       }
       if (lpFired) {
         lpFired = false;
+        return;
+      }
+      if (openRow === el) {
+        closeOpenRow();
         return;
       }
       if (clickTimer) {
@@ -2546,13 +2605,23 @@
         }, 260);
       }
     });
+    del?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      buzz("MEDIUM");
+      closeOpenRow();
+      deleteWithUndo(task.id);
+    });
     el.addEventListener("pointerdown", (e) => {
-      if (e.target.closest(".check,.grip")) return;
+      if (e.target.closest(".check,.grip,.swipe-del")) return;
       sx = e.clientX;
       sy = e.clientY;
+      pressed = true;
+      swiping = false;
+      startX = openRow === el ? -openWidth() : 0;
       lpTimer = setTimeout(() => {
         lpTimer = null;
         lpFired = true;
+        buzz("MEDIUM");
         deleteWithUndo(task.id);
       }, 550);
     });
@@ -2562,10 +2631,43 @@
         lpTimer = null;
       }
     };
-    el.addEventListener("pointerup", cancelLp);
-    el.addEventListener("pointercancel", cancelLp);
+    const endSwipe = (e) => {
+      cancelLp();
+      pressed = false;
+      if (!swiping) return;
+      swiping = false;
+      el.classList.remove("swiping");
+      el.dataset.dragged = "1";
+      const w = openWidth();
+      const x = Math.max(-w, Math.min(0, startX + e.clientX - sx));
+      if (w && x < -w / 2) {
+        if (openRow && openRow !== el) closeOpenRow();
+        openRow = el;
+        el.classList.add("open");
+        slideRow(el, -w);
+      } else if (openRow === el) closeOpenRow();
+      else slideRow(el, 0);
+    };
+    el.addEventListener("pointerup", endSwipe);
+    el.addEventListener("pointercancel", endSwipe);
     el.addEventListener("pointermove", (e) => {
-      if (lpTimer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) cancelLp();
+      if (!pressed) return;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (!swiping) {
+        if (lpTimer && Math.hypot(dx, dy) > 10) cancelLp();
+        if (del && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          swiping = true;
+          cancelLp();
+          try {
+            el.setPointerCapture(e.pointerId);
+          } catch {
+          }
+          el.classList.add("swiping");
+        }
+        if (!swiping) return;
+      }
+      const w = openWidth();
+      slideRow(el, Math.max(-w, Math.min(0, startX + dx)));
     });
   }
   function openDetail(id) {

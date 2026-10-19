@@ -1,6 +1,7 @@
 /* One board: list rows (mobile) / table (desktop), kanban, shared partials,
-   row and card gestures. Gestures: double-tap complete, long-press delete,
-   drag to reorder (manual sort), hold-and-drag kanban cards between lanes. */
+   row and card gestures. Gestures: double-tap complete, long-press or
+   swipe-left delete, drag to reorder (manual sort), hold-and-drag kanban
+   cards between lanes. */
 
 import {
   S, UI, LANES, priorityById,
@@ -12,6 +13,7 @@ import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import { openSheet } from './addsheet.js';
 import { deleteWithUndo, completeTask } from './actions.js';
+import { buzz } from '../haptics.js';
 import { openSettings } from './settings.js';
 import { filterTasks } from '../search.js';
 import { queryFor, searchToggleHTML, searchFieldHTML, bindSearch } from './search.js';
@@ -84,14 +86,13 @@ export function kanbanHTML({ desktop = false } = {}) {
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
       </div>
       <div class="lane-cards">
-        ${cards.map((t) => t.done ? `
-          <div class="kcard done-card" data-id="${t.id}">
-            <input type="checkbox" aria-label="Toggle complete" class="check sm" checked data-id="${t.id}">
-            <span class="t-title">${esc(t.title)}</span>
-          </div>` : `
-          <div class="kcard" data-id="${t.id}">
-            <span class="t-title">${esc(t.title)}</span>
-            ${taskMetaHTML(t)}
+        ${cards.map((t) => `
+          <div class="kcard ${t.done ? 'done-card' : ''}" data-id="${t.id}">
+            <div class="kcard-line">
+              <input type="checkbox" aria-label="Toggle complete" class="check sm" ${t.done ? 'checked' : ''} data-id="${t.id}">
+              <span class="t-title">${esc(t.title)}</span>
+            </div>
+            ${t.done ? '' : taskMetaHTML(t)}
           </div>`).join('')}
         ${lane.id === 'done' && S.lastAuto
           ? `<span class="lane-note">Moved here automatically · ${fmtTime(S.lastAuto)}</span>`
@@ -123,7 +124,7 @@ export function mobileListHTML() {
     <div class="scroll-area">
       ${!ts.length && UI.query ? `<p class="empty">No tasks match “${esc(UI.query)}”.</p>` : ''}
       ${ts.length ? `
-      <span class="hint list-hint">Double-tap to complete · long-press to delete</span>
+      <span class="hint list-hint">Double-tap to complete · long-press or swipe left to delete</span>
       <div class="card list-card">
         ${ts.map((t) => `
         <div class="row trow ${t.done ? 'done' : ''}" data-id="${t.id}">
@@ -133,6 +134,7 @@ export function mobileListHTML() {
             ${t.done ? '' : taskMetaHTML(t)}
           </div>
           ${t.done || UI.query ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
+          <button class="swipe-del" data-del aria-label="Delete" tabindex="-1">${icon('trash', 20)}</button>
         </div>`).join('')}
       </div>`
       : UI.query ? '' : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
@@ -245,12 +247,31 @@ export function bindKanban() {
 
 /* ── Gestures ────────────────────────────────────────────────────────── */
 
-/* single tap → detail, double tap → complete, long-press → delete (soft, with Undo) */
+/* The one list row currently slid open to show its Delete button. */
+let openRow = null;
+const slideRow = (row, x) => { row.style.transform = x ? `translateX(${x}px)` : ''; };
+function closeOpenRow() {
+  if (!openRow) return;
+  openRow.classList.remove('open');
+  slideRow(openRow, 0);
+  openRow = null;
+}
+document.addEventListener('pointerdown', (e) => {
+  if (openRow && !openRow.contains(e.target)) closeOpenRow();
+});
+
+/* single tap → detail, double tap → complete, long-press → delete (soft, with
+   Undo, with a haptic tick), swipe left → reveal a Delete button */
 export function bindRowGestures(el, task) {
   let clickTimer = null, lpTimer = null, lpFired = false, sx = 0, sy = 0;
+  const del = el.querySelector('.swipe-del');
+  const openWidth = () => del?.offsetWidth || 0; // the button starts at the card's edge; slide it fully in
+  let pressed = false, swiping = false, startX = 0; // pressed: the pointer went down on the row itself
+
   el.addEventListener('click', (e) => {
-    if (e.target.closest('.check,.grip') || el.dataset.dragged) { delete el.dataset.dragged; return; }
+    if (e.target.closest('.check,.grip,.swipe-del') || el.dataset.dragged) { delete el.dataset.dragged; return; }
     if (lpFired) { lpFired = false; return; }
+    if (openRow === el) { closeOpenRow(); return; }
     if (clickTimer) {
       clearTimeout(clickTimer); clickTimer = null;
       completeTask(task.id, el);
@@ -258,19 +279,56 @@ export function bindRowGestures(el, task) {
       clickTimer = setTimeout(() => { clickTimer = null; openDetail(task.id); }, 260);
     }
   });
+  del?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    buzz('MEDIUM');
+    closeOpenRow();
+    deleteWithUndo(task.id);
+  });
   el.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.check,.grip')) return;
+    if (e.target.closest('.check,.grip,.swipe-del')) return;
     sx = e.clientX; sy = e.clientY;
+    pressed = true; swiping = false; startX = openRow === el ? -openWidth() : 0;
     lpTimer = setTimeout(() => {
       lpTimer = null; lpFired = true;
+      buzz('MEDIUM');
       deleteWithUndo(task.id);
     }, 550);
   });
   const cancelLp = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
-  el.addEventListener('pointerup', cancelLp);
-  el.addEventListener('pointercancel', cancelLp);
+  const endSwipe = (e) => {
+    cancelLp();
+    pressed = false;
+    if (!swiping) return;
+    swiping = false;
+    el.classList.remove('swiping');
+    el.dataset.dragged = '1'; // the click that follows is not a tap
+    const w = openWidth();
+    const x = Math.max(-w, Math.min(0, startX + e.clientX - sx));
+    if (w && x < -w / 2) {
+      if (openRow && openRow !== el) closeOpenRow();
+      openRow = el; el.classList.add('open'); slideRow(el, -w);
+    } else if (openRow === el) closeOpenRow();
+    else slideRow(el, 0);
+  };
+  el.addEventListener('pointerup', endSwipe);
+  el.addEventListener('pointercancel', endSwipe);
   el.addEventListener('pointermove', (e) => {
-    if (lpTimer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) cancelLp();
+    if (!pressed) return; // a grip drag or checkbox press bubbling through
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (!swiping) {
+      if (lpTimer && Math.hypot(dx, dy) > 10) cancelLp();
+      /* a clearly horizontal pull on a row that can be deleted starts the swipe */
+      if (del && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        swiping = true;
+        cancelLp();
+        try { el.setPointerCapture(e.pointerId); } catch {}
+        el.classList.add('swiping');
+      }
+      if (!swiping) return;
+    }
+    const w = openWidth();
+    slideRow(el, Math.max(-w, Math.min(0, startX + dx)));
   });
 }
 

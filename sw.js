@@ -1,6 +1,6 @@
 /* Stack'd service worker — offline-first app shell.
    Bump VERSION whenever app files change so installed clients pick them up. */
-const VERSION = 'stackd-v1.4.0';
+const VERSION = 'stackd-v1.4.1';
 
 const SHELL = [
   './',
@@ -13,6 +13,7 @@ const SHELL = [
   'src/reminders.js',
   'src/notify.js',
   'src/theme.js',
+  'src/haptics.js',
   'src/richtext.js',
   'src/search.js',
   'src/ui/search.js',

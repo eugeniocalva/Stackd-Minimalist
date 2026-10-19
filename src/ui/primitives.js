@@ -39,12 +39,34 @@ export function toast(message, { action = null, ms = 5000 } = {}) {
 
 /* ── Overlay helper ──────────────────────────────────────────────────── */
 
+/** When the on-screen keyboard opens, WebKit scrolls the page to reveal the
+    focused field and drags a fixed overlay (and its sheet) up with it. Pin the
+    overlay to the visual viewport instead: it shrinks to the space above the
+    keyboard, the page stays put, and the sheet scrolls inside itself. Inside
+    the iOS app the Keyboard plugin (resize: native) shrinks the web view, so
+    the viewport never changes and this does nothing. Returns a cleanup. */
+export function pinToViewport(ov) {
+  const vv = window.visualViewport;
+  if (!vv) return () => {};
+  const fit = () => {
+    const shrunk = vv.height < window.innerHeight - 1;
+    ov.style.height = shrunk ? `${vv.height}px` : '';
+    ov.style.top = shrunk ? `${vv.offsetTop}px` : '';
+    if (window.scrollY || window.scrollX) window.scrollTo(0, 0);
+  };
+  vv.addEventListener('resize', fit);
+  vv.addEventListener('scroll', fit);
+  fit();
+  return () => { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); };
+}
+
 function overlay(innerHTML, { onClose } = {}) {
   const ov = document.createElement('div');
   ov.className = 'overlay';
   ov.innerHTML = innerHTML;
   document.body.appendChild(ov);
-  const close = (result) => { ov.remove(); document.removeEventListener('keydown', onKey); onClose?.(result); };
+  const unpin = pinToViewport(ov);
+  const close = (result) => { unpin(); ov.remove(); document.removeEventListener('keydown', onKey); onClose?.(result); };
   const onKey = (e) => { if (e.key === 'Escape') close(undefined); };
   ov.addEventListener('click', (e) => { if (e.target === ov) close(undefined); });
   document.addEventListener('keydown', onKey);

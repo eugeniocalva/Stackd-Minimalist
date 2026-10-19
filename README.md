@@ -190,9 +190,10 @@ is enough; HTTPS is required for install + service worker on real devices.
     add, delete
   - *Automations:* the built-in "completed tasks move to Done" rule; custom
     rules are a placeholder for now (kanban "Edit rules" opens this section)
-- **Gestures** — double-tap / double-click completes, long-press deletes,
-  drag rows to reprioritize in manual sort, drag kanban cards between lanes
-  (hold-and-drag on touch)
+- **Gestures** — double-tap / double-click completes, long-press (with a
+  haptic tick on the phone) or swipe left deletes, the circle on a row or
+  kanban card completes, drag rows to reprioritize in manual sort, drag
+  kanban cards between lanes (hold-and-drag on touch)
 - **Persistence** — localStorage key `stackd-v2` (tasks, notes, settings).
   A `stackd-v1` store from 1.0 is migrated once on first launch and left in
   place for rollback; the old reminder presets become a due time when the
