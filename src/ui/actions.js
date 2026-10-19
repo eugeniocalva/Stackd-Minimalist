@@ -9,7 +9,7 @@ import {
 import { fmtDateLong } from '../dates.js';
 import { toast } from './primitives.js';
 
-const where = (listId, lane) => `${listById(listId).name} · ${laneName(lane)}`;
+const where = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
 const isRecurring = (t) => t.recur !== 'none' && !!t.due;
 
 export function archiveWithUndo(id) {

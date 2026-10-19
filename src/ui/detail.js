@@ -101,7 +101,7 @@ export function detailHTML() {
         </div>
         <div class="kv-row">
           <span class="kv-label">${icon('move', 16)}Move</span>
-          <button class="kv-val" data-move>${esc(list.name)} · ${laneName(t.lane)}${icon('chevronRight', 16)}</button>
+          <button class="kv-val" data-move>${esc(list.name)} · ${esc(laneName(t.listId, t.lane))}${icon('chevronRight', 16)}</button>
         </div>
         <div class="kv-row">
           <span class="kv-label">Reminder</span>
@@ -122,7 +122,7 @@ export function bindDetail() {
   app.querySelector('.detail-title-row .check').addEventListener('change', () => completeTask(t.id, app.querySelector('.detail-title-row')));
 
   /* ⋯ menu */
-  const where = (listId, lane) => `${listById(listId).name} · ${laneName(lane)}`;
+  const where = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
   const move = () => openMoveCopy({ mode: 'move', task: t, onConfirm: (listId, lane) => moveWithFeedback(t.id, listId, lane) });
   const copy = () => openMoveCopy({ mode: 'copy', task: t, onConfirm: (listId, lane) => {
     const c = copyTask(t.id, listId, lane);
@@ -221,7 +221,7 @@ export function bindDetail() {
 function readOnlyHTML(t) {
   const archived = t.status === 'archived';
   const o = t.origin || t;
-  const from = `${listById(o.listId)?.name || 'Deleted board'} · ${laneName(o.lane)}`;
+  const from = `${listById(o.listId)?.name || 'Deleted board'} · ${laneName(o.listId, o.lane)}`;
   const left = archived ? 0 : daysLeft(t.deletedAt, RETENTION_DAYS);
   const status = archived ? `Archived ${fmtRelative(t.archivedAt)}`
     : left === 0 ? 'Removed today' : `Removed in ${left} day${left === 1 ? '' : 's'}`;

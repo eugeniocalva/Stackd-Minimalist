@@ -396,12 +396,17 @@
   var LEGACY_KEY = "stackd-v1";
   var RETENTION_DAYS = 30;
   var RETENTION_MS = RETENTION_DAYS * 864e5;
-  var LANES = [
+  var DONE_LANE = "done";
+  var defaultLanes = () => [
     { id: "backlog", name: "Backlog" },
     { id: "inprogress", name: "In Progress" },
-    { id: "done", name: "Done" }
+    { id: DONE_LANE, name: "Done" }
   ];
-  var laneName = (id) => LANES.find((l) => l.id === id)?.name || id;
+  var lanesOf = (listId) => listById(listId)?.lanes || defaultLanes();
+  var laneName = (listId, laneId) => lanesOf(listId).find((l) => l.id === laneId)?.name || laneId;
+  var firstLane = (listId) => (lanesOf(listId).find((l) => l.id !== DONE_LANE) || lanesOf(listId)[0]).id;
+  var validLane = (listId, laneId) => lanesOf(listId).some((l) => l.id === laneId) ? laneId : firstLane(listId);
+  var laneTaskCount = (listId, laneId) => S.tasks.filter((t) => t.status === "active" && t.listId === listId && t.lane === laneId).length;
   var TASK_SORTS = [
     ["manual", "Manual", "Sort"],
     ["due-asc", "Due date · soonest first", "Due · soonest"],
@@ -509,6 +514,9 @@
     if (state.sort === "due") state.sort = "due-asc";
     else if (state.sort === "priority") state.sort = "priority-desc";
     else if (!TASK_SORTS.some(([v]) => v === state.sort)) state.sort = "manual";
+    state.lists.forEach((l) => {
+      l.lanes ??= defaultLanes();
+    });
     if (!isDateFormat(state.dateFormat)) state.dateFormat = defaultDateFormat();
     setDefaultDateFormat(state.dateFormat);
     return state;
@@ -611,8 +619,8 @@
       sort: "manual",
       lastAuto: null,
       lists: [
-        { id: work, name: "Work" },
-        { id: personal, name: "Personal" },
+        { id: work, name: "Work", lanes: defaultLanes() },
+        { id: personal, name: "Personal", lanes: defaultLanes() },
         { id: shopping, name: "Shopping" },
         { id: family, name: "Family" }
       ],
@@ -732,10 +740,10 @@
     }
     t.done = !t.done;
     if (t.done) {
-      t.lane = "done";
+      t.lane = DONE_LANE;
       S.lastAuto = Date.now();
     } else {
-      if (t.lane === "done") t.lane = "backlog";
+      if (t.lane === DONE_LANE) t.lane = firstLane(t.listId);
       armReminder(t);
     }
     touch(t);
@@ -753,7 +761,8 @@
   function moveToLane(id, lane) {
     const t = taskById(id);
     if (!t || !lane) return;
-    if (lane === "done" && t.recur !== "none" && t.due) {
+    lane = validLane(t.listId, lane);
+    if (lane === DONE_LANE && t.recur !== "none" && t.due) {
       rollForward(id);
       return;
     }
@@ -773,10 +782,10 @@
       dueTime: draft2.dueTime || null,
       recur: draft2.recur || "none",
       reminder: draft2.reminder ?? null,
-      lane: draft2.lane || "backlog",
-      done: draft2.lane === "done",
+      lane: validLane(draft2.listId, draft2.lane || firstLane(draft2.listId)),
       order: nextOrder()
     });
+    t.done = t.lane === DONE_LANE;
     armReminder(t);
     S.tasks.push(t);
     commit();
@@ -1013,7 +1022,8 @@
   function moveTask(id, listId, lane) {
     const t = taskById(id);
     if (!t || !listById(listId)) return;
-    if (lane === "done" && t.recur !== "none" && t.due) lane = t.lane;
+    lane = validLane(listId, lane);
+    if (lane === DONE_LANE && t.recur !== "none" && t.due) lane = validLane(listId, t.lane);
     if (t.listId === listId && t.lane === lane) return;
     const wasDone = t.done;
     t.listId = listId;
@@ -1028,9 +1038,10 @@
   function copyTask(id, listId, lane) {
     const t = taskById(id);
     if (!t || !listById(listId)) return null;
+    lane = validLane(listId, lane);
     const copy = blankTask(listId, t.title, {
       lane,
-      done: lane === "done",
+      done: lane === DONE_LANE,
       order: nextOrder(),
       priority: t.priority,
       tags: [...t.tags],
@@ -1049,11 +1060,53 @@
   function newList() {
     const name = prompt("New board name");
     if (!name || !name.trim()) return;
-    const list = { id: uid(), name: name.trim() };
+    const list = { id: uid(), name: name.trim(), lanes: defaultLanes() };
     S.lists.push(list);
     S.currentList = list.id;
     UI.screen = "list";
     commit();
+  }
+  function addLane(listId, name) {
+    const list = listById(listId);
+    const n = (name || "").trim();
+    if (!list || !n) return null;
+    const lane = { id: uid(), name: n };
+    const i = list.lanes.findIndex((l) => l.id === DONE_LANE);
+    list.lanes.splice(i === -1 ? list.lanes.length : i, 0, lane);
+    commit();
+    return lane;
+  }
+  function renameLane(listId, laneId, name) {
+    const lane = listById(listId)?.lanes.find((l) => l.id === laneId);
+    const n = (name || "").trim();
+    if (!lane || !n || lane.name === n) return;
+    lane.name = n;
+    commit();
+  }
+  function moveLane(listId, laneId, dir) {
+    const lanes = listById(listId)?.lanes;
+    if (!lanes) return;
+    const i = lanes.findIndex((l) => l.id === laneId), j = i + dir;
+    if (i === -1 || j < 0 || j >= lanes.length) return;
+    [lanes[i], lanes[j]] = [lanes[j], lanes[i]];
+    commit();
+  }
+  var canDeleteLane = (listId, laneId) => laneId !== DONE_LANE && lanesOf(listId).filter((l) => l.id !== DONE_LANE && l.id !== laneId).length > 0;
+  function deleteLane(listId, laneId) {
+    const list = listById(listId);
+    if (!list || !canDeleteLane(listId, laneId)) return null;
+    list.lanes = list.lanes.filter((l) => l.id !== laneId);
+    const to = firstLane(listId);
+    let moved = 0;
+    S.tasks.forEach((t) => {
+      if (t.listId === listId && t.lane === laneId) {
+        t.lane = to;
+        if (t.status === "active") moved += 1;
+      }
+      if (t.origin?.listId === listId && t.origin.lane === laneId) t.origin.lane = to;
+    });
+    commit();
+    return moved;
   }
   function setTheme(theme) {
     if (!THEMES.includes(theme) || S.theme === theme) return;
@@ -1165,9 +1218,9 @@
     const o = t.origin || { listId: t.listId, lane: t.lane, order: t.order };
     const fellBack = !listById(o.listId);
     t.listId = fellBack ? S.lists[0].id : o.listId;
-    t.lane = fellBack ? "backlog" : o.lane;
+    t.lane = fellBack ? firstLane(t.listId) : validLane(t.listId, o.lane);
     t.order = keepPosition ? o.order : nextOrder();
-    t.done = t.lane === "done";
+    t.done = t.lane === DONE_LANE;
     t.status = "active";
     t.archivedAt = null;
     t.deletedAt = null;
@@ -1531,6 +1584,28 @@
       ov.querySelector("[data-cancel]").addEventListener("click", () => close(false));
       ov.querySelector("[data-ok]").addEventListener("click", () => close(true));
       ov.querySelector("[data-ok]").focus();
+    });
+  }
+  function promptDialog(title, { value = "", placeholder = "", confirmLabel = "Save" } = {}) {
+    return new Promise((resolve) => {
+      const { ov, close } = overlay(`
+      <div class="sheet dialog" role="dialog" aria-labelledby="dlg-title">
+        <h2 id="dlg-title">${esc(title)}</h2>
+        <input class="input" data-field value="${esc(value)}" placeholder="${esc(placeholder)}" aria-label="${esc(title)}" autocomplete="off">
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" data-cancel>Cancel</button>
+          <button class="btn btn-primary" data-ok>${esc(confirmLabel)}</button>
+        </div>
+      </div>`, { onClose: (r) => resolve(typeof r === "string" && r.trim() ? r.trim() : null) });
+      const input = ov.querySelector("[data-field]");
+      const ok = () => close(input.value);
+      ov.querySelector("[data-cancel]").addEventListener("click", () => close(null));
+      ov.querySelector("[data-ok]").addEventListener("click", ok);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") ok();
+      });
+      input.focus();
+      input.select();
     });
   }
   var itemHTML = (it, i) => it.divider ? '<div class="menu-divider"></div>' : `<button class="menu-item ${it.danger ? "danger" : ""}" data-i="${i}" role="menuitemradio" aria-checked="${!!it.checked}">${it.icon ? icon(it.icon) : ""}${it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ""}${it.swatch === "none" ? '<span class="swatch swatch-none"></span>' : ""}<span>${esc(it.label)}</span>${it.checked ? `<span class="menu-check">${icon("check")}</span>` : ""}</button>`;
@@ -2014,7 +2089,7 @@
   }
 
   // src/ui/actions.js
-  var where = (listId, lane) => `${listById(listId).name} · ${laneName(lane)}`;
+  var where = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
   var isRecurring = (t) => t.recur !== "none" && !!t.due;
   function archiveWithUndo(id) {
     archiveTask(id);
@@ -2445,15 +2520,16 @@
     boardKey();
     const all = sortedTasks(S.currentList);
     const ts = filterTasks(all, UI.query);
-    const lanes = LANES.map((lane) => {
+    const lanes = lanesOf(S.currentList).map((lane) => {
       const cards = ts.filter((t) => t.lane === lane.id);
       const inLane = all.filter((t) => t.lane === lane.id).length;
-      const headCls = lane.id === "inprogress" ? "active" : lane.id === "done" ? "muted" : "";
+      const headCls = lane.id === "inprogress" ? "active" : lane.id === DONE_LANE ? "muted" : "";
       return `
     <div class="lane" data-lane="${lane.id}">
       <div class="lane-head ${headCls}">
-        <span class="lane-name">${lane.name}</span>
+        <span class="lane-name">${esc(lane.name)}</span>
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
+        <button class="lane-menu" data-lane-menu="${lane.id}" aria-label="${esc(lane.name)} lane options" aria-haspopup="menu">${icon("more", 16)}</button>
       </div>
       <div class="lane-cards">
         ${cards.map((t) => `
@@ -2465,18 +2541,20 @@
             </div>
             ${t.done ? "" : taskMetaHTML(t)}
           </div>`).join("")}
-        ${lane.id === "done" && S.lastAuto ? `<span class="lane-note">Moved here automatically · ${fmtTime(S.lastAuto)}</span>` : `<button class="addcard" data-lane-add="${lane.id}">+ Add card</button>`}
+        ${lane.id === DONE_LANE && S.lastAuto ? `<span class="lane-note">Moved here automatically · ${fmtTime(S.lastAuto)}</span>` : `<button class="addcard" data-lane-add="${lane.id}">+ Add card</button>`}
       </div>
     </div>`;
     }).join("");
     return `
   <div class="autoline">
     <span class="dot"></span>
-    <span class="txt">Automation${desktop ? ":" : " on —"} ${desktop ? "marking a task complete moves its card" : "completed tasks move"} to <strong>Done</strong></span>
+    <span class="txt">Automation${desktop ? ":" : " on —"} ${desktop ? "marking a task complete moves its card" : "completed tasks move"} to <strong>${esc(laneName(S.currentList, DONE_LANE))}</strong></span>
     ${desktop ? '<button class="edit" data-editrules>Edit rules</button>' : ""}
   </div>
   ${desktop ? "" : '<span class="hint board-hint">Swipe for more lanes · hold a card to move it</span>'}
-  <div class="board ${desktop ? "cols3" : ""}">${lanes}</div>`;
+  <div class="board ${desktop ? "cols3" : ""}">${lanes}
+    <button class="lane-add" data-lane-new>${icon("plus", 18)}<span>Add lane</span></button>
+  </div>`;
   }
   function mobileListHTML() {
     boardKey();
@@ -2608,7 +2686,43 @@
       });
     });
     app.querySelectorAll("[data-lane-add]").forEach((b) => b.addEventListener("click", () => openSheet({ lane: b.dataset.laneAdd })));
+    app.querySelectorAll("[data-lane-menu]").forEach((b) => b.addEventListener("click", (e) => openLaneMenu(e.currentTarget, b.dataset.laneMenu)));
+    app.querySelector("[data-lane-new]")?.addEventListener("click", async () => {
+      const name = await promptDialog("New lane", { placeholder: "Lane name", confirmLabel: "Add" });
+      if (name) addLane(S.currentList, name);
+    });
     app.querySelector("[data-editrules]")?.addEventListener("click", () => openSettings("automations"));
+  }
+  function openLaneMenu(anchor, laneId) {
+    const listId = S.currentList;
+    const lanes = lanesOf(listId), i = lanes.findIndex((l) => l.id === laneId), lane = lanes[i];
+    if (!lane) return;
+    const items = [{
+      label: "Rename",
+      icon: "text",
+      onClick: async () => {
+        const name = await promptDialog("Rename lane", { value: lane.name, confirmLabel: "Rename" });
+        if (name) renameLane(listId, laneId, name);
+      }
+    }];
+    if (i > 0) items.push({ label: "Move left", icon: "chevronLeft", onClick: () => moveLane(listId, laneId, -1) });
+    if (i < lanes.length - 1) items.push({ label: "Move right", icon: "chevronRight", onClick: () => moveLane(listId, laneId, 1) });
+    if (canDeleteLane(listId, laneId)) {
+      items.push({ divider: true }, {
+        label: "Delete lane",
+        icon: "trash",
+        danger: true,
+        onClick: async () => {
+          const n = laneTaskCount(listId, laneId);
+          const to = lanes.find((l) => l.id !== laneId && l.id !== DONE_LANE)?.name;
+          const body = n ? `${n} task${n === 1 ? "" : "s"} in ${lane.name} will move to ${to}.` : `${lane.name} is empty.`;
+          if (!await confirmDialog(`Delete ${lane.name}?`, body, { confirmLabel: "Delete", danger: true })) return;
+          deleteLane(listId, laneId);
+          toast(n ? `Lane deleted · ${n} moved to ${to}` : "Lane deleted");
+        }
+      });
+    }
+    openMenu(anchor, items);
   }
   var openRow = null;
   var slideRow = (row, x) => {
@@ -2882,9 +2996,7 @@
     </div>
     <div class="chip-group">
       <span class="microlabel">Lane</span>
-      <div class="chip-row" data-lane>
-        ${LANES.map((l) => `<button class="chip ${l.id === pick.lane ? "on" : ""}" data-val="${l.id}">${l.name}</button>`).join("")}
-      </div>
+      <div class="chip-row" data-lane></div>
     </div>
     <button class="btn btn-primary btn-block" data-confirm>${isMove ? "Move" : "Copy"}</button>
   </div>`;
@@ -2906,15 +3018,21 @@
     const refresh = () => {
       if (isMove) confirmBtn.disabled = pick.listId === task.listId && pick.lane === task.lane;
     };
-    const group = (sel, key) => q(sel).addEventListener("click", (e) => {
+    const renderLanes = () => {
+      pick.lane = validLane(pick.listId, pick.lane);
+      q("[data-lane]").innerHTML = lanesOf(pick.listId).map((l) => `<button class="chip ${l.id === pick.lane ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("");
+    };
+    const group = (sel, key, after) => q(sel).addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
       if (!chip) return;
       pick[key] = chip.dataset.val;
       q(sel).querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === chip));
+      after?.();
       refresh();
     });
-    group("[data-board]", "listId");
+    group("[data-board]", "listId", renderLanes);
     group("[data-lane]", "lane");
+    renderLanes();
     refresh();
     confirmBtn.addEventListener("click", () => {
       close();
@@ -3081,7 +3199,7 @@
         </div>
         <div class="kv-row">
           <span class="kv-label">${icon("move", 16)}Move</span>
-          <button class="kv-val" data-move>${esc(list.name)} · ${laneName(t.lane)}${icon("chevronRight", 16)}</button>
+          <button class="kv-val" data-move>${esc(list.name)} · ${esc(laneName(t.listId, t.lane))}${icon("chevronRight", 16)}</button>
         </div>
         <div class="kv-row">
           <span class="kv-label">Reminder</span>
@@ -3108,7 +3226,7 @@
       rerender();
     });
     app.querySelector(".detail-title-row .check").addEventListener("change", () => completeTask(t.id, app.querySelector(".detail-title-row")));
-    const where2 = (listId, lane) => `${listById(listId).name} · ${laneName(lane)}`;
+    const where2 = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
     const move = () => openMoveCopy({ mode: "move", task: t, onConfirm: (listId, lane) => moveWithFeedback(t.id, listId, lane) });
     const copy = () => openMoveCopy({ mode: "copy", task: t, onConfirm: (listId, lane) => {
       const c = copyTask(t.id, listId, lane);
@@ -3203,7 +3321,7 @@
   function readOnlyHTML(t) {
     const archived = t.status === "archived";
     const o = t.origin || t;
-    const from = `${listById(o.listId)?.name || "Deleted board"} · ${laneName(o.lane)}`;
+    const from = `${listById(o.listId)?.name || "Deleted board"} · ${laneName(o.listId, o.lane)}`;
     const left = archived ? 0 : daysLeft(t.deletedAt, RETENTION_DAYS);
     const status = archived ? `Archived ${fmtRelative(t.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
     const note = scheduleNote(t);
@@ -3927,7 +4045,7 @@
   function originLabel(t) {
     const o = t.origin || t;
     const board = listById(o.listId)?.name || "Deleted board";
-    return `${board} · ${laneName(o.lane)}`;
+    return `${board} · ${laneName(o.listId, o.lane)}`;
   }
   function whenLabel(x, tab) {
     if (tab === "archived") return `Archived ${fmtRelative(x.archivedAt)}`;

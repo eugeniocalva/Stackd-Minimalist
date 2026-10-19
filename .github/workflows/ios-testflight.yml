@@ -60,7 +60,7 @@ jobs:
 
       # The `runner` context does not exist at job level, so the temp paths are
       # set here and exported to every later step. The version is the one the
-      # web app ships (sw.js VERSION 'stackd-v1.4.2' -> 1.4.2).
+      # web app ships (sw.js VERSION 'stackd-v1.4.3' -> 1.4.3).
       - name: Paths, version and build number
         env:
           BUILD_INPUT: ${{ inputs.build_number }}

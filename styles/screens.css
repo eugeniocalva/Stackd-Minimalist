@@ -71,7 +71,24 @@
   background: var(--bg-surface-sunken); border-radius: var(--radius-lg); padding: var(--space-3); scroll-snap-align: start;
 }
 .lane.dropover { outline: 2px dashed var(--color-accent); outline-offset: 2px; }
-.lane-head { display: flex; justify-content: space-between; align-items: center; padding: 0 var(--space-1); flex: none; }
+.lane-head { display: flex; align-items: center; gap: 6px; padding: 0 var(--space-1); flex: none; }
+.lane-head .lane-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lane-menu {
+  position: relative; width: 28px; height: 28px; margin-right: -6px; border-radius: 50%; color: var(--text-tertiary);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.lane-menu::after { content: ''; position: absolute; inset: -6px; } /* 40px touch target */
+.lane-menu:hover { background: var(--bg-surface); color: var(--text-primary); }
+.lane-menu svg { width: 16px; height: 16px; }
+/* the column after the last lane that adds one */
+.lane-add {
+  flex: none; width: min(180px, 56vw); align-self: flex-start; min-height: 56px; padding: var(--space-3);
+  display: flex; align-items: center; justify-content: center; gap: 6px; scroll-snap-align: start;
+  border: 2px dashed var(--color-border); border-radius: var(--radius-lg);
+  color: var(--text-tertiary); font-size: var(--text-sm); font-weight: 700;
+}
+.lane-add:hover { color: var(--text-primary); border-color: var(--text-tertiary); }
+.lane-add svg { width: 18px; height: 18px; }
 .lane-name { font-size: var(--text-xs); letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700; color: var(--text-secondary); }
 .lane-head.active .lane-name { color: var(--color-accent); }
 .lane-head.muted .lane-name { color: var(--text-tertiary); }
@@ -188,8 +205,9 @@
 .main > .hint { display: block; margin-top: var(--space-3); }
 .main .autoline { padding: 0; margin-bottom: var(--space-4); }
 .main .board { padding: 0; overflow: visible; flex: none; }
-.main .board.cols3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+.main .board.cols3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); }
 .main .board.cols3 .lane { width: auto; min-height: 240px; }
+.main .board.cols3 .lane-add { width: auto; min-height: 240px; }
 .main .screen { overflow: visible; }
 .main .detail-screen { max-width: 640px; width: 100%; margin: 0 auto; }
 .main .page-head { position: static; background: none; backdrop-filter: none; padding-left: 0; padding-right: 0; }

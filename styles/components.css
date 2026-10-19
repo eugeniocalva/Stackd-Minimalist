@@ -264,6 +264,7 @@
 .dialog { gap: var(--space-3); padding-top: var(--space-6); }
 .dialog h2 { font-size: var(--text-xl); font-weight: 800; }
 .dialog p { color: var(--text-secondary); font-size: var(--text-sm); }
+.dialog .input { width: 100%; }
 .dialog-actions { display: flex; gap: 10px; margin-top: var(--space-2); }
 .dialog-actions .btn { flex: 1; }
 .btn-danger { background: var(--color-danger-solid); color: var(--text-on-danger); }

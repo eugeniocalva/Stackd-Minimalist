@@ -4,9 +4,9 @@
    cards between lanes. */
 
 import {
-  S, UI, LANES, TASK_SORTS, isManualSort, priorityById,
-  listById, taskById, tasksOf, openCount, sortedTasks,
-  reorderTask, moveToLane, commit, rerender,
+  S, UI, DONE_LANE, TASK_SORTS, isManualSort, priorityById,
+  listById, taskById, tasksOf, openCount, sortedTasks, lanesOf, laneName, laneTaskCount, canDeleteLane, firstLane,
+  reorderTask, moveToLane, addLane, renameLane, moveLane, deleteLane, commit, rerender,
 } from '../store.js';
 import { fmtDue, fmtTime } from '../dates.js';
 import { esc, app } from '../util.js';
@@ -15,6 +15,7 @@ import { openSheet } from './addsheet.js';
 import { deleteWithUndo, completeTask } from './actions.js';
 import { buzz } from '../haptics.js';
 import { openSettings } from './settings.js';
+import { openMenu, confirmDialog, promptDialog, toast } from './primitives.js';
 import { filterTasks } from '../search.js';
 import { queryFor, searchToggleHTML, searchFieldHTML, bindSearch } from './search.js';
 
@@ -76,15 +77,16 @@ export function kanbanHTML({ desktop = false } = {}) {
   boardKey();
   const all = sortedTasks(S.currentList);    // the sort applies inside each lane
   const ts = filterTasks(all, UI.query);
-  const lanes = LANES.map((lane) => {
+  const lanes = lanesOf(S.currentList).map((lane) => {
     const cards = ts.filter((t) => t.lane === lane.id);
     const inLane = all.filter((t) => t.lane === lane.id).length;
-    const headCls = lane.id === 'inprogress' ? 'active' : lane.id === 'done' ? 'muted' : '';
+    const headCls = lane.id === 'inprogress' ? 'active' : lane.id === DONE_LANE ? 'muted' : '';
     return `
     <div class="lane" data-lane="${lane.id}">
       <div class="lane-head ${headCls}">
-        <span class="lane-name">${lane.name}</span>
+        <span class="lane-name">${esc(lane.name)}</span>
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
+        <button class="lane-menu" data-lane-menu="${lane.id}" aria-label="${esc(lane.name)} lane options" aria-haspopup="menu">${icon('more', 16)}</button>
       </div>
       <div class="lane-cards">
         ${cards.map((t) => `
@@ -96,7 +98,7 @@ export function kanbanHTML({ desktop = false } = {}) {
             </div>
             ${t.done ? '' : taskMetaHTML(t)}
           </div>`).join('')}
-        ${lane.id === 'done' && S.lastAuto
+        ${lane.id === DONE_LANE && S.lastAuto
           ? `<span class="lane-note">Moved here automatically · ${fmtTime(S.lastAuto)}</span>`
           : `<button class="addcard" data-lane-add="${lane.id}">+ Add card</button>`}
       </div>
@@ -105,11 +107,13 @@ export function kanbanHTML({ desktop = false } = {}) {
   return `
   <div class="autoline">
     <span class="dot"></span>
-    <span class="txt">Automation${desktop ? ':' : ' on —'} ${desktop ? 'marking a task complete moves its card' : 'completed tasks move'} to <strong>Done</strong></span>
+    <span class="txt">Automation${desktop ? ':' : ' on —'} ${desktop ? 'marking a task complete moves its card' : 'completed tasks move'} to <strong>${esc(laneName(S.currentList, DONE_LANE))}</strong></span>
     ${desktop ? '<button class="edit" data-editrules>Edit rules</button>' : ''}
   </div>
   ${desktop ? '' : '<span class="hint board-hint">Swipe for more lanes · hold a card to move it</span>'}
-  <div class="board ${desktop ? 'cols3' : ''}">${lanes}</div>`;
+  <div class="board ${desktop ? 'cols3' : ''}">${lanes}
+    <button class="lane-add" data-lane-new>${icon('plus', 18)}<span>Add lane</span></button>
+  </div>`;
 }
 
 /* — mobile: board screen — */
@@ -253,7 +257,44 @@ export function bindKanban() {
   });
   app.querySelectorAll('[data-lane-add]').forEach((b) =>
     b.addEventListener('click', () => openSheet({ lane: b.dataset.laneAdd })));
+  app.querySelectorAll('[data-lane-menu]').forEach((b) =>
+    b.addEventListener('click', (e) => openLaneMenu(e.currentTarget, b.dataset.laneMenu)));
+  app.querySelector('[data-lane-new]')?.addEventListener('click', async () => {
+    const name = await promptDialog('New lane', { placeholder: 'Lane name', confirmLabel: 'Add' });
+    if (name) addLane(S.currentList, name);
+  });
   app.querySelector('[data-editrules]')?.addEventListener('click', () => openSettings('automations'));
+}
+
+/* Lane header ⋯: rename, move left / right, delete (never Done, never the
+   last other lane). Deleting moves the lane's tasks to the board's first lane. */
+function openLaneMenu(anchor, laneId) {
+  const listId = S.currentList;
+  const lanes = lanesOf(listId), i = lanes.findIndex((l) => l.id === laneId), lane = lanes[i];
+  if (!lane) return;
+  const items = [{
+    label: 'Rename', icon: 'text',
+    onClick: async () => {
+      const name = await promptDialog('Rename lane', { value: lane.name, confirmLabel: 'Rename' });
+      if (name) renameLane(listId, laneId, name);
+    },
+  }];
+  if (i > 0) items.push({ label: 'Move left', icon: 'chevronLeft', onClick: () => moveLane(listId, laneId, -1) });
+  if (i < lanes.length - 1) items.push({ label: 'Move right', icon: 'chevronRight', onClick: () => moveLane(listId, laneId, 1) });
+  if (canDeleteLane(listId, laneId)) {
+    items.push({ divider: true }, {
+      label: 'Delete lane', icon: 'trash', danger: true,
+      onClick: async () => {
+        const n = laneTaskCount(listId, laneId);
+        const to = lanes.find((l) => l.id !== laneId && l.id !== DONE_LANE)?.name;
+        const body = n ? `${n} task${n === 1 ? '' : 's'} in ${lane.name} will move to ${to}.` : `${lane.name} is empty.`;
+        if (!await confirmDialog(`Delete ${lane.name}?`, body, { confirmLabel: 'Delete', danger: true })) return;
+        deleteLane(listId, laneId);
+        toast(n ? `Lane deleted · ${n} moved to ${to}` : 'Lane deleted');
+      },
+    });
+  }
+  openMenu(anchor, items);
 }
 
 /* ── Gestures ────────────────────────────────────────────────────────── */

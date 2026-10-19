@@ -16,12 +16,25 @@ const LEGACY_KEY = 'stackd-v1';
 export const RETENTION_DAYS = 30;
 const RETENTION_MS = RETENTION_DAYS * 86400000;
 
-export const LANES = [
+/* Lanes are per board (1.4.3): list.lanes = [{ id, name }], in column
+   order. The lane whose id is DONE_LANE is the board's Done lane: it can be
+   renamed and moved but not deleted, because completing a task means moving
+   it there (and the automation depends on it). Other lanes are free. */
+export const DONE_LANE = 'done';
+export const defaultLanes = () => [
   { id: 'backlog', name: 'Backlog' },
   { id: 'inprogress', name: 'In Progress' },
-  { id: 'done', name: 'Done' },
+  { id: DONE_LANE, name: 'Done' },
 ];
-export const laneName = (id) => LANES.find((l) => l.id === id)?.name || id;
+export const lanesOf = (listId) => listById(listId)?.lanes || defaultLanes();
+export const laneName = (listId, laneId) => lanesOf(listId).find((l) => l.id === laneId)?.name || laneId;
+/** Where new and reopened tasks land: the board's first lane that is not Done. */
+export const firstLane = (listId) => (lanesOf(listId).find((l) => l.id !== DONE_LANE) || lanesOf(listId)[0]).id;
+/** A lane id the board has: the given one, else its first lane. */
+export const validLane = (listId, laneId) => (lanesOf(listId).some((l) => l.id === laneId) ? laneId : firstLane(listId));
+/** Active tasks in a lane. */
+export const laneTaskCount = (listId, laneId) =>
+  S.tasks.filter((t) => t.status === 'active' && t.listId === listId && t.lane === laneId).length;
 /* Task sort: manual order, or a field with a direction. [value, menu label, button label] */
 export const TASK_SORTS = [
   ['manual', 'Manual', 'Sort'],
@@ -116,6 +129,8 @@ function withSettings(state) {
   if (state.sort === 'due') state.sort = 'due-asc';
   else if (state.sort === 'priority') state.sort = 'priority-desc';
   else if (!TASK_SORTS.some(([v]) => v === state.sort)) state.sort = 'manual';
+  /* 1.4.3: lanes per board; boards from before carry the three built-in lanes */
+  state.lists.forEach((l) => { l.lanes ??= defaultLanes(); });
   if (!isDateFormat(state.dateFormat)) state.dateFormat = defaultDateFormat();
   setDefaultDateFormat(state.dateFormat);   // every date the app writes follows it
   return state;
@@ -196,8 +211,8 @@ function seed() {
     sort: 'manual',
     lastAuto: null,
     lists: [
-      { id: work, name: 'Work' },
-      { id: personal, name: 'Personal' },
+      { id: work, name: 'Work', lanes: defaultLanes() },
+      { id: personal, name: 'Personal', lanes: defaultLanes() },
       { id: shopping, name: 'Shopping' },
       { id: family, name: 'Family' },
     ],
@@ -334,8 +349,8 @@ export function toggleDone(id) {
   const t = taskById(id); if (!t) return;
   if (!t.done && t.recur !== 'none' && t.due) { rollForward(id); return; } // recurring: never "done"
   t.done = !t.done;
-  if (t.done) { t.lane = 'done'; S.lastAuto = Date.now(); }
-  else { if (t.lane === 'done') t.lane = 'backlog'; armReminder(t); }
+  if (t.done) { t.lane = DONE_LANE; S.lastAuto = Date.now(); }
+  else { if (t.lane === DONE_LANE) t.lane = firstLane(t.listId); armReminder(t); }
   touch(t); commit();
 }
 
@@ -349,7 +364,8 @@ export function reorderTask(id, beforeId) {
 
 export function moveToLane(id, lane) {
   const t = taskById(id); if (!t || !lane) return;
-  if (lane === 'done' && t.recur !== 'none' && t.due) { rollForward(id); return; }
+  lane = validLane(t.listId, lane);
+  if (lane === DONE_LANE && t.recur !== 'none' && t.due) { rollForward(id); return; }
   const wasDone = t.done;
   t.lane = lane;
   t.done = lane === 'done';
@@ -362,8 +378,9 @@ export function addTask(draft) {
     priority: draft.priority, tags: normalizeTags(draft.tags || []),
     start: draft.start || null, due: draft.due || null, dueTime: draft.dueTime || null,
     recur: draft.recur || 'none', reminder: draft.reminder ?? null,
-    lane: draft.lane || 'backlog', done: draft.lane === 'done', order: nextOrder(),
+    lane: validLane(draft.listId, draft.lane || firstLane(draft.listId)), order: nextOrder(),
   });
+  t.done = t.lane === DONE_LANE;
   armReminder(t);
   S.tasks.push(t);
   commit();
@@ -600,7 +617,8 @@ export function undoRollForward(id, prev) {
     task never enters Done: it keeps its lane (callers roll it forward). */
 export function moveTask(id, listId, lane) {
   const t = taskById(id); if (!t || !listById(listId)) return;
-  if (lane === 'done' && t.recur !== 'none' && t.due) lane = t.lane;
+  lane = validLane(listId, lane);
+  if (lane === DONE_LANE && t.recur !== 'none' && t.due) lane = validLane(listId, t.lane);
   if (t.listId === listId && t.lane === lane) return;
   const wasDone = t.done;
   t.listId = listId; t.lane = lane; t.order = nextOrder();
@@ -614,8 +632,9 @@ export function moveTask(id, listId, lane) {
     fresh ids and timestamps. Returns the copy. */
 export function copyTask(id, listId, lane) {
   const t = taskById(id); if (!t || !listById(listId)) return null;
+  lane = validLane(listId, lane);
   const copy = blankTask(listId, t.title, {
-    lane, done: lane === 'done', order: nextOrder(),
+    lane, done: lane === DONE_LANE, order: nextOrder(),
     priority: t.priority, tags: [...t.tags],
     subtasks: t.subtasks.map((s) => ({ id: uid(), title: s.title, done: false })),
     start: t.start, due: t.due, dueTime: t.dueTime, recur: t.recur, reminder: t.reminder,
@@ -629,11 +648,61 @@ export function copyTask(id, listId, lane) {
 export function newList() {
   const name = prompt('New board name');
   if (!name || !name.trim()) return;
-  const list = { id: uid(), name: name.trim() };
+  const list = { id: uid(), name: name.trim(), lanes: defaultLanes() };
   S.lists.push(list);
   S.currentList = list.id;
   UI.screen = 'list';
   commit();
+}
+
+/* — lanes (1.4.3) — */
+
+/** A new lane goes just before Done. Returns the lane, or null for an empty name. */
+export function addLane(listId, name) {
+  const list = listById(listId); const n = (name || '').trim();
+  if (!list || !n) return null;
+  const lane = { id: uid(), name: n };
+  const i = list.lanes.findIndex((l) => l.id === DONE_LANE);
+  list.lanes.splice(i === -1 ? list.lanes.length : i, 0, lane);
+  commit();
+  return lane;
+}
+
+export function renameLane(listId, laneId, name) {
+  const lane = listById(listId)?.lanes.find((l) => l.id === laneId); const n = (name || '').trim();
+  if (!lane || !n || lane.name === n) return;
+  lane.name = n; commit();
+}
+
+/** dir -1 moves the lane one column left, +1 one right. */
+export function moveLane(listId, laneId, dir) {
+  const lanes = listById(listId)?.lanes; if (!lanes) return;
+  const i = lanes.findIndex((l) => l.id === laneId), j = i + dir;
+  if (i === -1 || j < 0 || j >= lanes.length) return;
+  [lanes[i], lanes[j]] = [lanes[j], lanes[i]];
+  commit();
+}
+
+/** Can the lane go? Never Done, never the board's last other lane. */
+export const canDeleteLane = (listId, laneId) =>
+  laneId !== DONE_LANE && lanesOf(listId).filter((l) => l.id !== DONE_LANE && l.id !== laneId).length > 0;
+
+/** Removes a lane. Its tasks of every status move to the board's first
+    lane, and so do archive / delete origins that point at it, so Restore
+    still has somewhere to go. Returns the number of active tasks moved,
+    or null when the lane cannot be deleted. */
+export function deleteLane(listId, laneId) {
+  const list = listById(listId);
+  if (!list || !canDeleteLane(listId, laneId)) return null;
+  list.lanes = list.lanes.filter((l) => l.id !== laneId);
+  const to = firstLane(listId);
+  let moved = 0;
+  S.tasks.forEach((t) => {
+    if (t.listId === listId && t.lane === laneId) { t.lane = to; if (t.status === 'active') moved += 1; }
+    if (t.origin?.listId === listId && t.origin.lane === laneId) t.origin.lane = to;
+  });
+  commit();
+  return moved;
 }
 
 /* — settings: theme, priority levels, labels — */
@@ -743,9 +812,9 @@ export function restoreTask(id, { keepPosition = false } = {}) {
   const o = t.origin || { listId: t.listId, lane: t.lane, order: t.order };
   const fellBack = !listById(o.listId);
   t.listId = fellBack ? S.lists[0].id : o.listId;
-  t.lane = fellBack ? 'backlog' : o.lane;
+  t.lane = fellBack ? firstLane(t.listId) : validLane(t.listId, o.lane);   // a deleted lane falls back too
   t.order = keepPosition ? o.order : nextOrder();
-  t.done = t.lane === 'done';
+  t.done = t.lane === DONE_LANE;
   t.status = 'active'; t.archivedAt = null; t.deletedAt = null; t.origin = null;
   armReminder(t);
   touch(t); commit();

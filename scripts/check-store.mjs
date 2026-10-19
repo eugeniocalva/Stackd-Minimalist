@@ -269,6 +269,43 @@ assert.deepEqual(store.sortedNotes('manual').map((x) => x.title), ['D', 'B', 'C'
 S.notes = [];
 store.setNotesSort('created-desc');
 
+// lanes per board (1.4.3): defaults on existing boards, add / rename / move / delete, Done protected
+const wk = store.listById('work');
+assert.deepEqual(wk.lanes.map((l) => l.id), ['backlog', 'inprogress', 'done'], 'existing boards get the built-in lanes');
+assert.equal(store.laneName('work', 'inprogress'), 'In Progress');
+assert.equal(store.validLane('work', 'nope'), 'backlog', 'an unknown lane falls back to the first');
+assert.equal(store.addLane('work', '   '), null);
+const review = store.addLane('work', ' Review ');
+assert.deepEqual(wk.lanes.map((l) => l.name), ['Backlog', 'In Progress', 'Review', 'Done'], 'a new lane goes before Done');
+store.renameLane('work', review.id, 'QA');
+assert.equal(store.laneName('work', review.id), 'QA');
+store.moveLane('work', review.id, -1);
+assert.deepEqual(wk.lanes.map((l) => l.id), ['backlog', review.id, 'inprogress', 'done']);
+store.moveLane('work', 'done', 1);
+assert.equal(wk.lanes.at(-1).id, 'done', 'moving past the end is a no-op');
+store.addTask({ listId: 'work', title: 'In QA', lane: review.id, priority: 'none', tags: [] });
+store.addTask({ listId: 'work', title: 'In QA archived', lane: review.id, priority: 'none', tags: [] });
+store.addTask({ listId: 'work', title: 'Elsewhere', lane: 'ghost', priority: 'none', tags: [] });
+assert.equal(find('Elsewhere').lane, 'backlog', 'adding into a lane the board lacks lands in the first lane');
+store.archiveTask(find('In QA archived').id);
+assert.equal(find('In QA archived').origin.lane, review.id);
+assert.equal(store.laneTaskCount('work', review.id), 1);
+assert.equal(store.deleteLane('work', 'done'), null, 'Done cannot be deleted');
+assert.equal(store.canDeleteLane('work', review.id), true);
+assert.equal(store.deleteLane('work', review.id), 1, 'one active task moved');
+assert.deepEqual(wk.lanes.map((l) => l.id), ['backlog', 'inprogress', 'done']);
+assert.equal(find('In QA').lane, 'backlog');
+assert.equal(find('In QA archived').origin.lane, 'backlog', 'origins pointing at the lane move too');
+store.restoreTask(find('In QA archived').id);
+assert.equal(find('In QA archived').lane, 'backlog');
+store.deleteLane('work', 'inprogress');
+assert.equal(store.canDeleteLane('work', 'backlog'), false, 'the last lane besides Done stays');
+assert.equal(store.deleteLane('work', 'backlog'), null);
+store.moveTask(find('In QA').id, 'work', 'inprogress');
+assert.equal(find('In QA').lane, 'backlog', 'moving to a lane the board no longer has lands in the first lane');
+wk.lanes = [{ id: 'backlog', name: 'Backlog' }, { id: 'inprogress', name: 'In Progress' }, { id: 'done', name: 'Done' }];
+S.tasks = S.tasks.filter((x) => !['In QA', 'In QA archived', 'Elsewhere'].includes(x.title));
+
 // v1 migration arms migrated reminders (fresh module instance, v1 store only)
 mem.clear();
 mem.set('stackd-v1', JSON.stringify({
@@ -283,5 +320,6 @@ const v1 = await import('../src/store.js?v1');
 assert.ok(typeof v1.S.tasks.find((x) => x.id === 'p').reminderFiredAt === 'number');
 assert.equal(v1.S.tasks.find((x) => x.id === 'f').reminderFiredAt, null);
 assert.equal(v1.S.sort, 'due-asc', 'a pre-1.4.2 field sort gains its old direction');
+assert.deepEqual(v1.S.lists[0].lanes.map((l) => l.id), ['backlog', 'inprogress', 'done'], 'a v1 board gets lanes');
 
 console.log('check-store: all assertions passed');

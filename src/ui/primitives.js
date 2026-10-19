@@ -92,6 +92,28 @@ export function confirmDialog(title, body, { confirmLabel = 'Confirm', danger = 
   });
 }
 
+/** One text field with Cancel / confirm. Resolves with the trimmed value,
+    or null when cancelled or left empty. */
+export function promptDialog(title, { value = '', placeholder = '', confirmLabel = 'Save' } = {}) {
+  return new Promise((resolve) => {
+    const { ov, close } = overlay(`
+      <div class="sheet dialog" role="dialog" aria-labelledby="dlg-title">
+        <h2 id="dlg-title">${esc(title)}</h2>
+        <input class="input" data-field value="${esc(value)}" placeholder="${esc(placeholder)}" aria-label="${esc(title)}" autocomplete="off">
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" data-cancel>Cancel</button>
+          <button class="btn btn-primary" data-ok>${esc(confirmLabel)}</button>
+        </div>
+      </div>`, { onClose: (r) => resolve(typeof r === 'string' && r.trim() ? r.trim() : null) });
+    const input = ov.querySelector('[data-field]');
+    const ok = () => close(input.value);
+    ov.querySelector('[data-cancel]').addEventListener('click', () => close(null));
+    ov.querySelector('[data-ok]').addEventListener('click', ok);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); });
+    input.focus(); input.select();
+  });
+}
+
 /* ── Context menu ────────────────────────────────────────────────────── */
 
 const itemHTML = (it, i) => it.divider

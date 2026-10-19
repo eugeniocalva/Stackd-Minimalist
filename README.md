@@ -100,7 +100,10 @@ is enough; HTTPS is required for install + service worker on real devices.
 ## Vocabulary
 
 - **Board** — Work, Personal, Shopping, Family… (the sidebar / Boards menu).
-- **Lane** — Backlog, In Progress, Done (the kanban columns of a board).
+- **Lane** — the kanban columns of a board: Backlog, In Progress, Done to
+  start with. Each board has its own; add, rename, reorder or delete them
+  from the lane's ⋯ menu on the kanban. Done stays (it is where completed
+  tasks go) and can only be renamed.
 - **Folder** — Archived and Deleted, each with a Tasks ∕ Notes switch.
 - **Note** — a title, formatted text, an optional checklist, tags and a
   colour; lives in the Notes area, not on a board.
@@ -113,9 +116,10 @@ is enough; HTTPS is required for install + service worker on real devices.
   overdue or High, amber for due within 3 days or Medium), List ∕ Kanban
   segmented control, Sort (manual, due date soonest or latest first, priority
   high or low first; the drag handle shows in manual sort only)
-- **Board, kanban** — Backlog / In Progress / Done lanes, sorted the same way
-  inside each lane; completing a task moves its card to Done (repeating tasks
-  excepted, see below). Hold a card to carry it to another lane: a copy
+- **Board, kanban** — the board's lanes, sorted the same way inside each
+  lane, plus an "Add lane" column; completing a task moves its card to Done
+  (repeating tasks excepted, see below). Deleting a lane moves its tasks to
+  the board's first lane. Hold a card to carry it to another lane: a copy
   follows the finger and the board scrolls when it nears an edge
 - **Navigation** — mobile: sticky frosted header plus a floating bottom pill
   (Boards · Tasks · Notes · Folders) and a round **+** (a new task on a

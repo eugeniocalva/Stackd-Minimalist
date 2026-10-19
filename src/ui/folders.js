@@ -29,7 +29,7 @@ export function openFolder(tab, kind) {
 function originLabel(t) {
   const o = t.origin || t;
   const board = listById(o.listId)?.name || 'Deleted board';
-  return `${board} · ${laneName(o.lane)}`;
+  return `${board} · ${laneName(o.listId, o.lane)}`;
 }
 
 function whenLabel(x, tab) {
