@@ -85,6 +85,13 @@
 .kcard.dragging { opacity: 0.35; }
 .kcard .t-title { font-size: var(--text-sm); }
 .kcard-line { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.kcard-line .t-title { flex: 1; min-width: 0; }
+.kcard-line .grip { margin: -4px -8px -4px 0; align-self: flex-start; }
+.kcard.dropover { box-shadow: inset 0 2px 0 var(--color-accent); }
+/* the copy of a card that follows the pointer while it is dragged between lanes */
+.drag-ghost { position: fixed; z-index: 500; pointer-events: none; margin: 0; opacity: 0.92; box-shadow: var(--shadow-float); rotate: 2deg; }
+.drag-ghost .grip { display: none; }
+.board.is-dragging { scroll-snap-type: none; }
 .kcard-line .check { margin-top: 1px; }
 .kcard .t-meta { padding-left: 28px; } /* chips line up with the title, past the circle */
 .kcard.done-card { opacity: 0.55; }

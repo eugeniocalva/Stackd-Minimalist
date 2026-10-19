@@ -1,7 +1,7 @@
 /* Add-task sheet. Rendered outside #app so re-renders never remove it. */
 
 import { S, addTask, allTags as tagPool } from '../store.js';
-import { daysFrom, fmtDue } from '../dates.js';
+import { daysFrom, fmtDue, RECUR_OPTIONS } from '../dates.js';
 import { openSchedule } from './schedule.js';
 import { esc } from '../util.js';
 import { icon } from './icons.js';
@@ -32,7 +32,13 @@ export function openSheet({ lane } = {}) {
       <span class="microlabel">Due</span>
       <div class="chip-row" data-due>
         ${dueOpts.map((o) => `<button class="chip" data-val="${o.value}">${o.label}</button>`).join('')}
-        <button class="chip" data-pick>Pick date…</button>
+        <button class="chip" data-pick>Other date…</button>
+      </div>
+    </div>
+    <div class="chip-group">
+      <span class="microlabel">Repeat</span>
+      <div class="chip-row" data-recur>
+        ${RECUR_OPTIONS.map(([v, l]) => `<button class="chip ${v === 'none' ? 'on' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
     </div>
     <div class="chip-group">
@@ -68,6 +74,7 @@ export function openSheet({ lane } = {}) {
     ov.querySelectorAll(`${rowSel} .chip`).forEach((c) => c.classList.remove('on'));
     chip?.classList.add('on');
   };
+  const showRecur = () => selectOne('[data-recur]', q(`[data-recur] [data-val="${draft.recur}"]`));
   q('[data-due]').addEventListener('click', (e) => {
     const chip = e.target.closest('.chip'); if (!chip) return;
     const resetSchedule = () => Object.assign(draft, { start: null, dueTime: null, recur: 'none', reminder: null });
@@ -79,18 +86,29 @@ export function openSheet({ lane } = {}) {
         onSave: (sch) => {
           Object.assign(draft, sch);
           selectOne('[data-due]', draft.due ? chip : null);
-          chip.textContent = draft.due
-            ? fmtDue(draft.due, { dueTime: draft.dueTime }).label + (draft.recur !== 'none' ? ' ↻' : '')
-            : 'Pick date…';
+          chip.textContent = draft.due ? fmtDue(draft.due, { dueTime: draft.dueTime }).label : 'Other date…';
+          showRecur();
         },
-        onRemove: () => { draft.due = null; resetSchedule(); selectOne('[data-due]', null); chip.textContent = 'Pick date…'; },
+        onRemove: () => { draft.due = null; resetSchedule(); selectOne('[data-due]', null); chip.textContent = 'Other date…'; showRecur(); },
       });
       return;
     }
+    const recur = draft.recur;           // a quick date keeps the repeat rule, clearing the date drops it
     resetSchedule();
-    pickChip.textContent = 'Pick date…';
+    pickChip.textContent = 'Other date…';
     if (chip.classList.contains('on')) { draft.due = null; selectOne('[data-due]', null); }
-    else { draft.due = chip.dataset.val; selectOne('[data-due]', chip); }
+    else { draft.due = chip.dataset.val; draft.recur = recur; selectOne('[data-due]', chip); }
+    showRecur();
+  });
+  /* Repeat needs a date to count from: picking one without a due date sets it to today */
+  q('[data-recur]').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip'); if (!chip) return;
+    draft.recur = chip.dataset.val;
+    if (draft.recur !== 'none' && !draft.due) {
+      draft.due = daysFrom(0);
+      selectOne('[data-due]', q('[data-due] .chip'));
+    }
+    showRecur();
   });
   q('[data-priority]').addEventListener('click', (e) => {
     const chip = e.target.closest('.chip'); if (!chip) return;

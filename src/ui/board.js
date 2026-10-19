@@ -4,7 +4,7 @@
    cards between lanes. */
 
 import {
-  S, UI, LANES, priorityById,
+  S, UI, LANES, TASK_SORTS, isManualSort, priorityById,
   listById, taskById, tasksOf, openCount, sortedTasks,
   reorderTask, moveToLane, commit, rerender,
 } from '../store.js';
@@ -26,7 +26,7 @@ export const boardKey = () => queryFor(`list:${S.currentList}`);
 /* — shared partials — */
 
 export function viewbarHTML() {
-  const sortLabels = { manual: 'Sort', due: 'Due date', priority: 'Priority' };
+  const short = TASK_SORTS.find(([v]) => v === S.sort)?.[2] || 'Sort';
   return `
   <div class="viewbar">
     <div class="segmented" role="tablist">
@@ -34,16 +34,17 @@ export function viewbarHTML() {
       <button class="seg ${S.view === 'kanban' ? 'active' : ''}" data-view="kanban">Kanban</button>
     </div>
     <span class="sortwrap">
-      <button class="sortbtn ${S.sort !== 'manual' ? 'on' : ''}" data-sortbtn>${icon('sort')}${esc(sortLabels[S.sort])}</button>
+      <button class="sortbtn ${isManualSort() ? '' : 'on'}" data-sortbtn aria-haspopup="menu" aria-expanded="${!!UI.sortMenu}">${icon('sort')}${esc(short)}</button>
       ${UI.sortMenu ? `
-      <div class="sortmenu">
-        <button data-sort="manual" class="${S.sort === 'manual' ? 'active' : ''}">Manual</button>
-        <button data-sort="due" class="${S.sort === 'due' ? 'active' : ''}">Due date</button>
-        <button data-sort="priority" class="${S.sort === 'priority' ? 'active' : ''}">Priority</button>
+      <div class="sortmenu" role="menu">
+        ${TASK_SORTS.map(([v, label]) => `<button role="menuitemradio" aria-checked="${S.sort === v}" data-sort="${v}" class="${S.sort === v ? 'active' : ''}">${label}</button>`).join('')}
       </div>` : ''}
     </span>
   </div>`;
 }
+
+/** Rows and cards can be dragged into a new order only in manual sort on the full board. */
+const canReorder = () => isManualSort() && !UI.query;
 
 /** Priority chip in the level's colour; '' for none or a deleted level. */
 export function priorityTagHTML(t) {
@@ -73,7 +74,7 @@ export function dueChipHTML(t, { prefix = false } = {}) {
 
 export function kanbanHTML({ desktop = false } = {}) {
   boardKey();
-  const all = tasksOf(S.currentList);
+  const all = sortedTasks(S.currentList);    // the sort applies inside each lane
   const ts = filterTasks(all, UI.query);
   const lanes = LANES.map((lane) => {
     const cards = ts.filter((t) => t.lane === lane.id);
@@ -91,6 +92,7 @@ export function kanbanHTML({ desktop = false } = {}) {
             <div class="kcard-line">
               <input type="checkbox" aria-label="Toggle complete" class="check sm" ${t.done ? 'checked' : ''} data-id="${t.id}">
               <span class="t-title">${esc(t.title)}</span>
+              ${t.done || !canReorder() ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
             </div>
             ${t.done ? '' : taskMetaHTML(t)}
           </div>`).join('')}
@@ -133,7 +135,7 @@ export function mobileListHTML() {
             <span class="t-title">${esc(t.title)}</span>
             ${t.done ? '' : taskMetaHTML(t)}
           </div>
-          ${t.done || UI.query ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
+          ${t.done || !canReorder() ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
           <button class="swipe-del" data-del aria-label="Delete" tabindex="-1">${icon('trash', 20)}</button>
         </div>`).join('')}
       </div>`
@@ -204,7 +206,7 @@ export function desktopTableHTML() {
     never while a search narrows the list. */
 export const taskReorder = (t, rowSel) => ({
   rowSel,
-  enabled: () => S.sort === 'manual' && !t.done && !UI.query,
+  enabled: () => canReorder() && !t.done,
   onDrop: (beforeId) => reorderTask(t.id, beforeId),
 });
 
@@ -239,7 +241,16 @@ export function bindChecks() {
 }
 
 export function bindKanban() {
-  app.querySelectorAll('.kcard').forEach((card) => bindCard(card, taskById(card.dataset.id)));
+  app.querySelectorAll('.kcard').forEach((card) => {
+    const t = taskById(card.dataset.id);
+    bindCard(card, t);
+    const grip = card.querySelector('.grip');
+    if (grip) bindReorder(grip, card, {
+      ...taskReorder(t, '.kcard'),
+      /* only a card in the same lane is a drop target; the board order is shared across lanes */
+      onDrop: (beforeId) => { if (taskById(beforeId)?.lane === t.lane) reorderTask(t.id, beforeId); },
+    });
+  });
   app.querySelectorAll('[data-lane-add]').forEach((b) =>
     b.addEventListener('click', () => openSheet({ lane: b.dataset.laneAdd })));
   app.querySelector('[data-editrules]')?.addEventListener('click', () => openSettings('automations'));
@@ -375,19 +386,40 @@ export function bindReorder(dragEl, rowEl, { rowSel, enabled = () => true, onDro
   if (dragEl !== rowEl) dragEl.style.touchAction = 'none';
 }
 
-/* kanban card: tap → detail; mouse-drag or touch hold-drag → move lane */
+/* kanban card: tap → detail; mouse-drag or touch hold-drag → move lane.
+   A tap is a release that barely moved; a pointer the browser cancels
+   (the lane or board started scrolling) is never a tap. While dragging, a
+   copy of the card follows the pointer and the board scrolls sideways when
+   the pointer nears its edge, so every lane can be reached. */
+const EDGE = 56;        // px from the board's edge where auto-scroll kicks in
 export function bindCard(card, task) {
   card.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.check')) return;
-    let dragging = false, overLane = null, held = false;
+    if (e.target.closest('.check,.grip')) return;
+    let dragging = false, overLane = null, held = false, ghost = null, raf = 0, scrollV = 0;
     const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
     const isTouch = e.pointerType === 'touch';
     const canDrag = !UI.query;      // a filtered board is tap-only (AC-08.2)
+    const board = card.closest('.board');
     const holdTimer = isTouch && canDrag ? setTimeout(() => { held = true; startDrag(); }, 350) : null;
+    const placeGhost = (x, y) => { if (ghost) ghost.style.transform = `translate(${x - sx}px, ${y - sy}px)`; };
     const startDrag = () => {
       dragging = true;
       try { card.setPointerCapture(pid); } catch {}
       card.classList.add('dragging');
+      board?.classList.add('is-dragging');
+      const r = card.getBoundingClientRect();
+      ghost = card.cloneNode(true);
+      ghost.className = 'kcard drag-ghost';
+      ghost.style.width = `${r.width}px`;
+      ghost.style.left = `${r.left}px`;
+      ghost.style.top = `${r.top}px`;
+      document.body.appendChild(ghost);
+      buzz('LIGHT');
+    };
+    const autoScroll = () => {
+      if (!dragging || !board) { raf = 0; return; }
+      if (scrollV) board.scrollLeft += scrollV;
+      raf = requestAnimationFrame(autoScroll);
     };
     const blockScroll = (ev) => { if (dragging) ev.preventDefault(); };
     card.addEventListener('touchmove', blockScroll, { passive: false });
@@ -395,28 +427,45 @@ export function bindCard(card, task) {
       const dist = Math.hypot(ev.clientX - sx, ev.clientY - sy);
       if (!dragging && !isTouch && dist > 8 && canDrag) startDrag();
       if (!dragging) { if (isTouch && dist > 10 && holdTimer) clearTimeout(holdTimer); return; }
+      placeGhost(ev.clientX, ev.clientY);
       const lane = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.lane');
       if (overLane && overLane !== lane) overLane.classList.remove('dropover');
       overLane = lane;
       lane?.classList.add('dropover');
+      if (board) {
+        const r = board.getBoundingClientRect();
+        scrollV = ev.clientX > r.right - EDGE ? Math.ceil((ev.clientX - (r.right - EDGE)) / 4)
+          : ev.clientX < r.left + EDGE ? -Math.ceil(((r.left + EDGE) - ev.clientX) / 4) : 0;
+        if (scrollV && !raf) raf = requestAnimationFrame(autoScroll);
+      }
     };
-    const up = () => {
+    const finish = () => {
       if (holdTimer) clearTimeout(holdTimer);
+      cancelAnimationFrame(raf); raf = 0;
       card.removeEventListener('pointermove', move);
-      card.removeEventListener('pointercancel', up);
+      card.removeEventListener('pointerup', up);
+      card.removeEventListener('pointercancel', cancel);
       card.removeEventListener('touchmove', blockScroll);
       card.classList.remove('dragging');
+      board?.classList.remove('is-dragging');
+      ghost?.remove(); ghost = null;
       overLane?.classList.remove('dropover');
+    };
+    const up = (ev) => {
+      finish();
       if (dragging && overLane && overLane.dataset.lane !== task.lane) {
         /* a recurring card dropped on Done rolls forward and snaps back */
         if (overLane.dataset.lane === 'done' && task.recur !== 'none' && task.due) { rerender(); completeTask(task.id); }
         else moveToLane(task.id, overLane.dataset.lane);
-      } else if (!dragging && !held) {
+      } else if (dragging) {
+        rerender();
+      } else if (!held && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 8) {
         openDetail(task.id);
-      } else if (dragging) rerender();
+      }
     };
+    const cancel = () => { finish(); if (dragging) rerender(); };
     card.addEventListener('pointermove', move);
-    card.addEventListener('pointerup', up, { once: true });
-    card.addEventListener('pointercancel', up);
+    card.addEventListener('pointerup', up);
+    card.addEventListener('pointercancel', cancel);
   });
 }

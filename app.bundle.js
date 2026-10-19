@@ -402,6 +402,14 @@
     { id: "done", name: "Done" }
   ];
   var laneName = (id) => LANES.find((l) => l.id === id)?.name || id;
+  var TASK_SORTS = [
+    ["manual", "Manual", "Sort"],
+    ["due-asc", "Due date · soonest first", "Due · soonest"],
+    ["due-desc", "Due date · latest first", "Due · latest"],
+    ["priority-desc", "Priority · high first", "High first"],
+    ["priority-asc", "Priority · low first", "Low first"]
+  ];
+  var isManualSort = () => S.sort === "manual";
   var PRIORITY_COLORS = ["red", "amber", "green", "blue", "violet", "gray"];
   var defaultPriorities = () => [
     { id: "high", name: "High", color: "red" },
@@ -498,6 +506,9 @@
     state.labels ??= [];
     state.notes ??= [];
     state.notesSort ??= "created-desc";
+    if (state.sort === "due") state.sort = "due-asc";
+    else if (state.sort === "priority") state.sort = "priority-desc";
+    else if (!TASK_SORTS.some(([v]) => v === state.sort)) state.sort = "manual";
     if (!isDateFormat(state.dateFormat)) state.dateFormat = defaultDateFormat();
     setDefaultDateFormat(state.dateFormat);
     return state;
@@ -686,14 +697,17 @@
       return i === -1 ? 0 : n - i;
     };
     const when = (t) => `${t.due} ${t.dueTime || "24:00"}`;
+    const [field, dir] = S.sort === "manual" ? [null, 1] : [S.sort.split("-")[0], S.sort.endsWith("asc") ? 1 : -1];
     const ts = tasksOf(listId).slice();
     ts.sort((a, b) => {
       if (a.done !== b.done) return a.done ? 1 : -1;
-      if (S.sort === "due") {
+      if (field === "due") {
         if (!!a.due !== !!b.due) return a.due ? -1 : 1;
-        if (a.due && when(a) !== when(b)) return when(a) < when(b) ? -1 : 1;
-      } else if (S.sort === "priority") {
-        if (rank(a.priority) !== rank(b.priority)) return rank(b.priority) - rank(a.priority);
+        if (a.due && when(a) !== when(b)) return (when(a) < when(b) ? -1 : 1) * dir;
+      } else if (field === "priority") {
+        const ra = rank(a.priority), rb = rank(b.priority);
+        if (!!ra !== !!rb) return ra ? -1 : 1;
+        if (ra !== rb) return (ra - rb) * dir;
       }
       return a.order - b.order;
     });
@@ -1855,7 +1869,13 @@
       <span class="microlabel">Due</span>
       <div class="chip-row" data-due>
         ${dueOpts.map((o) => `<button class="chip" data-val="${o.value}">${o.label}</button>`).join("")}
-        <button class="chip" data-pick>Pick date…</button>
+        <button class="chip" data-pick>Other date…</button>
+      </div>
+    </div>
+    <div class="chip-group">
+      <span class="microlabel">Repeat</span>
+      <div class="chip-row" data-recur>
+        ${RECUR_OPTIONS.map(([v, l]) => `<button class="chip ${v === "none" ? "on" : ""}" data-val="${v}">${l}</button>`).join("")}
       </div>
     </div>
     <div class="chip-group">
@@ -1895,6 +1915,7 @@
       ov.querySelectorAll(`${rowSel} .chip`).forEach((c) => c.classList.remove("on"));
       chip?.classList.add("on");
     };
+    const showRecur = () => selectOne("[data-recur]", q(`[data-recur] [data-val="${draft2.recur}"]`));
     q("[data-due]").addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
       if (!chip) return;
@@ -1907,26 +1928,41 @@
           onSave: (sch) => {
             Object.assign(draft2, sch);
             selectOne("[data-due]", draft2.due ? chip : null);
-            chip.textContent = draft2.due ? fmtDue(draft2.due, { dueTime: draft2.dueTime }).label + (draft2.recur !== "none" ? " ↻" : "") : "Pick date…";
+            chip.textContent = draft2.due ? fmtDue(draft2.due, { dueTime: draft2.dueTime }).label : "Other date…";
+            showRecur();
           },
           onRemove: () => {
             draft2.due = null;
             resetSchedule();
             selectOne("[data-due]", null);
-            chip.textContent = "Pick date…";
+            chip.textContent = "Other date…";
+            showRecur();
           }
         });
         return;
       }
+      const recur = draft2.recur;
       resetSchedule();
-      pickChip.textContent = "Pick date…";
+      pickChip.textContent = "Other date…";
       if (chip.classList.contains("on")) {
         draft2.due = null;
         selectOne("[data-due]", null);
       } else {
         draft2.due = chip.dataset.val;
+        draft2.recur = recur;
         selectOne("[data-due]", chip);
       }
+      showRecur();
+    });
+    q("[data-recur]").addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip");
+      if (!chip) return;
+      draft2.recur = chip.dataset.val;
+      if (draft2.recur !== "none" && !draft2.due) {
+        draft2.due = daysFrom(0);
+        selectOne("[data-due]", q("[data-due] .chip"));
+      }
+      showRecur();
     });
     q("[data-priority]").addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
@@ -2367,7 +2403,7 @@
   var visibleTasks = (listId) => filterTasks(sortedTasks(listId), UI.query);
   var boardKey = () => queryFor(`list:${S.currentList}`);
   function viewbarHTML() {
-    const sortLabels = { manual: "Sort", due: "Due date", priority: "Priority" };
+    const short = TASK_SORTS.find(([v]) => v === S.sort)?.[2] || "Sort";
     return `
   <div class="viewbar">
     <div class="segmented" role="tablist">
@@ -2375,16 +2411,15 @@
       <button class="seg ${S.view === "kanban" ? "active" : ""}" data-view="kanban">Kanban</button>
     </div>
     <span class="sortwrap">
-      <button class="sortbtn ${S.sort !== "manual" ? "on" : ""}" data-sortbtn>${icon("sort")}${esc(sortLabels[S.sort])}</button>
+      <button class="sortbtn ${isManualSort() ? "" : "on"}" data-sortbtn aria-haspopup="menu" aria-expanded="${!!UI.sortMenu}">${icon("sort")}${esc(short)}</button>
       ${UI.sortMenu ? `
-      <div class="sortmenu">
-        <button data-sort="manual" class="${S.sort === "manual" ? "active" : ""}">Manual</button>
-        <button data-sort="due" class="${S.sort === "due" ? "active" : ""}">Due date</button>
-        <button data-sort="priority" class="${S.sort === "priority" ? "active" : ""}">Priority</button>
+      <div class="sortmenu" role="menu">
+        ${TASK_SORTS.map(([v, label]) => `<button role="menuitemradio" aria-checked="${S.sort === v}" data-sort="${v}" class="${S.sort === v ? "active" : ""}">${label}</button>`).join("")}
       </div>` : ""}
     </span>
   </div>`;
   }
+  var canReorder = () => isManualSort() && !UI.query;
   function priorityTagHTML(t) {
     const p = priorityById(t.priority);
     return p ? `<span class="tag pc pc-${p.color}">${esc(p.name)}</span>` : "";
@@ -2408,7 +2443,7 @@
   }
   function kanbanHTML({ desktop = false } = {}) {
     boardKey();
-    const all = tasksOf(S.currentList);
+    const all = sortedTasks(S.currentList);
     const ts = filterTasks(all, UI.query);
     const lanes = LANES.map((lane) => {
       const cards = ts.filter((t) => t.lane === lane.id);
@@ -2426,6 +2461,7 @@
             <div class="kcard-line">
               <input type="checkbox" aria-label="Toggle complete" class="check sm" ${t.done ? "checked" : ""} data-id="${t.id}">
               <span class="t-title">${esc(t.title)}</span>
+              ${t.done || !canReorder() ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
             </div>
             ${t.done ? "" : taskMetaHTML(t)}
           </div>`).join("")}
@@ -2462,7 +2498,7 @@
             <span class="t-title">${esc(t.title)}</span>
             ${t.done ? "" : taskMetaHTML(t)}
           </div>
-          ${t.done || UI.query ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
+          ${t.done || !canReorder() ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
           <button class="swipe-del" data-del aria-label="Delete" tabindex="-1">${icon("trash", 20)}</button>
         </div>`).join("")}
       </div>` : UI.query ? "" : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
@@ -2527,7 +2563,7 @@
   }
   var taskReorder = (t, rowSel) => ({
     rowSel,
-    enabled: () => S.sort === "manual" && !t.done && !UI.query,
+    enabled: () => canReorder() && !t.done,
     onDrop: (beforeId) => reorderTask(t.id, beforeId)
   });
   function bindViewbar() {
@@ -2559,7 +2595,18 @@
     });
   }
   function bindKanban() {
-    app.querySelectorAll(".kcard").forEach((card) => bindCard(card, taskById(card.dataset.id)));
+    app.querySelectorAll(".kcard").forEach((card) => {
+      const t = taskById(card.dataset.id);
+      bindCard(card, t);
+      const grip = card.querySelector(".grip");
+      if (grip) bindReorder(grip, card, {
+        ...taskReorder(t, ".kcard"),
+        /* only a card in the same lane is a drop target; the board order is shared across lanes */
+        onDrop: (beforeId) => {
+          if (taskById(beforeId)?.lane === t.lane) reorderTask(t.id, beforeId);
+        }
+      });
+    });
     app.querySelectorAll("[data-lane-add]").forEach((b) => b.addEventListener("click", () => openSheet({ lane: b.dataset.laneAdd })));
     app.querySelector("[data-editrules]")?.addEventListener("click", () => openSettings("automations"));
   }
@@ -2714,17 +2761,22 @@
     });
     if (dragEl !== rowEl) dragEl.style.touchAction = "none";
   }
+  var EDGE = 56;
   function bindCard(card, task) {
     card.addEventListener("pointerdown", (e) => {
-      if (e.target.closest(".check")) return;
-      let dragging = false, overLane = null, held = false;
+      if (e.target.closest(".check,.grip")) return;
+      let dragging = false, overLane = null, held = false, ghost = null, raf = 0, scrollV = 0;
       const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
       const isTouch = e.pointerType === "touch";
       const canDrag = !UI.query;
+      const board = card.closest(".board");
       const holdTimer = isTouch && canDrag ? setTimeout(() => {
         held = true;
         startDrag();
       }, 350) : null;
+      const placeGhost = (x, y) => {
+        if (ghost) ghost.style.transform = `translate(${x - sx}px, ${y - sy}px)`;
+      };
       const startDrag = () => {
         dragging = true;
         try {
@@ -2732,6 +2784,23 @@
         } catch {
         }
         card.classList.add("dragging");
+        board?.classList.add("is-dragging");
+        const r = card.getBoundingClientRect();
+        ghost = card.cloneNode(true);
+        ghost.className = "kcard drag-ghost";
+        ghost.style.width = `${r.width}px`;
+        ghost.style.left = `${r.left}px`;
+        ghost.style.top = `${r.top}px`;
+        document.body.appendChild(ghost);
+        buzz("LIGHT");
+      };
+      const autoScroll = () => {
+        if (!dragging || !board) {
+          raf = 0;
+          return;
+        }
+        if (scrollV) board.scrollLeft += scrollV;
+        raf = requestAnimationFrame(autoScroll);
       };
       const blockScroll = (ev) => {
         if (dragging) ev.preventDefault();
@@ -2744,30 +2813,51 @@
           if (isTouch && dist > 10 && holdTimer) clearTimeout(holdTimer);
           return;
         }
+        placeGhost(ev.clientX, ev.clientY);
         const lane = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".lane");
         if (overLane && overLane !== lane) overLane.classList.remove("dropover");
         overLane = lane;
         lane?.classList.add("dropover");
+        if (board) {
+          const r = board.getBoundingClientRect();
+          scrollV = ev.clientX > r.right - EDGE ? Math.ceil((ev.clientX - (r.right - EDGE)) / 4) : ev.clientX < r.left + EDGE ? -Math.ceil((r.left + EDGE - ev.clientX) / 4) : 0;
+          if (scrollV && !raf) raf = requestAnimationFrame(autoScroll);
+        }
       };
-      const up = () => {
+      const finish = () => {
         if (holdTimer) clearTimeout(holdTimer);
+        cancelAnimationFrame(raf);
+        raf = 0;
         card.removeEventListener("pointermove", move);
-        card.removeEventListener("pointercancel", up);
+        card.removeEventListener("pointerup", up);
+        card.removeEventListener("pointercancel", cancel);
         card.removeEventListener("touchmove", blockScroll);
         card.classList.remove("dragging");
+        board?.classList.remove("is-dragging");
+        ghost?.remove();
+        ghost = null;
         overLane?.classList.remove("dropover");
+      };
+      const up = (ev) => {
+        finish();
         if (dragging && overLane && overLane.dataset.lane !== task.lane) {
           if (overLane.dataset.lane === "done" && task.recur !== "none" && task.due) {
             rerender();
             completeTask(task.id);
           } else moveToLane(task.id, overLane.dataset.lane);
-        } else if (!dragging && !held) {
+        } else if (dragging) {
+          rerender();
+        } else if (!held && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 8) {
           openDetail(task.id);
-        } else if (dragging) rerender();
+        }
+      };
+      const cancel = () => {
+        finish();
+        if (dragging) rerender();
       };
       card.addEventListener("pointermove", move);
-      card.addEventListener("pointerup", up, { once: true });
-      card.addEventListener("pointercancel", up);
+      card.addEventListener("pointerup", up);
+      card.addEventListener("pointercancel", cancel);
     });
   }
 
@@ -2910,7 +3000,7 @@
   function scheduleNote(t) {
     return [
       t.start ? `Starts ${fmtDateLong(t.start)}` : "",
-      t.recur !== "none" ? `Repeats ${recurLabel(t.recur).toLowerCase()}${t.completedCount ? ` · done ${t.completedCount}×` : ""}` : ""
+      t.recur !== "none" && t.completedCount ? `Completed ${t.completedCount}× so far` : ""
     ].filter(Boolean).join(" · ");
   }
   function subtasksHTML(t, { readOnly = false } = {}) {
@@ -2964,14 +3054,18 @@
       </div>
 
       <div class="card">
-        <div class="kv-row">
+        <div class="kv-row ${note ? "has-note" : ""}">
           <span class="kv-label">${icon("calendar", 16)}Due date</span>
           <span class="kv-right">
-            <button class="kv-val ${t.due ? dueTone.replace("tag-", "is-") : "placeholder"}" data-due>${t.due ? esc(fmtDateLong(t.due, t.dueTime)) : "Set date"}${t.recur !== "none" ? icon("repeat", 14) : ""}${icon("chevronDown", 16)}</button>
+            <button class="kv-val ${t.due ? dueTone.replace("tag-", "is-") : "placeholder"}" data-due>${t.due ? esc(fmtDateLong(t.due, t.dueTime)) : "Set date"}${icon("chevronDown", 16)}</button>
             ${t.due ? `<button class="kv-clear" data-due-clear aria-label="Clear dates">${icon("x", 14)}</button>` : ""}
           </span>
         </div>
         ${note ? `<div class="kv-note">${esc(note)}</div>` : ""}
+        <div class="kv-row">
+          <span class="kv-label">${icon("repeat", 16)}Repeat</span>
+          <button class="kv-val ${t.recur === "none" ? "placeholder" : ""}" data-recur aria-haspopup="menu">${esc(recurLabel(t.recur))}${icon("chevronDown", 16)}</button>
+        </div>
         <div class="kv-row kv-stack">
           <span class="kv-label">Priority</span>
           <div class="chip-row" data-priority>
@@ -3067,6 +3161,13 @@
     app.querySelector("[data-due]").addEventListener("click", schedule);
     app.querySelector("[data-reminder]").addEventListener("click", schedule);
     app.querySelector("[data-due-clear]")?.addEventListener("click", () => clearSchedule(t.id));
+    app.querySelector("[data-recur]").addEventListener("click", (e) => openMenu(e.currentTarget, RECUR_OPTIONS.map(([v, label]) => ({
+      label,
+      checked: t.recur === v,
+      onClick: () => {
+        if (v !== t.recur) setSchedule(t.id, { ...t, due: t.due || (v === "none" ? null : todayISO()), recur: v });
+      }
+    }))));
     app.querySelector("[data-priority]").addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
       if (!chip) return;
@@ -3707,7 +3808,7 @@
     "updated-desc": "Recently edited",
     "updated-asc": "Least recently edited"
   };
-  var canReorder = () => S.notesSort === "manual" && !UI.query && !UI.tagFilter;
+  var canReorder2 = () => S.notesSort === "manual" && !UI.query && !UI.tagFilter;
   function sortbarHTML() {
     return `
   <div class="viewbar notes-bar ${searchOpen() ? "searching" : ""}">
@@ -3755,8 +3856,8 @@
     </header>
     <div class="scroll-area">
       <div data-composer-host>${editorHTML(draft, { mode: "composer", expanded: UI.composer.expanded, formatOpen: UI.composer.formatOpen })}</div>
-      ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder() })).join("")}</div>` : `<p class="empty">${empty}</p>`}
-      ${notes.length > 1 && canReorder() ? '<span class="hint">Drag the handle to reorder</span>' : ""}
+      ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder2() })).join("")}</div>` : `<p class="empty">${empty}</p>`}
+      ${notes.length > 1 && canReorder2() ? '<span class="hint">Drag the handle to reorder</span>' : ""}
     </div>
   </div>`;
   }
@@ -3811,7 +3912,7 @@
         }
       });
       const grip = row.querySelector(".grip");
-      if (grip) bindReorder(grip, row, { rowSel: ".nrow", enabled: canReorder, onDrop: (beforeId) => reorderNote(id, beforeId) });
+      if (grip) bindReorder(grip, row, { rowSel: ".nrow", enabled: canReorder2, onDrop: (beforeId) => reorderNote(id, beforeId) });
     });
   }
 

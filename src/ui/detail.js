@@ -7,7 +7,7 @@ import {
   taskById, listById, setPriority, setTags, setTitle, setSchedule, clearSchedule,
   copyTask, deleteForever, commit, rerender,
 } from '../store.js';
-import { fmtDue, fmtDateLong, fmtRelative, daysLeft, recurLabel } from '../dates.js';
+import { fmtDue, fmtDateLong, fmtRelative, daysLeft, recurLabel, RECUR_OPTIONS, todayISO } from '../dates.js';
 import { esc, app, uid } from '../util.js';
 import { icon } from './icons.js';
 import { mobileListHTML, bindScrollShadow, openDetail, taskMetaHTML } from './board.js';
@@ -21,7 +21,7 @@ import { openTagPicker } from './tagpicker.js';
 function scheduleNote(t) {
   return [
     t.start ? `Starts ${fmtDateLong(t.start)}` : '',
-    t.recur !== 'none' ? `Repeats ${recurLabel(t.recur).toLowerCase()}${t.completedCount ? ` · done ${t.completedCount}×` : ''}` : '',
+    t.recur !== 'none' && t.completedCount ? `Completed ${t.completedCount}× so far` : '',
   ].filter(Boolean).join(' · ');
 }
 
@@ -74,14 +74,18 @@ export function detailHTML() {
       </div>
 
       <div class="card">
-        <div class="kv-row">
+        <div class="kv-row ${note ? 'has-note' : ''}">
           <span class="kv-label">${icon('calendar', 16)}Due date</span>
           <span class="kv-right">
-            <button class="kv-val ${t.due ? dueTone.replace('tag-', 'is-') : 'placeholder'}" data-due>${t.due ? esc(fmtDateLong(t.due, t.dueTime)) : 'Set date'}${t.recur !== 'none' ? icon('repeat', 14) : ''}${icon('chevronDown', 16)}</button>
+            <button class="kv-val ${t.due ? dueTone.replace('tag-', 'is-') : 'placeholder'}" data-due>${t.due ? esc(fmtDateLong(t.due, t.dueTime)) : 'Set date'}${icon('chevronDown', 16)}</button>
             ${t.due ? `<button class="kv-clear" data-due-clear aria-label="Clear dates">${icon('x', 14)}</button>` : ''}
           </span>
         </div>
         ${note ? `<div class="kv-note">${esc(note)}</div>` : ''}
+        <div class="kv-row">
+          <span class="kv-label">${icon('repeat', 16)}Repeat</span>
+          <button class="kv-val ${t.recur === 'none' ? 'placeholder' : ''}" data-recur aria-haspopup="menu">${esc(recurLabel(t.recur))}${icon('chevronDown', 16)}</button>
+        </div>
         <div class="kv-row kv-stack">
           <span class="kv-label">Priority</span>
           <div class="chip-row" data-priority>
@@ -169,6 +173,11 @@ export function bindDetail() {
   app.querySelector('[data-due]').addEventListener('click', schedule);
   app.querySelector('[data-reminder]').addEventListener('click', schedule);
   app.querySelector('[data-due-clear]')?.addEventListener('click', () => clearSchedule(t.id));
+  /* repeat: a direct pick; a rule on a task without a due date anchors it to today */
+  app.querySelector('[data-recur]').addEventListener('click', (e) => openMenu(e.currentTarget, RECUR_OPTIONS.map(([v, label]) => ({
+    label, checked: t.recur === v,
+    onClick: () => { if (v !== t.recur) setSchedule(t.id, { ...t, due: t.due || (v === 'none' ? null : todayISO()), recur: v }); },
+  }))));
 
   /* priority chips */
   app.querySelector('[data-priority]').addEventListener('click', (e) => {

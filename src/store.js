@@ -22,6 +22,13 @@ export const LANES = [
   { id: 'done', name: 'Done' },
 ];
 export const laneName = (id) => LANES.find((l) => l.id === id)?.name || id;
+/* Task sort: manual order, or a field with a direction. [value, menu label, button label] */
+export const TASK_SORTS = [
+  ['manual', 'Manual', 'Sort'],
+  ['due-asc', 'Due date · soonest first', 'Due · soonest'], ['due-desc', 'Due date · latest first', 'Due · latest'],
+  ['priority-desc', 'Priority · high first', 'High first'], ['priority-asc', 'Priority · low first', 'Low first'],
+];
+export const isManualSort = () => S.sort === 'manual';
 /* Priority levels are user-configurable (Settings): S.priorities, highest
    first. 'none' is implicit and always sorts last. */
 export const PRIORITY_COLORS = ['red', 'amber', 'green', 'blue', 'violet', 'gray'];
@@ -105,6 +112,10 @@ function withSettings(state) {
   /* Notes (1.4.0): no migration, just defaults */
   state.notes ??= [];
   state.notesSort ??= 'created-desc';
+  /* 1.4.2: task sorts carry a direction; the old field-only values map to their old order */
+  if (state.sort === 'due') state.sort = 'due-asc';
+  else if (state.sort === 'priority') state.sort = 'priority-desc';
+  else if (!TASK_SORTS.some(([v]) => v === state.sort)) state.sort = 'manual';
   if (!isDateFormat(state.dateFormat)) state.dateFormat = defaultDateFormat();
   setDefaultDateFormat(state.dateFormat);   // every date the app writes follows it
   return state;
@@ -291,18 +302,22 @@ export const priorityName = (id) => priorityById(id)?.name || 'None';
 export const priorityUseCount = (id) =>
   S.tasks.filter((t) => t.status !== 'deleted' && t.priority === id).length;
 
+/** Manual: by order. Field sorts: by the field in S.sort's direction, ties by order. */
 export function sortedTasks(listId) {
   const n = S.priorities.length;
   const rank = (p) => { const i = S.priorities.findIndex((x) => x.id === p); return i === -1 ? 0 : n - i; };
   const when = (t) => `${t.due} ${t.dueTime || '24:00'}`; // untimed tasks sort after timed ones that day
+  const [field, dir] = S.sort === 'manual' ? [null, 1] : [S.sort.split('-')[0], S.sort.endsWith('asc') ? 1 : -1];
   const ts = tasksOf(listId).slice();
   ts.sort((a, b) => {
     if (a.done !== b.done) return a.done ? 1 : -1; // completed sink to the bottom
-    if (S.sort === 'due') {
-      if (!!a.due !== !!b.due) return a.due ? -1 : 1;
-      if (a.due && when(a) !== when(b)) return when(a) < when(b) ? -1 : 1;
-    } else if (S.sort === 'priority') {
-      if (rank(a.priority) !== rank(b.priority)) return rank(b.priority) - rank(a.priority);
+    if (field === 'due') {
+      if (!!a.due !== !!b.due) return a.due ? -1 : 1;  // undated tasks last, whichever direction
+      if (a.due && when(a) !== when(b)) return (when(a) < when(b) ? -1 : 1) * dir;
+    } else if (field === 'priority') {
+      const ra = rank(a.priority), rb = rank(b.priority);
+      if (!!ra !== !!rb) return ra ? -1 : 1;              // no priority last, whichever direction
+      if (ra !== rb) return (ra - rb) * dir;
     }
     return a.order - b.order;
   });

@@ -111,9 +111,12 @@ is enough; HTTPS is required for install + service worker on real devices.
 - **Onboarding** — first visit only ("Simplify. Focus. Achieve.")
 - **Board, list view** — round completion circles, semantic chips (red for
   overdue or High, amber for due within 3 days or Medium), List ∕ Kanban
-  segmented control, Sort (manual / due date + time / priority)
-- **Board, kanban** — Backlog / In Progress / Done lanes; completing a task
-  moves its card to Done (repeating tasks excepted, see below)
+  segmented control, Sort (manual, due date soonest or latest first, priority
+  high or low first; the drag handle shows in manual sort only)
+- **Board, kanban** — Backlog / In Progress / Done lanes, sorted the same way
+  inside each lane; completing a task moves its card to Done (repeating tasks
+  excepted, see below). Hold a card to carry it to another lane: a copy
+  follows the finger and the board scrolls when it nears an edge
 - **Navigation** — mobile: sticky frosted header plus a floating bottom pill
   (Boards · Tasks · Notes · Folders) and a round **+** (a new task on a
   board, a new note on Notes); desktop: sidebar with Boards, Notes and
@@ -151,7 +154,9 @@ is enough; HTTPS is required for install + service worker on real devices.
 - **Dates** — a calendar dialog (Monday first, month and year arrows) for a
   start date, due date and time, **Repeat** (daily / weekly / monthly /
   yearly) and a **Reminder** offset. Keyboard: arrows, PageUp/PageDown,
-  Home/End, Enter; Tab stays inside, Esc closes
+  Home/End, Enter; Tab stays inside, Esc closes. Repeat is also a chip row
+  on the add sheet and a row on the task detail; a rule set without a due
+  date anchors to today
 - **Repeating tasks** — completing one (checkbox, double-tap, Move or drag to
   Done) does not finish it: it stays in its lane and jumps to the next date
   (month ends clamp, missed periods are skipped), subtasks reset, Undo

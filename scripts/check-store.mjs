@@ -100,13 +100,27 @@ assert.ok(typeof find('New with past reminder').reminderFiredAt === 'number');
 // settings: priority levels drive sorting; deleting one clears it from tasks
 assert.deepEqual(S.priorities.map((p) => p.id), ['high', 'medium', 'low']);
 assert.equal(S.theme, 'system');
-S.sort = 'priority';
+S.sort = 'priority-desc';
 store.addTask({ listId: 'prio', title: 'P-low', priority: 'low', tags: [] });
 store.addTask({ listId: 'prio', title: 'P-high', priority: 'high', tags: [] });
 store.addTask({ listId: 'prio', title: 'P-none', priority: 'none', tags: [] });
 store.addTask({ listId: 'prio', title: 'P-medium', priority: 'medium', tags: [] });
 const prioOrder = () => store.sortedTasks('prio').filter((x) => x.priority !== 'none').map((x) => x.priority);
 assert.deepEqual([...new Set(prioOrder())], ['high', 'medium', 'low']);
+// 1.4.2: every field sort has a direction; 'none' priority and undated tasks stay last either way
+S.sort = 'priority-asc';
+assert.deepEqual([...new Set(prioOrder())], ['low', 'medium', 'high'], 'priority · low first');
+assert.equal(store.sortedTasks('prio').at(-1).priority, 'none');
+store.addTask({ listId: 'prio', title: 'D-late', due: '2030-01-02', priority: 'none', tags: [] });
+store.addTask({ listId: 'prio', title: 'D-early', due: '2030-01-01', priority: 'none', tags: [] });
+const dueOrder = () => store.sortedTasks('prio').filter((x) => x.due).map((x) => x.title);
+S.sort = 'due-asc'; assert.deepEqual(dueOrder(), ['D-early', 'D-late']);
+assert.ok(!store.sortedTasks('prio').at(-1).due, 'undated last');
+S.sort = 'due-desc'; assert.deepEqual(dueOrder(), ['D-late', 'D-early']);
+assert.ok(!store.sortedTasks('prio').at(-1).due, 'undated still last');
+assert.deepEqual(store.TASK_SORTS.map(([v]) => v), ['manual', 'due-asc', 'due-desc', 'priority-desc', 'priority-asc']);
+S.tasks = S.tasks.filter((x) => !x.title.startsWith('D-'));
+S.sort = 'priority-desc';
 store.movePriority('low', -1); store.movePriority('low', -1);
 assert.deepEqual([...new Set(prioOrder())], ['low', 'high', 'medium']);
 store.deletePriority('low');
@@ -258,7 +272,7 @@ store.setNotesSort('created-desc');
 // v1 migration arms migrated reminders (fresh module instance, v1 store only)
 mem.clear();
 mem.set('stackd-v1', JSON.stringify({
-  onboarded: true, currentList: 'work', view: 'list', sort: 'manual', lastAuto: null,
+  onboarded: true, currentList: 'work', view: 'list', sort: 'due', lastAuto: null,
   lists: [{ id: 'work', name: 'Work' }],
   tasks: [
     { id: 'p', listId: 'work', title: 'Past noon', due: '2020-01-01', priority: 'none', tags: [], subtasks: [], done: false, lane: 'backlog', order: 0, reminder: 'Noon · 12:00 PM' },
@@ -268,5 +282,6 @@ mem.set('stackd-v1', JSON.stringify({
 const v1 = await import('../src/store.js?v1');
 assert.ok(typeof v1.S.tasks.find((x) => x.id === 'p').reminderFiredAt === 'number');
 assert.equal(v1.S.tasks.find((x) => x.id === 'f').reminderFiredAt, null);
+assert.equal(v1.S.sort, 'due-asc', 'a pre-1.4.2 field sort gains its old direction');
 
 console.log('check-store: all assertions passed');

@@ -1,6 +1,6 @@
 /* Stack'd service worker — offline-first app shell.
    Bump VERSION whenever app files change so installed clients pick them up. */
-const VERSION = 'stackd-v1.4.1';
+const VERSION = 'stackd-v1.4.2';
 
 const SHELL = [
   './',
