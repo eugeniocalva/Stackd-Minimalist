@@ -10,7 +10,7 @@ compatibility_flags = ["nodejs_compat"]
 # Create it once: `wrangler kv namespace create POOL`, then paste the id.
 [[kv_namespaces]]
 binding = "POOL"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "5db8ec1359f04d0281e126e1d0948147"
 
 [vars]
 # Origins the web app is served from; the shells send capacitor:// (iOS)
@@ -24,7 +24,7 @@ SUMMARY_MODEL = "claude-sonnet-5-5"
 STT_PROVIDER = "assemblyai"
 # Subscriber ids (Settings › Meetings & AI shows them) that get the tester
 # allowance (60 audio minutes + 10 summaries a day) without a purchase.
-TESTERS = ""
+TESTERS = "r6j0e59ndjn942d4"
 
 [observability]
 enabled = true
