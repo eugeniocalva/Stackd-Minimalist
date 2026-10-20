@@ -7,8 +7,11 @@ turns it into a transcript with speaker labels, turns the transcript into
 cards**, and sends the actions they keep to a board as tasks. Notes stay
 exactly as shipped in 1.4.0.
 
-Status: **approved 2026-10-20; in build** — Phases 14 (Android shell), 15 (Meetings area, text path), 16 (proxy and minutes), 17 (action cards), 18 (plans and purchases), 19 (recording), 20 (transcription) and 21 (docx, Should items, accessibility) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
-are in §07; the few calls the analyst made alone are in §08; the remaining
+Status: **built and QA'd on 2026-10-20 as 1.5.0 (web build)**; every
+criterion a browser can exercise passes (`docs/qa-report.md`, 1.5.0
+section); seven need the phones, the store sandboxes or a provider key and
+stay open until the owner's device run. Decisions taken are in
+§07; the few calls the analyst made alone are in §08; the remaining
 open questions are in §09; the unit economics of the paid plans are in
 §11. Companion documents: `docs/prd.md` (tasks, v2), `docs/prd-notes.md`
 (Notes, 1.4.0), `docs/architecture.md`. Target release: **1.5.0**.

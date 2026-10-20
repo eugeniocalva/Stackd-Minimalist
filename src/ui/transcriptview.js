@@ -87,7 +87,9 @@ export function bindTranscript(root, m, { readOnly = false } = {}) {
       let last = first;
       while (last + 1 < segs.length && segs[last + 1].speaker === segs[first].speaker) last += 1;
       if (last > first) m.transcript.segments.splice(first + 1, last - first);
+      const wasStale = !!m.minutes && m.transcript.updatedAt > m.minutes.transcriptUpdatedAt;
       editSegment(m.id, p.dataset.edit, text);
+      if (m.minutes && !wasStale) rerender();      // the "Transcript edited since" chip appears (AC-07.5)
     });
   });
   root.querySelectorAll('[data-speaker]').forEach((b) =>

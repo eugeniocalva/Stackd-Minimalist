@@ -263,3 +263,111 @@ In this pass:
 - The desktop header shows the search field permanently; with the sidebar,
   title, field, List ∕ Kanban control and Add button, the board header wraps
   to two lines below about 1100 px. Acceptable, noted for a later polish.
+
+
+---
+
+# QA Report: Stack'd Minimalist 1.5.0
+
+Date: 2026-10-20 · Role: QA tester (`agents/qa_tester.md`) · Build: `main`
+at the Phase 22 commit, service worker `stackd-v1.5.0`.
+
+**Verdict: 🟡 Ship with caution to TestFlight and the Play internal track;
+not yet a store release.** Every criterion of `docs/prd-meetings.md` that
+a browser can exercise passes, with one defect found and fixed during the
+pass. Seven criteria need a phone, a store sandbox or a provider key and
+are listed under "Not verified"; the release is a store release only once
+they are green.
+
+---
+
+## Scope and method
+
+- **Source of truth:** the acceptance criteria in `docs/prd-meetings.md`,
+  US-01 to US-12, plus the Should list.
+- **Environment:** local `http-server` on 8123 and the Worker running
+  locally with `wrangler dev` on 8787 (`STT_PROVIDER=stub`, no model key),
+  Chromium (Claude in-app browser) at 639 px and 1280 px, dark scheme,
+  fresh seed data plus the stores left by the phase-by-phase checks.
+- **How:** 54 scripted checks driving the real UI through the DOM
+  (clicks, synthesised pointer swipes, real input events, the paste sheet,
+  the native-style dialogs) and reading back the store and `localStorage`,
+  plus 11 more on the transcription slice after the Worker restart;
+  `npm run check` (dates, reminders, store with the meetings, recordings
+  and action-card invariants, text, transcript with a docx it builds, the
+  AI client against a fake network, precache list, bundle) and `npm test`
+  in `proxy/` (plans, pools, schema, entitlement, the request pipeline
+  with the stub model and the stub transcriber). The in-app browser
+  blocks the microphone, so recording was exercised with a synthetic WAV
+  written through `src/media.js`, and the denied-permission path was the
+  one the real `getUserMedia` call produced.
+
+## Results by story
+
+| Story | Criteria | Checks | Result |
+|---|---|---|---|
+| US-01 Reach Meetings | 01.1 – 01.5 | 4 | Pass |
+| US-02 Meeting list | 02.1 – 02.7 | 6 | Pass |
+| US-03 Meeting detail | 03.1 – 03.5 | 5 | Pass |
+| US-04 Record audio | 04.1, 04.2, 04.4 – 04.9 | 7 | Pass (synthetic clip; see Not verified for 04.3 and real capture) |
+| US-05 Transcribe | 05.1 – 05.6 | 7 | Pass against the stub provider |
+| US-06 Transcript | 06.1 – 06.7 | 9 | Pass |
+| US-07 Minutes | 07.1 – 07.5 | 6 | Pass (minutes injected: the model call needs a key; the failure path was the one exercised) |
+| US-08 Action cards | 08.1 – 08.8 | 11 | Pass |
+| US-09 Proxy and allowances | 09.1 – 09.6 | proxy tests | Pass |
+| US-10 Archive / delete / restore | 10.1 – 10.4 | 5 | Pass |
+| US-11 Settings, trust, parity | 11.1 – 11.4 | 3 | Pass (11.5 see Not verified) |
+| US-12 Plans | 12.1, 12.2, 12.5 – 12.9 | 5 | Pass on the web variant (12.3, 12.4 see Not verified) |
+| Should list | — | 3 | Pass (sort, inline edits, From meeting, Copy minutes, extra pasted shape) |
+| Task-row regression (swipe, tap, double tap) | — | 4 | Pass |
+
+## Defects found and fixed
+
+| # | Where | What | Fix |
+|---|---|---|---|
+| 1 | Transcript block | After an inline text edit the "Transcript edited since" chip did not appear until something else re-rendered the screen (the edit saves quietly). | `transcriptview.js` re-renders once after the first edit that makes the minutes stale. |
+| 2 | Summarise (Phase 16, during build) | The running state stayed on screen after a failure because the in-flight marker was cleared after the render. | `ai.js` settles the request before rendering the result. |
+| 3 | Worker (Phase 16, during build) | A missing model key leaked the SDK's internal auth message to the app. | `summarise.js` answers `misconfigured` with a fixed message; details stay in the log. |
+
+## Not verified
+
+These need what the in-app browser cannot provide. Each has its procedure.
+
+| Criterion | Needs | Procedure |
+|---|---|---|
+| AC-04.3 lock-screen recording | a TestFlight build and a Play internal build | `docs/benchmarks/background-recording.md`; fill in the table. If iOS stops the recorder, the native fallback in architecture §26. |
+| AC-04.2 / 04.4 real capture | a phone or a desktop with a microphone | Record 30 s, stop, play back; then let one run to 30:00 and see the automatic stop. |
+| AC-05.1 – 05.3 with the real provider | `ASSEMBLYAI_API_KEY` on the Worker | `proxy/benchmark/stt.mjs` on the three recordings (headset, phone on a table, two speakers overlapping), then Transcribe from the app. |
+| AC-07.1 with the real model | `ANTHROPIC_API_KEY` on the Worker | `proxy/benchmark/run.mjs` on five transcripts, rate blind, set `SUMMARY_MODEL`; then Summarise from the app. The request shape in `summarise.js` is from the API reference and has not run. |
+| AC-12.3 purchase, AC-12.4 restore | RevenueCat project, the SDK keys in `src/purchases.js`, store sandbox accounts | Buy Plus on one phone, use a summary, Restore on a second phone, upgrade to Pro, let the sandbox renewal lapse; check Settings › Plan each time. |
+| AC-11.5 shells | the two builds | Smoke the Meetings area in both shells, including the file picker and the foreground-service notification on Android. |
+| AC-02.3 row chip while a job runs | — | Seen during the Phase 16 and 20 checks (the chip renders from the persisted job); not re-counted here. |
+
+Also pending on the owner's side before the store listings: the contact
+email placeholder in `privacy.html` and `terms.html`, the RevenueCat
+public keys, and the Worker secrets (`proxy/README.md`).
+
+## Observations (not blocking)
+
+- The local Worker's KV keeps the tester's pool across runs, so a second
+  transcription in the same day showed 3480 s left rather than 3540 s.
+  Correct behaviour (the proxy is the truth); worth knowing when testing.
+- Chromium logs "Blocked call to navigator.vibrate" on synthesised clicks;
+  real taps do not trigger it.
+- Seeking past the end of a one-second clip ends playback at once, so the
+  playing highlight never shows on a clip shorter than the segment time; a
+  real recording is longer than its segments.
+- The Summarise and Transcribe buttons show "Retry" after any failure,
+  including a plan refusal when the paywall sheet was dismissed; pressing
+  it re-opens the sheet. Acceptable.
+
+## How to re-run
+
+1. `npm run check` at the root and `npm test` in `proxy/`.
+2. `npx http-server -p 8123 -c-1 .` and, in `proxy/`, `npm run dev` with a
+   `.dev.vars` that sets `APP_TOKEN=stackd-app-2026-10`, `TESTERS=<your
+   subscriber id>` and `STT_PROVIDER=stub`; in the app, Settings ›
+   Meetings & AI › Developer → `http://localhost:8787`.
+3. Walk US-01 to US-12 in `docs/prd-meetings.md` at 375 px and 1280 px,
+   light and dark; the scripted checks above are the same walk done by
+   hand.
