@@ -77,6 +77,7 @@ export function parseSRT(text) {
 
 /* Pasted shapes (AC-06.5):
      "[00:12] Name: text"  (or "(00:12) Name: text")
+     "Name (00:12): text"  (or "Name [00:12]: text")
      "Name: text"
      "Name  00:12"  on its own line, the text on the lines after it (Teams copy)
    Anything else continues the current segment; with no shape at all the
@@ -84,6 +85,8 @@ export function parseSRT(text) {
    digits-only run and is not a URL scheme. */
 const NAME = '([^:\\n\\d][^:\\n]{0,39}?)';
 const TIMED = new RegExp(`^[\\[(]\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s*[\\])]\\s*${NAME}:\\s*(.*)$`);
+/* "Name (00:12): text" and "Name [00:12]: text" (Zoom, Otter exports) */
+const NAMED_TIMED = new RegExp(`^${NAME}\\s*[\\[(]\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s*[\\])]\\s*:\\s*(.*)$`);
 const NAMED = new RegExp(`^${NAME}:\\s+(.*)$`);
 const HEADER = new RegExp(`^${NAME}\\s{2,}(\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[AP]M)?)\\s*$`, 'i');
 const isName = (s) => s && !/^(https?|mailto|tel|note|nb|ps|todo|re)$/i.test(s.trim());
@@ -98,6 +101,7 @@ export function parsePasted(text) {
     if (!line) { if (cur) cur.text += '\n'; return; }
     let m;
     if ((m = TIMED.exec(line)) && isName(m[2])) { start(m[2], parseTime(m[1]), m[3]); return; }
+    if ((m = NAMED_TIMED.exec(line)) && isName(m[1])) { start(m[1], parseTime(m[2]), m[3]); return; }
     if ((m = HEADER.exec(line)) && isName(m[1])) { start(m[1], parseTime(m[2]), ''); return; }
     if ((m = NAMED.exec(line)) && isName(m[1])) { start(m[1], null, m[2]); return; }
     if (cur) cur.text += (cur.text && !cur.text.endsWith('\n') ? ' ' : '') + line;
@@ -108,7 +112,30 @@ export function parsePasted(text) {
   return assemble(items);
 }
 
-/** By file extension: .vtt, .srt, else plain text. .docx is Phase 21. */
+/** word/document.xml → plain text: one line per paragraph, tabs and
+    breaks kept, everything else (formatting, comments, images) dropped. */
+export function parseDocxXml(xml) {
+  const s = String(xml ?? '');
+  const paragraphs = [];
+  const re = /<w:p[\s>][\s\S]*?<\/w:p>|<w:p\/>/g;
+  let m;
+  while ((m = re.exec(s))) {
+    const p = m[0];
+    const text = p
+      .replace(/<w:tab\/>/g, '\t')
+      .replace(/<w:br[^>]*\/>|<w:cr\/>/g, '\n')
+      .replace(/<w:delText[^>]*>[\s\S]*?<\/w:delText>/g, '')
+      .replace(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g, '$1')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+      .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)));
+    paragraphs.push(text);
+  }
+  return paragraphs.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** By file extension: .vtt, .srt, else plain text (a .docx caller passes
+    the text parseDocxXml() produced). */
 export function parseByName(fileName, text) {
   const ext = String(fileName ?? '').toLowerCase().split('.').pop();
   if (ext === 'vtt') return parseVTT(text);

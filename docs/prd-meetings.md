@@ -7,7 +7,7 @@ turns it into a transcript with speaker labels, turns the transcript into
 cards**, and sends the actions they keep to a board as tasks. Notes stay
 exactly as shipped in 1.4.0.
 
-Status: **approved 2026-10-20; in build** — Phases 14 (Android shell), 15 (Meetings area, text path), 16 (proxy and minutes), 17 (action cards), 18 (plans and purchases), 19 (recording) and 20 (transcription) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
+Status: **approved 2026-10-20; in build** — Phases 14 (Android shell), 15 (Meetings area, text path), 16 (proxy and minutes), 17 (action cards), 18 (plans and purchases), 19 (recording), 20 (transcription) and 21 (docx, Should items, accessibility) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
 are in §07; the few calls the analyst made alone are in §08; the remaining
 open questions are in §09; the unit economics of the paid plans are in
 §11. Companion documents: `docs/prd.md` (tasks, v2), `docs/prd-notes.md`
@@ -291,7 +291,7 @@ what.*
       Lines shaped "Name: text", "[00:12] Name: text" or "Name  00:12"
       are split into segments with that speaker; anything else becomes one
       segment labelled "Transcript" with no times.
-- [ ] AC-06.6 *(txt / vtt / srt done in Phase 15; docx in Phase 21)* **Attached file** (AC-03.2): the system file picker limited
+- [x] AC-06.6 **Attached file** (AC-03.2): the system file picker limited
       to `.txt`, `.vtt`, `.srt`, `.docx`. `.vtt` and `.srt` keep their
       timestamps and, when present (Teams' `<v Name>` cues), the speaker
       names. `.txt` and `.docx` are treated as pasted text (AC-06.5). The
@@ -424,11 +424,11 @@ each plan can cost me.*
       the **Plan** section right above it (US-12).
 - [x] AC-11.2 AI output is always labelled (AC-07.3) and never replaces
       user text without a confirm (AC-06.7, AC-04.9).
-- [ ] AC-11.3 Everything uses the Finance tokens; new icons in `icons.js`:
+- [x] AC-11.3 Everything uses the Finance tokens; new icons in `icons.js`:
       `mic`, `stop`, `play`, `pause`, `document`, `sparkle`, `board`
       (reuse), `attach`, `clipboard`, `meeting`. The level line uses the
       accent colour and respects `prefers-reduced-motion` (static bars).
-- [ ] AC-11.4 Screen readers: the mic / stop button announces its state
+- [x] AC-11.4 Screen readers: the mic / stop button announces its state
       and the elapsed time every 30 s while recording; the transcript is a
       list of segments with the speaker in each item's label; action cards
       are list items whose swipe actions are also reachable as buttons.
@@ -509,10 +509,10 @@ US-05 (AC 1–6) · US-06 (AC 1–3, 5–7) · US-07 (AC 1–3, 5) · US-08 (AC
 1–7) · US-09 (AC 1–6) · US-10 (AC 1–4) · US-11 (AC 1–5) · US-12 (AC 1–9).
 
 ### Should have
-AC-02.5 sort control · AC-06.4 edit transcript text · AC-07.4 edit minutes
-· AC-08.8 "From meeting" line on the task · pasted-text speaker detection
-beyond the three line shapes · a "Copy minutes" button that puts the
-minutes on the clipboard as plain text.
+All shipped: AC-02.5 sort control · AC-06.4 edit transcript text · AC-07.4
+edit minutes · AC-08.8 "From meeting" line on the task · pasted-text
+speaker detection beyond the three line shapes ("Name (00:12): …") · a
+"Copy minutes" button that puts the minutes on the clipboard as plain text.
 
 ### Could have
 - **Share / export** the minutes and actions as a text file or via the

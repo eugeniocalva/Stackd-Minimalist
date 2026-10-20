@@ -1,8 +1,8 @@
 /* Transcript block (PRD-meetings US-06): the segments with their speaker
    label and time, merged when one speaker continues, collapsed past the
    first lines behind "Show all", with a tap on a label to rename that
-   speaker everywhere in the meeting. Tap-to-seek and inline text edits come
-   with the recording and transcription phases (19–20). */
+   speaker everywhere in the meeting, a tap on a time to play from there
+   (the playing segment highlights) and inline text edits. */
 
 import { UI, renameSpeaker, editSegment, rerender } from '../store.js';
 import { seekTo, onPlayerTime } from './recorder.js';
@@ -38,7 +38,7 @@ export function transcriptHTML(m, { readOnly = false } = {}) {
     </div>
     <div class="card tsegs ${collapsed ? 'collapsed' : ''}" role="list" data-segs>
       ${merged.map((s) => `
-      <div class="tseg" role="listitem" data-seg="${s.id}">
+      <div class="tseg" role="listitem" data-seg="${s.id}" aria-label="${esc(single ? 'Transcript' : speakerName(t, s.speaker))}${s.startMs === null || s.startMs === undefined ? '' : `, ${fmtDuration(s.startMs)}`}">
         ${single ? '' : `
         <div class="tseg-head">
           ${readOnly

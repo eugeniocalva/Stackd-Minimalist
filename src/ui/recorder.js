@@ -151,7 +151,7 @@ function sourceHTML(m) {
   return `
   <div class="card source-block" data-source>
     ${canRecord() ? `
-    <button type="button" class="mic-btn" data-record aria-label="Record">${icon('mic', 30)}</button>
+    <button type="button" class="mic-btn" data-record aria-label="Record" aria-pressed="false">${icon('mic', 30)}</button>
     <span class="source-label">Record</span>
     <span class="hint" data-space></span>
     ${denied ? `<div class="notice"><span>Microphone access was refused. ${globalThis.Capacitor?.isNativePlatform?.() ? 'Allow the microphone for Stack’d in the phone’s Settings, then try again.' : 'Allow the microphone for this site in the browser’s address bar, then try again.'}</span></div>` : ''}`
@@ -167,6 +167,7 @@ function recordingHTML() {
   return `
   <div class="card rec-block is-recording" data-recording role="group" aria-label="Recording">
     <canvas class="rec-level" data-level aria-hidden="true"></canvas>
+    <span class="sr-only" data-rec-live aria-live="polite" role="status">Recording started</span>
     <div class="rec-row">
       <span class="rec-clock num" data-clock aria-live="off">00:00 <span class="hint">/ ${fmtDuration(MAX_RECORDING_MS)}</span></span>
       <button type="button" class="stop-btn" data-stop aria-label="Stop recording" aria-pressed="true">${icon('stop', 26)}</button>
@@ -278,6 +279,7 @@ async function showSpace(el, btn) {
 
 function attach(live) {
   const s = session;
+  const live_ = () => live.querySelector('[data-rec-live]');
   const canvas = live.querySelector('[data-level]');
   const clock = live.querySelector('[data-clock]');
   live.querySelector('[data-stop]').addEventListener('click', () => { buzz('MEDIUM'); stopRecording(); });
@@ -293,7 +295,7 @@ function attach(live) {
     if (!session) return;
     const ms = Date.now() - s.startedAt;
     if (clock) clock.firstChild.textContent = `${fmtDuration(ms)} `;
-    if (ms % 30000 < 1000) clock?.setAttribute('aria-label', `Recording, ${fmtDuration(ms)}`);
+    if (ms % 30000 < 500) { const live = live_(); if (live) live.textContent = `Recording, ${fmtDuration(ms)}`; }
     if (ms >= MAX_RECORDING_MS && !s.stopping) {
       buzz('MEDIUM');
       toast(`Stopped at ${fmtDuration(MAX_RECORDING_MS)}`);

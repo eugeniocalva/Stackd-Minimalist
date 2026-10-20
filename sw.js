@@ -20,6 +20,7 @@ const SHELL = [
   'src/ai.js',
   'src/purchases.js',
   'src/media.js',
+  'src/docx.js',
   'src/ui/search.js',
   'src/ui/shell.js',
   'src/ui/notes.js',

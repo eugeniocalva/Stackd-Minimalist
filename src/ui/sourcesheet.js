@@ -1,9 +1,11 @@
 /* Transcript sources other than the recording (PRD-meetings AC-06.5,
    AC-06.6): a paste sheet with a text area, and the system file picker for
-   .txt / .vtt / .srt (.docx comes in Phase 21). Both hand the parsed shape
-   from src/transcript.js to the caller; nothing is stored here. */
+   .txt / .vtt / .srt / .docx (the Word file is unzipped by src/docx.js).
+   Both hand the parsed shape from src/transcript.js to the caller; nothing
+   is stored here. */
 
-import { parsePasted, parseByName } from '../transcript.js';
+import { parsePasted, parseByName, parseDocxXml } from '../transcript.js';
+import { readDocumentXml, canInflate } from '../docx.js';
 import { icon } from './icons.js';
 import { pinToViewport } from './primitives.js';
 
@@ -56,16 +58,24 @@ export function pickTranscriptFile({ onParsed, onError }) {
     input.remove();
     if (!file) return;
     const ext = file.name.toLowerCase().split('.').pop();
-    if (ext === 'docx') { onError('Word files are not supported yet; paste the text instead.'); return; }
-    if (!['txt', 'vtt', 'srt'].includes(ext)) { onError('Choose a .txt, .vtt or .srt file.'); return; }
+    if (!['txt', 'vtt', 'srt', 'docx'].includes(ext)) { onError('Choose a .txt, .vtt, .srt or .docx file.'); return; }
     if (file.size > MAX_BYTES) { onError('That file is too large to be a transcript.'); return; }
-    const reader = new FileReader();
-    reader.onerror = () => onError("Couldn't read this file.");
-    reader.onload = () => {
-      const parsed = parseByName(file.name, String(reader.result || ''));
+    const finish = (text) => {
+      const parsed = parseByName(ext === 'docx' ? 'x.txt' : file.name, text);
       if (!parsed.segments.length) { onError("Couldn't read this file: it has no text."); return; }
       onParsed(file.name, parsed);
     };
+    if (ext === 'docx') {
+      if (!canInflate()) { onError('This browser cannot read Word files; paste the text instead.'); return; }
+      file.arrayBuffer()
+        .then((buf) => readDocumentXml(buf))
+        .then((xml) => { if (xml === null) throw new Error('not a Word file'); finish(parseDocxXml(xml)); })
+        .catch(() => onError("Couldn't read this file: it is not a Word document."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => onError("Couldn't read this file.");
+    reader.onload = () => finish(String(reader.result || ''));
     reader.readAsText(file);
   });
   input.click();
