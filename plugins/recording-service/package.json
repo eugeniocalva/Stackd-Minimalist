@@ -1,0 +1,30 @@
+{
+  "name": "stackd-recording-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Keeps a Stack'd meeting recording alive while the screen is locked: an Android foreground service with a notification; a no-op on iOS (the audio background mode does the job) and on the web.",
+  "license": "UNLICENSED",
+  "files": [
+    "android/src/main/",
+    "android/build.gradle",
+    "ios/Sources",
+    "Package.swift",
+    "StackdRecordingService.podspec"
+  ],
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "native"
+  ],
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  }
+}

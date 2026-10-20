@@ -1,0 +1,77 @@
+apply plugin: 'com.android.application'
+
+// The version is the one the web app ships (sw.js VERSION 'stackd-v1.5.0' ->
+// 1.5.0), like the iOS workflow. CI passes -PversionCode (its run number) and
+// -PversionName; a local build falls back to sw.js and versionCode 1.
+def swVersion = {
+    def m = (new File(rootDir, '../sw.js').text =~ /const VERSION = 'stackd-v([0-9.]+)'/)
+    m ? m[0][1] : '0.0.0'
+}()
+def hasReleaseKey = project.hasProperty('releaseStoreFile')
+
+android {
+    namespace = "com.eugeniocalva.stackd"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.eugeniocalva.stackd"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : 1
+        versionName project.hasProperty('versionName') ? project.property('versionName') : swVersion
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    // Upload key for Play, passed by .github/workflows/android-play.yml as
+    // -PreleaseStoreFile=… -PreleaseStorePassword=… -PreleaseKeyAlias=…
+    // -PreleaseKeyPassword=…; without them the release build is unsigned.
+    signingConfigs {
+        release {
+            if (hasReleaseKey) {
+                storeFile file(project.property('releaseStoreFile'))
+                storePassword project.property('releaseStorePassword')
+                keyAlias project.property('releaseKeyAlias')
+                keyPassword project.property('releaseKeyPassword')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseKey) signingConfig signingConfigs.release
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

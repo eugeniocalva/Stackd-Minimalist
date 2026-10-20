@@ -134,6 +134,8 @@ jobs:
             || { echo "::error::@capacitor/keyboard is missing from the Podfile - the add sheet would scroll under the keyboard"; exit 1; }
           grep -q "CapacitorHaptics" ios/App/Podfile \
             || { echo "::error::@capacitor/haptics is missing from the Podfile - long-press would not vibrate"; exit 1; }
+          grep -q "StackdRecordingService" ios/App/Podfile \
+            || { echo "::error::plugins/recording-service is missing from the Podfile - it is a file: dependency, run npm ci"; exit 1; }
 
       # HTTPS only, no custom encryption: without this key every build waits in
       # TestFlight as "Missing Compliance" until it is answered by hand.
@@ -142,6 +144,19 @@ jobs:
           PLIST=ios/App/App/Info.plist
           /usr/libexec/PlistBuddy -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST" 2>/dev/null \
             || /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
+
+      # Meetings (1.5.0, PRD AC-04.3 / AC-11.5): the microphone usage string
+      # Apple shows with the permission prompt, and the audio background mode
+      # that keeps a recording running while the screen is locked.
+      - name: Microphone usage string and background audio
+        run: |
+          PLIST=ios/App/App/Info.plist
+          DESC="The app records a meeting only when you tap Record, so you can play it back and transcribe it."
+          /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription $DESC" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string $DESC" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Delete :UIBackgroundModes" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string audio" "$PLIST"
 
       - name: Install the API key and a build keychain
         env:
@@ -191,6 +206,11 @@ jobs:
           [ "$got_version" = "$WANT_VERSION" ] || { echo "::error::archived version $got_version != $WANT_VERSION"; exit 1; }
           [ "$got_build" = "$WANT_BUILD" ] || { echo "::error::archived build $got_build != $WANT_BUILD"; exit 1; }
           [ "$enc" = "false" ] || { echo "::error::ITSAppUsesNonExemptEncryption is not false"; exit 1; }
+          mic="$(/usr/libexec/PlistBuddy -c 'Print NSMicrophoneUsageDescription' "$APP/Info.plist" 2>/dev/null || echo absent)"
+          bg="$(/usr/libexec/PlistBuddy -c 'Print UIBackgroundModes:0' "$APP/Info.plist" 2>/dev/null || echo absent)"
+          echo "NSMicrophoneUsageDescription: $mic; UIBackgroundModes[0]: $bg"
+          [ "$mic" != "absent" ] || { echo "::error::NSMicrophoneUsageDescription is missing - iOS would crash on the first recording"; exit 1; }
+          [ "$bg" = "audio" ] || { echo "::error::UIBackgroundModes does not contain audio - recording would stop when the screen locks"; exit 1; }
           [ -f "$APP/public/index.html" ] && [ -f "$APP/public/src/ui/notes.js" ] \
             || { echo "::error::the web app is missing from the bundle"; exit 1; }
           echo "VERSION=$got_version" >> "$GITHUB_ENV"

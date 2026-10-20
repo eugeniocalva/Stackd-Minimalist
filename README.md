@@ -87,6 +87,12 @@ Stack'd is a **PWA** — one codebase for all three platforms:
 - **iPhone / iPad** — open in Safari → Share → **Add to Home Screen**.
   Runs standalone, respects the notch / home-indicator safe areas.
 
+From 1.5.0 the same code also ships as **native apps** through Capacitor:
+iOS via TestFlight / the App Store (see **iOS / App Store**) and Android
+via the Play internal testing track (see **Android / Google Play**). The
+native shells add what a browser cannot do: recording a meeting while the
+screen is locked, and in-app subscriptions.
+
 Offline: the service worker (`sw.js`) precaches the whole app shell, fonts
 included (Inter and Manrope are self-hosted, no Google Fonts request), so the
 installed app works with no connection. Data stays in localStorage on-device.
@@ -295,10 +301,12 @@ Layout:
   cloud-managed certificate and checks the `.ipa`. With **upload** ticked it
   also sends the build to App Store Connect.
 
-`ios/` and `android/` are git-ignored and generated in CI, so no Xcode project
-is committed. Once you have a Mac and need to customize `Info.plist`,
-entitlements, or capabilities, drop those lines from `.gitignore` and commit
-`ios/` instead (as Finance does).
+`ios/` is git-ignored and generated in CI, so no Xcode project is committed;
+the workflow adds the two Meetings keys (`NSMicrophoneUsageDescription`,
+`UIBackgroundModes = [audio]`) with PlistBuddy after generating it. Once you
+have a Mac and need to customize `Info.plist`, entitlements, or capabilities
+by hand, drop that line from `.gitignore` and commit `ios/` instead (as
+Finance does). `android/` **is** committed (see below).
 
 ### First TestFlight build
 
@@ -332,6 +340,37 @@ Done once (2026-10-18): Apple Developer Program, the bundle id
 Every later release: bump `VERSION` in `sw.js`, push, run the workflow with
 upload ticked. Don't use "Adicionar para revisão" / "Add for Review" on the
 App Store page until the store listing is ready; TestFlight doesn't need it.
+
+## Android / Google Play
+
+`android/` is committed: generated once with `npx cap add android`, then
+hand-maintained for the recording permissions in `AndroidManifest.xml`, the
+version plumbing and the upload-key signing config in `app/build.gradle`
+(both read `-P` properties from CI, and fall back to `sw.js` and an unsigned
+build locally). Icons and splash screens were generated with
+`npx @capacitor/assets generate --android` from `assets/`.
+
+`plugins/recording-service/` is a local Capacitor plugin (a `file:`
+dependency in `package.json`, so run `npm install` after cloning) that keeps
+a recording alive while the screen is locked: an Android foreground service
+with a "Recording" notification; a no-op on iOS, where the audio background
+mode does the job. `npx cap sync android` lists it with the other plugins.
+
+- **`.github/workflows/android-play.yml`** — manual only, like the iOS one.
+  It runs `npm run check`, builds `www/`, syncs the Android project, builds
+  a signed `.aab` with the version from `sw.js` and the run number as
+  `versionCode`, and inspects the bundle. With **upload** ticked it sends it
+  to the Play **internal testing** track.
+- **Secrets**: `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`,
+  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` (the upload keystore, made
+  once with `keytool`, see the workflow header) and, for uploads,
+  `PLAY_SERVICE_ACCOUNT_JSON`.
+- **First release**: the Play Console app must exist with a first build
+  uploaded by hand before the API accepts uploads; after that, tick
+  **upload**.
+
+To build locally instead, open `android/` in Android Studio after
+`npm run build && npx cap sync android`.
 
 ### Note on App Store review
 

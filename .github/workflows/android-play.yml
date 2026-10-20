@@ -1,0 +1,202 @@
+# Android build -> Google Play internal testing, on GitHub's Linux runners.
+# The sibling of ios-testflight.yml: same gates, same manual-only trigger,
+# same "dry run unless you tick upload" habit.
+#
+# Unlike ios/, android/ IS committed: its manifest and gradle files carry the
+# recording permissions, the version plumbing and the signing config by hand
+# (docs/architecture.md §21). This workflow builds a signed .aab from it.
+#
+# MANUAL ONLY (workflow_dispatch). The repository is public, so there is
+# deliberately no push / pull_request trigger: nothing a fork or a pull request
+# does can reach the signing secrets. Only people with write access can start a
+# run (Actions tab > Android to Play > Run workflow).
+#
+# Secrets (Settings > Secrets and variables > Actions > New repository secret):
+#   ANDROID_KEYSTORE_B64        the upload keystore (.jks), base64-encoded:
+#                               `base64 -w0 upload.jks` (Linux) / `base64 -i upload.jks` (macOS)
+#   ANDROID_KEYSTORE_PASSWORD   its store password
+#   ANDROID_KEY_ALIAS           the key alias inside it
+#   ANDROID_KEY_PASSWORD        that key's password
+#   PLAY_SERVICE_ACCOUNT_JSON   a Play Console service account's JSON key with
+#                               "Release to testing tracks" on the app (upload only)
+#
+# Make the keystore once, keep it safe, never regenerate it (Play ties the app
+# to it unless Play App Signing is on, which it is by default for new apps):
+#   keytool -genkeypair -v -keystore upload.jks -alias upload -keyalg RSA -keysize 2048 -validity 10000
+#
+# First run: leave "upload" unticked. It builds, signs and INSPECTS the .aab
+# without sending anything to Google. The very first upload of a new app must
+# be done by hand in the Play Console (the API refuses until the app exists
+# with a first release); tick "upload" from the second build on.
+name: Android to Play
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Upload to the Play internal testing track (leave off for a dry run that only builds, signs and checks)'
+        type: boolean
+        default: false
+      build_number:
+        description: 'versionCode override. Empty = this workflow''s run number, which always goes up. Play rejects a versionCode it has already seen.'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-play
+  cancel-in-progress: false
+
+jobs:
+  play:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      APP_ID: com.eugeniocalva.stackd
+    steps:
+      - uses: actions/checkout@v5
+
+      # The version is the one the web app ships (sw.js VERSION 'stackd-v1.5.0'
+      # -> 1.5.0), like the iOS workflow; versionCode is the run number.
+      - name: Version and build number
+        env:
+          BUILD_INPUT: ${{ inputs.build_number }}
+        run: |
+          version="$(sed -n "s/^const VERSION = 'stackd-v\([0-9.]*\)';.*/\1/p" sw.js)"
+          [ -n "$version" ] || { echo "::error::could not read the version from sw.js"; exit 1; }
+          build="${BUILD_INPUT:-$GITHUB_RUN_NUMBER}"
+          case "$build" in ''|*[!0-9]*) echo "::error::build number must be digits, got '$build'"; exit 1 ;; esac
+          echo "version $version, versionCode $build"
+          echo "WANT_VERSION=$version" >> "$GITHUB_ENV"
+          echo "WANT_BUILD=$build" >> "$GITHUB_ENV"
+          echo "KEYSTORE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+
+      - name: Check the secrets are present
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          missing=0
+          [ -n "$KS" ] || { echo "::error::secret ANDROID_KEYSTORE_B64 is not set"; missing=1; }
+          [ -n "$KS_PASS" ] || { echo "::error::secret ANDROID_KEYSTORE_PASSWORD is not set"; missing=1; }
+          [ -n "$ALIAS" ] || { echo "::error::secret ANDROID_KEY_ALIAS is not set"; missing=1; }
+          [ -n "$KEY_PASS" ] || { echo "::error::secret ANDROID_KEY_PASSWORD is not set"; missing=1; }
+          if [ "${{ inputs.upload }}" = "true" ]; then
+            case "$SA" in
+              *'"type": "service_account"'*|*'"type":"service_account"'*) ;;
+              "") echo "::error::secret PLAY_SERVICE_ACCOUNT_JSON is not set (needed for upload)"; missing=1 ;;
+              *) echo "::error::PLAY_SERVICE_ACCOUNT_JSON does not look like a service-account JSON key"; missing=1 ;;
+            esac
+          fi
+          exit $missing
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Date maths, reminders, store rules, sanitiser, precache list and the
+      # file:// bundle: the same gate as a local commit.
+      - name: Gates (npm run check)
+        run: npm run check
+
+      - name: Build the web assets into www/
+        run: npm run build
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Sync web assets and plugins
+        run: npx cap sync android
+
+      - name: Check the native plugins landed
+        run: |
+          for p in capacitor-haptics capacitor-keyboard capacitor-local-notifications stackd-recording-service; do
+            grep -q "$p" android/capacitor.settings.gradle \
+              || { echo "::error::$p is missing from android/capacitor.settings.gradle"; exit 1; }
+          done
+          grep -q "RECORD_AUDIO" android/app/src/main/AndroidManifest.xml \
+            || { echo "::error::the recording permissions are missing from the manifest"; exit 1; }
+
+      - name: Install the upload keystore
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          umask 077
+          printf '%s' "$KS" | base64 -d > "$KEYSTORE"
+          [ -s "$KEYSTORE" ] || { echo "::error::the decoded keystore is empty - is ANDROID_KEYSTORE_B64 base64 of the .jks?"; exit 1; }
+
+      - name: Build the signed .aab
+        env:
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew --no-daemon bundleRelease \
+            -PversionName="$WANT_VERSION" -PversionCode="$WANT_BUILD" \
+            -PreleaseStoreFile="$KEYSTORE" -PreleaseStorePassword="$KS_PASS" \
+            -PreleaseKeyAlias="$ALIAS" -PreleaseKeyPassword="$KEY_PASS" | tail -n 100
+          AAB="$(ls app/build/outputs/bundle/release/*.aab | head -n 1)"
+          [ -f "$AAB" ] || { echo "::error::no .aab was produced"; exit 1; }
+          echo "AAB=$PWD/$AAB" >> "$GITHUB_ENV"
+
+      - name: Check the .aab
+        run: |
+          # An .aab is a zip: the web app and the manifest must be inside it,
+          # and the bundle must carry a signature (META-INF/*.RSA or *.SF).
+          unzip -l "$AAB" > "$RUNNER_TEMP/aab.txt"
+          grep -q 'base/manifest/AndroidManifest.xml' "$RUNNER_TEMP/aab.txt" \
+            || { echo "::error::no manifest in the bundle"; exit 1; }
+          grep -q 'base/assets/public/index.html' "$RUNNER_TEMP/aab.txt" \
+            || { echo "::error::the web app is missing from the bundle"; exit 1; }
+          grep -q 'base/assets/public/src/ui/notes.js' "$RUNNER_TEMP/aab.txt" \
+            || { echo "::error::the web app in the bundle is incomplete"; exit 1; }
+          grep -qE 'META-INF/.*\.(RSA|EC|SF)' "$RUNNER_TEMP/aab.txt" \
+            || { echo "::error::the bundle is not signed - check the keystore secrets"; exit 1; }
+          echo "aab OK: $(du -h "$AAB" | cut -f1), version $WANT_VERSION versionCode $WANT_BUILD"
+
+      - name: Upload to the Play internal testing track
+        if: ${{ inputs.upload }}
+        uses: r0adkll/upload-google-play@v1.1.3
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.eugeniocalva.stackd
+          releaseFiles: ${{ env.AAB }}
+          track: internal
+          status: completed
+          releaseName: ${{ env.WANT_VERSION }} (${{ env.WANT_BUILD }})
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "### Android build"
+            echo "- version: \`${WANT_VERSION:-?}\`, versionCode: \`${WANT_BUILD:-?}\`"
+            if [ "${{ job.status }}" != "success" ]; then
+              echo "- **failed**: open the red step above for the error; nothing was sent to Google unless the upload step ran"
+            elif [ "${{ inputs.upload }}" = "true" ]; then
+              echo "- upload requested: check Play Console > Testing > Internal testing"
+            else
+              echo "- dry run: built, signed and checked, nothing sent to Google"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the keystore
+        if: ${{ always() }}
+        run: rm -f "$KEYSTORE"

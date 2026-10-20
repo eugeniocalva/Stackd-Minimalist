@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Stack\'d</string>
+    <string name="title_activity_main">Stack\'d</string>
+    <string name="package_name">com.eugeniocalva.stackd</string>
+    <string name="custom_url_scheme">com.eugeniocalva.stackd</string>
+</resources>
