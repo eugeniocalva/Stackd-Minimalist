@@ -93,8 +93,9 @@ export function confirmDialog(title, body, { confirmLabel = 'Confirm', danger = 
 }
 
 /** One text field with Cancel / confirm. Resolves with the trimmed value,
-    or null when cancelled or left empty. */
-export function promptDialog(title, { value = '', placeholder = '', confirmLabel = 'Save' } = {}) {
+    or null when cancelled or left empty; with allowEmpty an empty field
+    resolves with '' (used to clear a name) and only Cancel gives null. */
+export function promptDialog(title, { value = '', placeholder = '', confirmLabel = 'Save', allowEmpty = false } = {}) {
   return new Promise((resolve) => {
     const { ov, close } = overlay(`
       <div class="sheet dialog" role="dialog" aria-labelledby="dlg-title">
@@ -104,7 +105,7 @@ export function promptDialog(title, { value = '', placeholder = '', confirmLabel
           <button class="btn btn-secondary" data-cancel>Cancel</button>
           <button class="btn btn-primary" data-ok>${esc(confirmLabel)}</button>
         </div>
-      </div>`, { onClose: (r) => resolve(typeof r === 'string' && r.trim() ? r.trim() : null) });
+      </div>`, { onClose: (r) => resolve(typeof r === 'string' && (r.trim() || allowEmpty) ? r.trim() : null) });
     const input = ov.querySelector('[data-field]');
     const ok = () => close(input.value);
     ov.querySelector('[data-cancel]').addEventListener('click', () => close(null));

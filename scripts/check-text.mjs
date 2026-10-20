@@ -77,7 +77,7 @@ assert.equal(isEmpty('&nbsp;'), true);
 assert.equal(isEmpty('x'), false);
 
 // search matching (src/search.js): case- and accent-insensitive, every term must hit
-const { normalize, matches, filterTasks, filterNotes } = await import('../src/search.js');
+const { normalize, matches, filterTasks, filterNotes, filterMeetings } = await import('../src/search.js');
 assert.equal(normalize('Café À-la-carte'), 'cafe a-la-carte');
 assert.equal(matches('', ['anything']), true);
 assert.equal(matches('  ', ['anything']), true);
@@ -106,5 +106,19 @@ assert.deepEqual(filterNotes(notes, 'cafe').map((n) => n.body), ['Café ideas'])
 assert.deepEqual(filterNotes(notes, '', 'Food').map((n) => n.tags[0]), ['food', 'food'], 'tag filter is case-insensitive');
 assert.deepEqual(filterNotes(notes, 'milk', 'food').map((n) => n.title), ['Shopping'], 'tag AND query');
 assert.deepEqual(filterNotes(notes, 'monday', 'food'), [], 'tag AND query: no cross match');
+
+// meetings (PRD-meetings AC-02.4): title (dated default supplied), transcript, speakers, minutes, actions
+const meetings = [
+  { title: '', transcript: { segments: [{ text: 'We ship the deck on Friday' }], speakers: { S1: 'Marco', S2: null } }, minutes: null, actions: [] },
+  { title: 'Budget review', transcript: null, minutes: { summary: 'Numbers agreed', decisions: ['Cut travel'], openQuestions: [] }, actions: [{ title: 'Send forecast' }] },
+];
+const titleOf = (m) => m.title || 'Meeting · 20/10/2026 14:03';
+assert.equal(filterMeetings(meetings, '', titleOf).length, 2);
+assert.deepEqual(filterMeetings(meetings, 'friday', titleOf).map(titleOf), ['Meeting · 20/10/2026 14:03'], 'transcript text');
+assert.deepEqual(filterMeetings(meetings, 'marco', titleOf).map(titleOf), ['Meeting · 20/10/2026 14:03'], 'speaker names');
+assert.deepEqual(filterMeetings(meetings, '20/10/2026', titleOf).map(titleOf), ['Meeting · 20/10/2026 14:03'], 'the default title counts');
+assert.deepEqual(filterMeetings(meetings, 'travel', titleOf).map((m) => m.title), ['Budget review'], 'decisions');
+assert.deepEqual(filterMeetings(meetings, 'forecast', titleOf).map((m) => m.title), ['Budget review'], 'action titles');
+assert.deepEqual(filterMeetings(meetings, 'nothing here', titleOf), []);
 
 console.log('check-text: ok');

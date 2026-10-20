@@ -23,6 +23,20 @@ export function filterTasks(tasks, query) {
   return tasks.filter((t) => matches(query, [t.title, ...t.tags, ...t.subtasks.map((s) => s.title)]));
 }
 
+/** Meetings (PRD-meetings AC-02.4): title, transcript text and speaker
+    names, minutes and action titles. titleOf supplies the dated default
+    title the store shows for an untitled meeting. */
+export function filterMeetings(meetings, query, titleOf = (m) => m.title) {
+  if (!normalize(query).trim()) return meetings;
+  return meetings.filter((m) => matches(query, [
+    titleOf(m),
+    ...(m.transcript?.segments || []).map((s) => s.text),
+    ...Object.values(m.transcript?.speakers || {}).filter(Boolean),
+    m.minutes?.summary || '', ...(m.minutes?.decisions || []), ...(m.minutes?.openQuestions || []),
+    ...(m.actions || []).map((a) => a.title),
+  ]));
+}
+
 /** Title, body text, checklist items and tags; `tag` narrows first (AND). */
 export function filterNotes(notes, query, tag = null) {
   let ns = notes;

@@ -119,6 +119,13 @@ export const fmtMonth = (year, month) =>
 
 export const fmtTime = (ts) =>
   new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+/** 24-hour 'hh:mm' of a timestamp (meeting titles and date lines). */
+export const fmtClock = (ts) => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+/** 'mm:ss' or 'h:mm:ss' of a duration (recordings, transcript times). */
+export function fmtDuration(ms) {
+  const s = Math.max(0, Math.round(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+}
 
 /** "today" · "yesterday" · "3 days ago" (under a week) · then the numeric date. */
 export function fmtRelative(ts, now = Date.now(), format = DEFAULT_FORMAT) {

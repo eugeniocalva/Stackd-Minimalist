@@ -7,7 +7,7 @@ turns it into a transcript with speaker labels, turns the transcript into
 cards**, and sends the actions they keep to a board as tasks. Notes stay
 exactly as shipped in 1.4.0.
 
-Status: **draft for review, 2026-10-20, round 2**. Decisions taken so far
+Status: **approved 2026-10-20; in build** — Phase 14 (Android shell) and Phase 15 (Meetings area, text path) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
 are in §07; the few calls the analyst made alone are in §08; the remaining
 open questions are in §09; the unit economics of the paid plans are in
 §11. Companion documents: `docs/prd.md` (tasks, v2), `docs/prd-notes.md`
@@ -120,26 +120,26 @@ real iPhone and a real Android phone; the simulator has no microphone.
 *As a user, I want Meetings to be a first-class area next to Boards, Notes
 and Folders.*
 
-- [ ] AC-01.1 Desktop sidebar: a **Meetings** item with a live count of
+- [x] AC-01.1 Desktop sidebar: a **Meetings** item with a live count of
       active meetings, directly under Notes.
-- [ ] AC-01.2 Mobile: the Boards menu lists **Meetings** under Notes (same
+- [x] AC-01.2 Mobile: the Boards menu lists **Meetings** under Notes (same
       card, same row style, with its count). The bottom nav pill stays at
       four items (§08); Meetings is reached from the Boards menu.
-- [ ] AC-01.3 The Meetings screen has the board header: title **Meetings**,
+- [x] AC-01.3 The Meetings screen has the board header: title **Meetings**,
       kicker "4 meetings", the **search bar** (AC-02.4) and, on the right,
       the sort control (AC-02.5).
-- [ ] AC-01.4 On the Meetings screen the **+** FAB creates a new meeting
+- [x] AC-01.4 On the Meetings screen the **+** FAB creates a new meeting
       and opens it (US-03), so recording is two taps from the list.
-- [ ] AC-01.5 Empty state: "No meetings yet. Tap + to record one or paste
+- [x] AC-01.5 Empty state: "No meetings yet. Tap + to record one or paste
       a transcript."
 
 ### US-02 — Meeting list
 *As a user, I want to see my meetings as a calm list and know at a glance
 how far each one got.*
 
-- [ ] AC-02.1 Meetings appear as flush rows with hairline dividers inside
+- [x] AC-02.1 Meetings appear as flush rows with hairline dividers inside
       one surface card (the note-row pattern), newest first by default.
-- [ ] AC-02.2 Each row shows: the **title** (default "Meeting · 20/10/2026
+- [x] AC-02.2 Each row shows: the **title** (default "Meeting · 20/10/2026
       14:03", editable in the detail); under it a **status line** of small
       neutral chips, only the ones that apply: **Recording 12:34** ·
       **Transcript** · **Minutes** · **3 actions** (count of actions not yet
@@ -149,37 +149,37 @@ how far each one got.*
 - [ ] AC-02.3 A row whose transcribe or summarise step is still running
       shows a small spinner chip ("Transcribing…"); one whose last step
       failed shows an amber "Failed" chip. Both open the meeting on tap.
-- [ ] AC-02.4 Search filters the list as you type (same field and rules as
+- [x] AC-02.4 Search filters the list as you type (same field and rules as
       Notes) against title, transcript text, minutes and action titles.
       Empty result: "No meetings match ‹query›."
-- [ ] AC-02.5 Sort: **Newest first** (default), **Oldest first**, **Title
+- [x] AC-02.5 Sort: **Newest first** (default), **Oldest first**, **Title
       A–Z**. No manual order (§08).
-- [ ] AC-02.6 Tapping a row opens the meeting (US-03). Rows have the hover /
+- [x] AC-02.6 Tapping a row opens the meeting (US-03). Rows have the hover /
       pressed states of note rows and are reachable with Tab + Enter.
-- [ ] AC-02.7 The list shows **active** meetings only; archived and deleted
+- [x] AC-02.7 The list shows **active** meetings only; archived and deleted
       ones live in the Folders (US-10).
 
 ### US-03 — Meeting detail: one screen, in order
 *As a user, I want one screen that walks me from audio to actions, where
 each step appears only when the previous one exists.*
 
-- [ ] AC-03.1 The meeting opens on the detail shell (sticky bar with back
+- [x] AC-03.1 The meeting opens on the detail shell (sticky bar with back
       and ⋯). Mobile: full screen; desktop: the main column. Top to bottom:
       **title** (editable, single line); a **date line** "Recorded
       20/10/2026 · 14:03" (or "Created" when there is no recording); then
       the blocks of US-04 to US-08 in this order: **Recording**,
       **Transcript**, **Minutes**, **Actions**. A block that cannot exist
       yet is not drawn; the next possible step is drawn as its button.
-- [ ] AC-03.2 A new meeting shows only the **Source** block: a large **mic
+- [x] AC-03.2 A new meeting shows only the **Source** block: a large **mic
       button** (primary, round) with the label "Record", and under it two
       secondary buttons **Paste transcript** and **Attach file**.
-- [ ] AC-03.3 Once a recording exists the Source block becomes the
+- [x] AC-03.3 Once a recording exists the Source block becomes the
       **Recording** block (US-04); once a transcript exists from any
       source, the **Transcript** block (US-06) appears under it; once
       minutes exist, **Minutes** then **Actions** (US-07, US-08).
-- [ ] AC-03.4 The **⋯ menu** holds **Rename · Archive · Delete** (Delete
+- [x] AC-03.4 The **⋯ menu** holds **Rename · Archive · Delete** (Delete
       last, destructive, after a divider), like a note.
-- [ ] AC-03.5 Title edits save on blur / after 500 ms, like a note. A new
+- [x] AC-03.5 Title edits save on blur / after 500 ms, like a note. A new
       meeting left with no recording, no transcript and the default title
       is deleted silently on back (no empty rows).
 
@@ -271,11 +271,11 @@ what.*
 ### US-06 — Read, fix and name the transcript
 *As a user, I want to correct a name, fix a word, and jump to the audio.*
 
-- [ ] AC-06.1 The Transcript block lists segments as **speaker label** in
+- [x] AC-06.1 The Transcript block lists segments as **speaker label** in
       Manrope on its own line, then the text. Consecutive segments by the
       same speaker merge visually. Long transcripts collapse after about 12
       lines behind **Show all**.
-- [ ] AC-06.2 **Rename a speaker**: tapping a label opens a small prompt
+- [x] AC-06.2 **Rename a speaker**: tapping a label opens a small prompt
       ("Name for Speaker 2"); the name applies to every segment of that
       speaker in this meeting, is stored on the meeting, and is used in the
       minutes and actions generated afterwards. Clearing the name returns
@@ -286,12 +286,12 @@ what.*
 - [ ] AC-06.4 **Edit text**: a segment's text is editable in place (tap the
       text, edit, blur to save). Edits set `updatedAt` and mark minutes as
       possibly stale (AC-07.5).
-- [ ] AC-06.5 **Pasted transcript** (AC-03.2): a sheet with a multi-line
+- [x] AC-06.5 **Pasted transcript** (AC-03.2): a sheet with a multi-line
       text area, placeholder "Paste the transcript here", and **Use**.
       Lines shaped "Name: text", "[00:12] Name: text" or "Name  00:12"
       are split into segments with that speaker; anything else becomes one
       segment labelled "Transcript" with no times.
-- [ ] AC-06.6 **Attached file** (AC-03.2): the system file picker limited
+- [ ] AC-06.6 *(txt / vtt / srt done in Phase 15; docx in Phase 21)* **Attached file** (AC-03.2): the system file picker limited
       to `.txt`, `.vtt`, `.srt`, `.docx`. `.vtt` and `.srt` keep their
       timestamps and, when present (Teams' `<v Name>` cues), the speaker
       names. `.txt` and `.docx` are treated as pasted text (AC-06.5). The
@@ -402,14 +402,14 @@ each plan can cost me.*
 ### US-10 — Archive, delete and restore meetings
 *As a user, I want the safety net I already have for tasks and notes.*
 
-- [ ] AC-10.1 Archive and Delete work like notes: status, timestamp, toast
+- [x] AC-10.1 Archive and Delete work like notes: status, timestamp, toast
       with **Undo** (5 s); "Delete forever" and "Empty folder" keep their
       confirm.
-- [ ] AC-10.2 The Archived and Deleted folders' segmented control becomes
+- [x] AC-10.2 The Archived and Deleted folders' segmented control becomes
       **Tasks ∕ Notes ∕ Meetings**; folder counts add all three. Meeting
       rows reuse the row layout of AC-02.2 plus "Archived 3 days ago" /
       "Removed in 27 days".
-- [ ] AC-10.3 An archived or deleted meeting opens read-only with Restore
+- [x] AC-10.3 An archived or deleted meeting opens read-only with Restore
       and Delete / Delete forever; playback still works, AI buttons do not.
 - [ ] AC-10.4 The recording file is removed when the meeting is deleted
       forever, emptied from the folder, or purged after 30 days; Archive

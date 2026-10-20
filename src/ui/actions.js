@@ -5,6 +5,7 @@ import {
   taskById, listById, laneName, archiveTask, softDelete, returnToArchive, restoreTask,
   moveTask, toggleDone, rollForward, undoRollForward,
   archiveNote, softDeleteNote, returnNoteToArchive, restoreNote,
+  archiveMeeting, softDeleteMeeting, returnMeetingToArchive, restoreMeeting,
 } from '../store.js';
 import { fmtDateLong } from '../dates.js';
 import { toast } from './primitives.js';
@@ -66,6 +67,27 @@ export function deleteNoteWithUndo(id) {
 export function restoreNoteWithToast(id) {
   restoreNote(id);
   toast('Restored to Notes');
+}
+
+/* — meetings (same feedback again) — */
+
+export function archiveMeetingWithUndo(id) {
+  archiveMeeting(id);
+  toast('Archived', { action: { label: 'Undo', onClick: () => restoreMeeting(id) } });
+}
+
+export function deleteMeetingWithUndo(id) {
+  const prev = softDeleteMeeting(id);
+  if (!prev) return;
+  const onClick = prev.status === 'archived'
+    ? () => returnMeetingToArchive(id, prev.archivedAt)
+    : () => restoreMeeting(id);
+  toast('Deleted', { action: { label: 'Undo', onClick } });
+}
+
+export function restoreMeetingWithToast(id) {
+  restoreMeeting(id);
+  toast('Restored to Meetings');
 }
 
 const rolling = new Set(); // ids waiting out the completion flash

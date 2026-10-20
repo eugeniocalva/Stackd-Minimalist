@@ -322,4 +322,79 @@ assert.equal(v1.S.tasks.find((x) => x.id === 'f').reminderFiredAt, null);
 assert.equal(v1.S.sort, 'due-asc', 'a pre-1.4.2 field sort gains its old direction');
 assert.deepEqual(v1.S.lists[0].lanes.map((l) => l.id), ['backlog', 'inprogress', 'done'], 'a v1 board gets lanes');
 
+// meetings (1.5.0, Phase 15): defaults, lifecycle, transcript, folders, purge (PRD-meetings US-03, US-06, US-10)
+assert.deepEqual(S.meetings, []);
+assert.equal(S.meetingsSort, 'created-desc');
+assert.equal(S.plan.tier, 'free');
+assert.ok(S.plan.subscriberId.length >= 16, 'a subscriber id is generated once');
+store.save();   // the v1 test above left another instance's document in storage
+assert.equal(JSON.parse(mem.get(store.STORE_KEY)).plan?.subscriberId, S.plan.subscriberId, 'and persisted with the main document');
+assert.deepEqual(S.ai, { proxyUrl: null, disclosed: false, consented: false });
+const m1 = store.newMeeting();
+assert.equal(store.UI.screen, 'meeting');
+assert.equal(store.UI.detailId, m1.id);
+assert.equal(m1.title, '');
+assert.match(store.meetingTitle(m1), /^Meeting · \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$|^Meeting · \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+assert.equal(store.finalizeMeeting(m1.id), true, 'an untouched meeting is dropped on back');
+assert.equal(store.meetingById(m1.id), undefined);
+assert.equal(store.UI.screen, 'meetings');
+const m2 = store.newMeeting();
+store.updateMeeting(m2.id, { title: '  Weekly sync  ' });
+assert.equal(JSON.parse(mem.get(store.STORE_KEY)).meetings.find((x) => x.id === m2.id).title, '  Weekly sync  ', 'quiet title save persists');
+assert.equal(store.finalizeMeeting(m2.id), false);
+assert.equal(m2.title, 'Weekly sync', 'back trims the title');
+// a transcript replaces minutes and proposed actions, keeps added ones
+m2.minutes = { summary: 'old', decisions: [], openQuestions: [], generatedAt: 1, transcriptUpdatedAt: 1 };
+m2.actions = [{ id: 'p', title: 'proposed', status: 'proposed', taskId: null }, { id: 'a', title: 'added', status: 'added', taskId: 't1' }];
+store.setTranscript(m2.id, { source: 'pasted', segments: [{ speaker: 'S1', startMs: 12000, text: ' hello ' }, { speaker: 'S2', startMs: null, text: '   ' }], speakers: { S1: 'Marco', S2: null } });
+assert.equal(m2.minutes, null);
+assert.deepEqual(m2.actions.map((a) => a.id), ['a']);
+assert.equal(m2.transcript.segments.length, 1, 'blank segments are dropped');
+assert.equal(m2.transcript.segments[0].text, 'hello');
+assert.ok(m2.transcript.segments[0].id, 'segments get ids');
+assert.equal(m2.transcript.source, 'pasted');
+assert.equal(store.meetingIsEmpty(m2), false);
+// speaker rename counts as a transcript edit and makes minutes stale
+m2.minutes = { summary: 's', decisions: [], openQuestions: [], generatedAt: Date.now(), transcriptUpdatedAt: m2.transcript.updatedAt };
+assert.equal(store.minutesStale(m2), false);
+await new Promise((res) => setTimeout(res, 2));
+store.renameSpeaker(m2.id, 'S2', '  Anna ');
+assert.equal(m2.transcript.speakers.S2, 'Anna');
+assert.equal(store.minutesStale(m2), true);
+store.renameSpeaker(m2.id, 'S2', '');
+assert.equal(m2.transcript.speakers.S2, null, 'an empty name returns the default label');
+store.renameSpeaker(m2.id, 'S9', 'nobody');
+assert.ok(!('S9' in m2.transcript.speakers), 'unknown labels are ignored');
+// sorts
+const m3 = store.newMeeting(); store.updateMeeting(m3.id, { title: 'alpha' }); store.finalizeMeeting(m3.id);
+assert.deepEqual(store.sortedMeetings('created-desc').map((x) => x.id), [m3.id, m2.id]);
+assert.deepEqual(store.sortedMeetings('created-asc').map((x) => x.id), [m2.id, m3.id]);
+assert.deepEqual(store.sortedMeetings('title-asc').map((x) => x.title), ['alpha', 'Weekly sync']);
+store.setMeetingsSort('bogus');
+assert.equal(S.meetingsSort, 'created-desc');
+store.setMeetingsSort('title-asc');
+assert.equal(S.meetingsSort, 'title-asc');
+// lifecycle and folders
+const archivedBefore = store.folderCount('archived');
+store.archiveMeeting(m3.id);
+assert.equal(m3.status, 'archived');
+assert.deepEqual(store.folderMeetings('archived').map((x) => x.id), [m3.id]);
+assert.equal(store.folderCount('archived'), archivedBefore + 1, 'folder counts include meetings');
+{
+  const prev = store.softDeleteMeeting(m3.id);
+  assert.equal(prev.status, 'archived');
+  store.returnMeetingToArchive(m3.id, prev.archivedAt);
+  assert.equal(m3.status, 'archived');
+  store.restoreMeeting(m3.id);
+  assert.equal(m3.status, 'active');
+}
+assert.equal(store.activeMeetings().length, 2);
+store.softDeleteMeeting(m3.id);
+m3.deletedAt -= 31 * 86400000;
+assert.equal(store.purgeDeleted(), 1, 'purge drops an old deleted meeting');
+store.softDeleteMeeting(m2.id);
+store.emptyDeleted();
+assert.equal(store.meetingById(m2.id), undefined, 'empty folder removes meetings too');
+assert.equal(S.meetings.length, 0);
+
 console.log('check-store: all assertions passed');

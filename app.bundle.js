@@ -97,6 +97,14 @@
   }
   var fmtMonth = (year, month) => new Date(year, month, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
   var fmtTime = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  var fmtClock = (ts) => {
+    const d = new Date(ts);
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  function fmtDuration(ms) {
+    const s = Math.max(0, Math.round(ms / 1e3)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+    return h ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
+  }
   function fmtRelative(ts, now = Date.now(), format = DEFAULT_FORMAT) {
     const days = Math.floor((now - ts) / 864e5);
     if (days <= 0) return "today";
@@ -431,6 +439,13 @@
   ];
   var NOTE_COLORS = PRIORITY_COLORS;
   var NOTE_DRAFT_KEY = "stackd-note-draft";
+  var MEETINGS_SORTS = [
+    ["created-desc", "Newest first"],
+    ["created-asc", "Oldest first"],
+    ["title-asc", "Title A–Z"]
+  ];
+  var MAX_RECORDING_MS = 30 * 60 * 1e3;
+  var PLAN_TIERS = ["free", "plus", "pro", "max"];
   var REMINDER_OPTIONS = [
     [null, "None"],
     [0, "At time of due"],
@@ -444,13 +459,15 @@
   var S = migrate();
   var UI = {
     screen: "list",
-    // 'lists' | 'list' | 'detail' | 'folders' | 'settings' | 'notes' | 'note'
+    // 'lists' | 'list' | 'detail' | 'folders' | 'settings' | 'notes' | 'note' | 'meetings' | 'meeting'
     folder: "archived",
     // which tab the folders screen shows
     folderKind: "tasks",
-    // 'tasks' | 'notes' — segment inside a folder
+    // 'tasks' | 'notes' | 'meetings' — segment inside a folder
     detailId: null,
-    // task id on 'detail', note id on 'note'
+    // task id on 'detail', note id on 'note', meeting id on 'meeting'
+    transcriptAll: false,
+    // meeting detail: the transcript is expanded past its first lines
     sortMenu: false,
     refocusAddsub: false,
     composer: { expanded: false, formatOpen: false, focus: null },
@@ -517,6 +534,21 @@
     state.lists.forEach((l) => {
       l.lanes ??= defaultLanes();
     });
+    state.meetings ??= [];
+    if (!MEETINGS_SORTS.some(([v]) => v === state.meetingsSort)) state.meetingsSort = "created-desc";
+    state.ai = { proxyUrl: null, disclosed: false, consented: false, ...state.ai || {} };
+    state.plan = {
+      tier: "free",
+      subscriberId: uid() + uid(),
+      renewsAt: null,
+      audioSecondsLeft: 0,
+      audioSecondsTotal: 0,
+      summariesLeft: 0,
+      summariesTotal: 0,
+      checkedAt: 0,
+      ...state.plan || {}
+    };
+    if (!PLAN_TIERS.includes(state.plan.tier)) state.plan.tier = "free";
     if (!isDateFormat(state.dateFormat)) state.dateFormat = defaultDateFormat();
     setDefaultDateFormat(state.dateFormat);
     return state;
@@ -589,6 +621,27 @@
       ...extra
     };
   }
+  function blankMeeting(extra = {}) {
+    const now = Date.now();
+    return {
+      id: uid(),
+      title: "",
+      createdAt: now,
+      updatedAt: now,
+      recording: null,
+      transcript: null,
+      minutes: null,
+      actions: [],
+      jobs: { transcribe: null, summarise: null },
+      lastError: null,
+      status: "active",
+      archivedAt: null,
+      deletedAt: null,
+      ...extra
+    };
+  }
+  var defaultMeetingTitle = (ts) => `Meeting · ${fmtDate(ts)} ${fmtClock(ts)}`;
+  var meetingTitle = (m) => m.title.trim() || defaultMeetingTitle(m.createdAt);
   var blankDraft = () => ({ title: "", body: "", color: null, tags: [], checklist: null });
   function loadDraft() {
     const d = read(NOTE_DRAFT_KEY);
@@ -690,7 +743,27 @@
     const key = status === "archived" ? "archivedAt" : "deletedAt";
     return S.notes.filter((n) => n.status === status).sort((a, b) => b[key] - a[key]);
   }
-  var folderCount = (status) => folderTasks(status).length + folderNotes(status).length;
+  var meetingById = (id) => S.meetings.find((m) => m.id === id);
+  var activeMeetings = () => S.meetings.filter((m) => m.status === "active");
+  function sortedMeetings(sort = S.meetingsSort) {
+    const ms = activeMeetings();
+    if (sort === "title-asc") {
+      ms.sort((a, b) => meetingTitle(a).localeCompare(meetingTitle(b), void 0, { sensitivity: "base" }) || b.createdAt - a.createdAt);
+    } else {
+      ms.sort((a, b) => sort === "created-asc" ? a.createdAt - b.createdAt : b.createdAt - a.createdAt);
+    }
+    return ms;
+  }
+  function folderMeetings(status) {
+    const key = status === "archived" ? "archivedAt" : "deletedAt";
+    return S.meetings.filter((m) => m.status === status).sort((a, b) => b[key] - a[key]);
+  }
+  var actionCounts = (m) => ({
+    proposed: m.actions.filter((a) => a.status === "proposed").length,
+    added: m.actions.filter((a) => a.status === "added").length
+  });
+  var meetingIsEmpty = (m) => !m.recording && !m.transcript && !m.title.trim();
+  var folderCount = (status) => folderTasks(status).length + folderNotes(status).length + folderMeetings(status).length;
   var tagUseCounts = (name) => ({
     tasks: S.tasks.filter((t) => t.status !== "deleted" && t.tags.some((x) => sameTag(x, name))).length,
     notes: S.notes.filter((n) => n.status !== "deleted" && n.tags.some((x) => sameTag(x, name))).length
@@ -925,6 +998,116 @@
     ordered.forEach((x, i) => {
       x.order = i;
     });
+    commit();
+  }
+  var touchMeeting = (m) => {
+    m.updatedAt = Date.now();
+  };
+  var leaveMeeting = (id) => {
+    if (UI.screen === "meeting" && UI.detailId === id) {
+      UI.detailId = null;
+      UI.screen = "meetings";
+    }
+  };
+  function newMeeting() {
+    const m = blankMeeting();
+    S.meetings.push(m);
+    UI.detailId = m.id;
+    UI.screen = "meeting";
+    UI.transcriptAll = false;
+    commit();
+    return m;
+  }
+  function updateMeeting(id, patch) {
+    const m = meetingById(id);
+    if (!m || m.status !== "active") return;
+    if (patch.title !== void 0) m.title = String(patch.title);
+    touchMeeting(m);
+    persistQuiet();
+  }
+  function finalizeMeeting(id) {
+    const m = meetingById(id);
+    if (!m || m.status !== "active") return false;
+    m.title = m.title.trim();
+    if (meetingIsEmpty(m)) {
+      S.meetings = S.meetings.filter((x) => x.id !== id);
+      leaveMeeting(id);
+      commit();
+      return true;
+    }
+    commit();
+    return false;
+  }
+  function setTranscript(id, { source, fileName = null, segments, speakers }) {
+    const m = meetingById(id);
+    if (!m || m.status !== "active") return;
+    const now = Date.now();
+    m.transcript = {
+      source,
+      fileName,
+      segments: segments.map((s) => ({ id: s.id || uid(), speaker: s.speaker, startMs: s.startMs ?? null, text: String(s.text ?? "").trim() })).filter((s) => s.text),
+      speakers: { ...speakers },
+      createdAt: now,
+      updatedAt: now
+    };
+    m.minutes = null;
+    m.actions = m.actions.filter((a) => a.status === "added");
+    m.lastError = null;
+    touchMeeting(m);
+    commit();
+  }
+  function renameSpeaker(id, label, name) {
+    const m = meetingById(id);
+    const t = m?.transcript;
+    if (!t || !Object.hasOwn(t.speakers, label)) return;
+    const n = String(name ?? "").trim();
+    t.speakers[label] = n || null;
+    t.updatedAt = Date.now();
+    touchMeeting(m);
+    commit();
+  }
+  function setMeetingsSort(sort) {
+    if (!MEETINGS_SORTS.some(([v]) => v === sort) || S.meetingsSort === sort) return;
+    S.meetingsSort = sort;
+    commit();
+  }
+  function archiveMeeting(id) {
+    const m = meetingById(id);
+    if (!m || m.status !== "active") return;
+    m.status = "archived";
+    m.archivedAt = Date.now();
+    leaveMeeting(id);
+    commit();
+  }
+  function softDeleteMeeting(id) {
+    const m = meetingById(id);
+    if (!m || m.status === "deleted") return null;
+    const prev = { status: m.status, archivedAt: m.archivedAt };
+    m.status = "deleted";
+    m.deletedAt = Date.now();
+    m.archivedAt = null;
+    leaveMeeting(id);
+    commit();
+    return prev;
+  }
+  function returnMeetingToArchive(id, archivedAt) {
+    const m = meetingById(id);
+    if (!m || m.status !== "deleted") return;
+    m.status = "archived";
+    m.archivedAt = archivedAt;
+    m.deletedAt = null;
+    commit();
+  }
+  function restoreMeeting(id) {
+    const m = meetingById(id);
+    if (!m || m.status === "active") return;
+    m.status = "active";
+    m.archivedAt = null;
+    m.deletedAt = null;
+    commit();
+  }
+  function deleteMeetingForever(id) {
+    S.meetings = S.meetings.filter((m) => m.id !== id);
     commit();
   }
   function setTitle(id, title) {
@@ -1237,14 +1420,16 @@
   function emptyDeleted() {
     S.tasks = S.tasks.filter((t) => t.status !== "deleted");
     S.notes = S.notes.filter((n) => n.status !== "deleted");
+    S.meetings = S.meetings.filter((m) => m.status !== "deleted");
     commit();
   }
   function purgeDeleted(now = Date.now()) {
     const keep = (x) => x.status !== "deleted" || now - x.deletedAt < RETENTION_MS;
-    const before = S.tasks.length + S.notes.length;
+    const before = S.tasks.length + S.notes.length + S.meetings.length;
     S.tasks = S.tasks.filter(keep);
     S.notes = S.notes.filter(keep);
-    const removed = before - S.tasks.length - S.notes.length;
+    S.meetings = S.meetings.filter(keep);
+    const removed = before - S.tasks.length - S.notes.length - S.meetings.length;
     if (removed) save();
     return removed;
   }
@@ -1491,7 +1676,18 @@
     palette: '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
     checklist: '<path d="M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344"/><path d="m9 11 3 3L22 4"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
-    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>'
+    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    /* Meetings (1.5.0) */
+    meeting: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/>',
+    stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>',
+    play: '<path d="m6 3 14 9-14 9V3z" fill="currentColor"/>',
+    pause: '<rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/>',
+    document: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+    sparkle: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',
+    attach: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+    clipboard: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+    lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'
   };
   function icon(name, size = 20) {
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PATHS[name]}</svg>`;
@@ -1586,7 +1782,7 @@
       ov.querySelector("[data-ok]").focus();
     });
   }
-  function promptDialog(title, { value = "", placeholder = "", confirmLabel = "Save" } = {}) {
+  function promptDialog(title, { value = "", placeholder = "", confirmLabel = "Save", allowEmpty = false } = {}) {
     return new Promise((resolve) => {
       const { ov, close } = overlay(`
       <div class="sheet dialog" role="dialog" aria-labelledby="dlg-title">
@@ -1596,7 +1792,7 @@
           <button class="btn btn-secondary" data-cancel>Cancel</button>
           <button class="btn btn-primary" data-ok>${esc(confirmLabel)}</button>
         </div>
-      </div>`, { onClose: (r) => resolve(typeof r === "string" && r.trim() ? r.trim() : null) });
+      </div>`, { onClose: (r) => resolve(typeof r === "string" && (r.trim() || allowEmpty) ? r.trim() : null) });
       const input = ov.querySelector("[data-field]");
       const ok = () => close(input.value);
       ov.querySelector("[data-cancel]").addEventListener("click", () => close(null));
@@ -2131,6 +2327,20 @@
     restoreNote(id);
     toast("Restored to Notes");
   }
+  function archiveMeetingWithUndo(id) {
+    archiveMeeting(id);
+    toast("Archived", { action: { label: "Undo", onClick: () => restoreMeeting(id) } });
+  }
+  function deleteMeetingWithUndo(id) {
+    const prev = softDeleteMeeting(id);
+    if (!prev) return;
+    const onClick = prev.status === "archived" ? () => returnMeetingToArchive(id, prev.archivedAt) : () => restoreMeeting(id);
+    toast("Deleted", { action: { label: "Undo", onClick } });
+  }
+  function restoreMeetingWithToast(id) {
+    restoreMeeting(id);
+    toast("Restored to Meetings");
+  }
   var rolling = /* @__PURE__ */ new Set();
   function completeTask(id, el = null) {
     const t = taskById(id);
@@ -2373,6 +2583,18 @@
   function filterTasks(tasks, query) {
     if (!normalize(query).trim()) return tasks;
     return tasks.filter((t) => matches(query, [t.title, ...t.tags, ...t.subtasks.map((s) => s.title)]));
+  }
+  function filterMeetings(meetings, query, titleOf = (m) => m.title) {
+    if (!normalize(query).trim()) return meetings;
+    return meetings.filter((m) => matches(query, [
+      titleOf(m),
+      ...(m.transcript?.segments || []).map((s) => s.text),
+      ...Object.values(m.transcript?.speakers || {}).filter(Boolean),
+      m.minutes?.summary || "",
+      ...m.minutes?.decisions || [],
+      ...m.minutes?.openQuestions || [],
+      ...(m.actions || []).map((a) => a.title)
+    ]));
   }
   function filterNotes(notes, query, tag = null) {
     let ns = notes;
@@ -4034,6 +4256,562 @@
     });
   }
 
+  // src/transcript.js
+  var uid2 = () => Math.random().toString(36).slice(2, 10);
+  function parseTime(s) {
+    const m = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?$/.exec(String(s ?? "").trim());
+    if (!m) return null;
+    const [, h, min, sec, frac] = m;
+    return ((+(h || 0) * 60 + +min) * 60 + +sec) * 1e3 + (frac ? +frac.padEnd(3, "0") : 0);
+  }
+  function assemble(items) {
+    const labels = /* @__PURE__ */ new Map();
+    const speakers = {};
+    const segments = [];
+    items.forEach((it) => {
+      const text = String(it.text ?? "").replace(/[ \t]+\n/g, "\n").trim();
+      if (!text) return;
+      const key = (it.who || "").trim();
+      if (!labels.has(key)) {
+        const label = `S${labels.size + 1}`;
+        labels.set(key, label);
+        speakers[label] = key || null;
+      }
+      segments.push({ id: uid2(), speaker: labels.get(key), startMs: it.startMs ?? null, text });
+    });
+    if (segments.length && Object.keys(speakers).length === 1 && speakers.S1 === null) speakers.S1 = "Transcript";
+    return { segments, speakers };
+  }
+  var stripTags = (s) => s.replace(/<\/?[^>]+>/g, "");
+  function parseVTT(text) {
+    const blocks = String(text ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+    const items = [];
+    blocks.forEach((block) => {
+      const lines = block.split("\n").filter((l) => l.trim() !== "");
+      if (!lines.length || /^(WEBVTT|NOTE|STYLE|REGION)\b/.test(lines[0]) && !lines.some((l) => l.includes("-->"))) return;
+      const ti = lines.findIndex((l) => l.includes("-->"));
+      if (ti === -1) return;
+      const startMs = parseTime(lines[ti].split("-->")[0].trim().split(/\s+/)[0]);
+      const body = lines.slice(ti + 1).join("\n");
+      const voice = /<v(?:\.[^\s>]*)?\s+([^>]*)>/.exec(body);
+      const who = voice ? voice[1].trim() : null;
+      const plain = stripTags(body);
+      const named = !who && /^([^:\n]{1,40}):\s+(.+)/s.exec(plain);
+      if (named) items.push({ who: named[1].trim(), startMs, text: named[2] });
+      else items.push({ who, startMs, text: plain });
+    });
+    return assemble(items);
+  }
+  function parseSRT(text) {
+    const blocks = String(text ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+    const items = [];
+    blocks.forEach((block) => {
+      const lines = block.split("\n").filter((l) => l.trim() !== "");
+      const ti = lines.findIndex((l) => l.includes("-->"));
+      if (ti === -1) return;
+      const startMs = parseTime(lines[ti].split("-->")[0].trim());
+      const plain = stripTags(lines.slice(ti + 1).join("\n"));
+      const named = /^([^:\n]{1,40}):\s+(.+)/s.exec(plain);
+      if (named) items.push({ who: named[1].trim(), startMs, text: named[2] });
+      else items.push({ who: null, startMs, text: plain });
+    });
+    return assemble(items);
+  }
+  var NAME = "([^:\\n\\d][^:\\n]{0,39}?)";
+  var TIMED = new RegExp(`^[\\[(]\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s*[\\])]\\s*${NAME}:\\s*(.*)$`);
+  var NAMED = new RegExp(`^${NAME}:\\s+(.*)$`);
+  var HEADER = new RegExp(`^${NAME}\\s{2,}(\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[AP]M)?)\\s*$`, "i");
+  var isName = (s) => s && !/^(https?|mailto|tel|note|nb|ps|todo|re)$/i.test(s.trim());
+  function parsePasted(text) {
+    const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+    const items = [];
+    let cur = null;
+    const start = (who, startMs, first) => {
+      cur = { who, startMs, text: first };
+      items.push(cur);
+    };
+    lines.forEach((raw) => {
+      const line = raw.trim();
+      if (!line) {
+        if (cur) cur.text += "\n";
+        return;
+      }
+      let m;
+      if ((m = TIMED.exec(line)) && isName(m[2])) {
+        start(m[2], parseTime(m[1]), m[3]);
+        return;
+      }
+      if ((m = HEADER.exec(line)) && isName(m[1])) {
+        start(m[1], parseTime(m[2]), "");
+        return;
+      }
+      if ((m = NAMED.exec(line)) && isName(m[1])) {
+        start(m[1], null, m[2]);
+        return;
+      }
+      if (cur) cur.text += (cur.text && !cur.text.endsWith("\n") ? " " : "") + line;
+      else start(null, null, line);
+    });
+    const anyNamed = items.some((it) => it.who);
+    if (!anyNamed) return assemble([{ who: null, startMs: null, text: lines.join("\n") }]);
+    return assemble(items);
+  }
+  function parseByName(fileName, text) {
+    const ext = String(fileName ?? "").toLowerCase().split(".").pop();
+    if (ext === "vtt") return parseVTT(text);
+    if (ext === "srt") return parseSRT(text);
+    return parsePasted(text);
+  }
+  function speakerName(t, label) {
+    const name = t?.speakers?.[label];
+    if (name) return name;
+    const n = /^S(\d+)$/.exec(label || "");
+    return n ? `Speaker ${n[1]}` : String(label ?? "");
+  }
+  function mergeAdjacent(segments) {
+    const out = [];
+    (segments || []).forEach((s) => {
+      const last = out[out.length - 1];
+      if (last && last.speaker === s.speaker) {
+        last.text += "\n" + s.text;
+        return;
+      }
+      out.push({ ...s });
+    });
+    return out;
+  }
+
+  // src/ui/transcriptview.js
+  var COLLAPSED = 12;
+  var sourceLine = (t) => {
+    const n = t.segments.length;
+    const from = t.source === "file" ? `from ${t.fileName || "a file"}` : t.source === "pasted" ? "pasted" : "from the recording";
+    return `${from} · ${n} segment${n === 1 ? "" : "s"}`;
+  };
+  function transcriptHTML(m, { readOnly = false } = {}) {
+    const t = m.transcript;
+    const merged = mergeAdjacent(t.segments);
+    const collapsed = merged.length > COLLAPSED && !UI.transcriptAll;
+    const single = Object.keys(t.speakers).length === 1 && t.speakers.S1 === "Transcript";
+    return `
+  <section class="mblock" data-block="transcript" aria-label="Transcript">
+    <div class="mblock-head">
+      <span class="section-title">Transcript</span>
+      <span class="hint">${esc(sourceLine(t))}</span>
+      ${readOnly ? "" : `
+      <span class="mblock-actions">
+        <button type="button" class="btn btn-ghost btn-sm" data-paste>${icon("clipboard", 16)}Paste</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-attach>${icon("attach", 16)}Attach</button>
+      </span>`}
+    </div>
+    <div class="card tsegs ${collapsed ? "collapsed" : ""}" role="list" data-segs>
+      ${merged.map((s) => `
+      <div class="tseg" role="listitem" data-seg="${s.id}">
+        ${single ? "" : `
+        <div class="tseg-head">
+          ${readOnly ? `<span class="tseg-who">${esc(speakerName(t, s.speaker))}</span>` : `<button type="button" class="tseg-who" data-speaker="${esc(s.speaker)}" title="Rename this speaker" aria-label="Rename ${esc(speakerName(t, s.speaker))}">${esc(speakerName(t, s.speaker))}</button>`}
+          ${s.startMs === null || s.startMs === void 0 ? "" : `<span class="tseg-time num">${fmtDuration(s.startMs)}</span>`}
+        </div>`}
+        <p class="tseg-text">${esc(s.text)}</p>
+      </div>`).join("")}
+    </div>
+    ${collapsed ? `<button type="button" class="btn btn-ghost btn-sm showall" data-showall>Show all (${merged.length})</button>` : ""}
+  </section>`;
+  }
+  function bindTranscript(root, m, { readOnly = false } = {}) {
+    root.querySelector("[data-showall]")?.addEventListener("click", () => {
+      UI.transcriptAll = true;
+      rerender();
+    });
+    if (readOnly) return;
+    root.querySelectorAll("[data-speaker]").forEach((b) => b.addEventListener("click", async () => {
+      const label = b.dataset.speaker;
+      const current = m.transcript.speakers[label] || "";
+      const name = await promptDialog(`Name for ${speakerName(m.transcript, label)}`, {
+        value: current,
+        placeholder: speakerName({ speakers: {} }, label),
+        confirmLabel: "Rename",
+        allowEmpty: true
+      });
+      if (name === null) return;
+      renameSpeaker(m.id, label, name);
+    }));
+  }
+
+  // src/ui/sourcesheet.js
+  function openPasteSheet({ onUse }) {
+    const ov = document.createElement("div");
+    ov.className = "overlay";
+    ov.innerHTML = `
+  <div class="sheet" role="dialog" aria-label="Paste transcript">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="section-title">Paste transcript</span>
+      <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
+    </div>
+    <textarea class="input paste-area" data-text placeholder="Paste the transcript here" aria-label="Transcript text" autocapitalize="off" spellcheck="false"></textarea>
+    <span class="hint">Lines like “Marco: …” or “[00:12] Marco: …” become speakers.</span>
+    <button class="btn btn-primary btn-block" data-use disabled>Use</button>
+  </div>`;
+    document.body.appendChild(ov);
+    const unpin = pinToViewport(ov);
+    const q = (s) => ov.querySelector(s);
+    const close = () => {
+      unpin();
+      ov.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", onKey);
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov) close();
+    });
+    q("[data-close]").addEventListener("click", close);
+    const area = q("[data-text]"), use = q("[data-use]");
+    area.addEventListener("input", () => {
+      use.disabled = !area.value.trim();
+    });
+    use.addEventListener("click", () => {
+      const parsed = parsePasted(area.value);
+      if (!parsed.segments.length) return;
+      close();
+      onUse(parsed);
+    });
+    area.focus();
+  }
+  var ACCEPT = ".txt,.vtt,.srt,.docx,text/plain,text/vtt,application/x-subrip";
+  var MAX_BYTES = 5 * 1024 * 1024;
+  function pickTranscriptFile({ onParsed, onError }) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ACCEPT;
+    input.style.display = "none";
+    document.body.appendChild(input);
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (!file) return;
+      const ext = file.name.toLowerCase().split(".").pop();
+      if (ext === "docx") {
+        onError("Word files are not supported yet; paste the text instead.");
+        return;
+      }
+      if (!["txt", "vtt", "srt"].includes(ext)) {
+        onError("Choose a .txt, .vtt or .srt file.");
+        return;
+      }
+      if (file.size > MAX_BYTES) {
+        onError("That file is too large to be a transcript.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onerror = () => onError("Couldn't read this file.");
+      reader.onload = () => {
+        const parsed = parseByName(file.name, String(reader.result || ""));
+        if (!parsed.segments.length) {
+          onError("Couldn't read this file: it has no text.");
+          return;
+        }
+        onParsed(file.name, parsed);
+      };
+      reader.readAsText(file);
+    });
+    input.click();
+  }
+
+  // src/ui/meeting.js
+  function openMeeting(id) {
+    if (!meetingById(id)) return;
+    UI.detailId = id;
+    UI.screen = "meeting";
+    UI.transcriptAll = false;
+    rerender();
+  }
+  var dateLine = (m) => `${m.recording ? "Recorded" : "Created"} ${fmtDate(m.recording?.recordedAt || m.createdAt, S.dateFormat)} · ${fmtClock(m.recording?.recordedAt || m.createdAt)}`;
+  function sourceHTML() {
+    return `
+  <div class="card source-block" data-source>
+    <button type="button" class="mic-btn" data-record aria-label="Record">${icon("mic", 30)}</button>
+    <span class="source-label">Record</span>
+    <div class="source-alt">
+      <button type="button" class="btn btn-secondary" data-paste>${icon("clipboard", 18)}Paste transcript</button>
+      <button type="button" class="btn btn-secondary" data-attach>${icon("attach", 18)}Attach file</button>
+    </div>
+  </div>`;
+  }
+  function bindSource(root, m) {
+    const confirmReplace = async () => !m.transcript || confirmDialog("Replace the transcript?", "The minutes and the actions not yet added to a board are removed with it.", { confirmLabel: "Replace" });
+    root.querySelector("[data-record]")?.addEventListener("click", () => toast("Recording arrives in the next build"));
+    root.querySelector("[data-paste]")?.addEventListener("click", async () => {
+      if (!await confirmReplace()) return;
+      openPasteSheet({ onUse: (parsed) => {
+        setTranscript(m.id, { source: "pasted", ...parsed });
+        toast("Transcript added");
+      } });
+    });
+    root.querySelector("[data-attach]")?.addEventListener("click", async () => {
+      if (!await confirmReplace()) return;
+      pickTranscriptFile({
+        onParsed: (fileName, parsed) => {
+          setTranscript(m.id, { source: "file", fileName, ...parsed });
+          toast(`Transcript added from ${fileName}`);
+        },
+        onError: (message) => toast(message)
+      });
+    });
+  }
+  var flushCurrent2 = null;
+  window.addEventListener("pagehide", () => flushCurrent2?.());
+  function meetingHTML() {
+    const m = meetingById(UI.detailId);
+    if (!m) {
+      UI.screen = "meetings";
+      return '<div class="screen"></div>';
+    }
+    if (m.status !== "active") return readOnlyHTML3(m);
+    return `
+  <div class="screen detail-screen meeting-screen">
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-back aria-label="Back to Meetings">${icon("chevronLeft")}</button>
+      <span class="kicker">Meeting</span>
+      <button class="icon-btn" data-more aria-label="More actions" aria-haspopup="menu">${icon("more")}</button>
+    </header>
+    <div class="scroll-area">
+      <input class="mtitle" data-title value="${esc(m.title)}" placeholder="${esc(defaultMeetingTitle(m.createdAt))}" aria-label="Meeting title" autocomplete="off" maxlength="120">
+      <span class="hint mdate" data-dates>${esc(dateLine(m))}</span>
+      ${m.transcript ? "" : sourceHTML()}
+      ${m.transcript ? transcriptHTML(m, { readOnly: false }) : ""}
+    </div>
+  </div>`;
+  }
+  function bindMeeting() {
+    const m = meetingById(UI.detailId);
+    if (!m) {
+      rerender();
+      return;
+    }
+    if (m.status !== "active") {
+      bindReadOnly3(m);
+      return;
+    }
+    bindScrollShadow();
+    const input = app.querySelector("[data-title]");
+    let timer = null;
+    const flush = () => {
+      if (!timer) return;
+      clearTimeout(timer);
+      timer = null;
+      updateMeeting(m.id, { title: input.value });
+    };
+    flushCurrent2 = flush;
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(flush, 500);
+    });
+    input.addEventListener("blur", flush);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        input.blur();
+      }
+    });
+    const leaving = () => {
+      flush();
+      flushCurrent2 = null;
+    };
+    app.querySelector("[data-back]").addEventListener("click", () => {
+      leaving();
+      UI.detailId = null;
+      UI.screen = "meetings";
+      finalizeMeeting(m.id);
+    });
+    app.querySelector("[data-more]").addEventListener("click", (e) => openMenu(e.currentTarget, [
+      { label: "Rename", icon: "text", onClick: async () => {
+        const name = await promptDialog("Meeting title", { value: m.title, placeholder: defaultMeetingTitle(m.createdAt), allowEmpty: true });
+        if (name === null) return;
+        updateMeeting(m.id, { title: name });
+        rerender();
+      } },
+      { label: "Archive", icon: "archive", onClick: () => {
+        leaving();
+        archiveMeetingWithUndo(m.id);
+      } },
+      { divider: true },
+      { label: "Delete", icon: "trash", danger: true, onClick: () => {
+        leaving();
+        deleteMeetingWithUndo(m.id);
+      } }
+    ]));
+    const source = app.querySelector("[data-source]");
+    if (source) bindSource(source, m);
+    const transcript = app.querySelector('[data-block="transcript"]');
+    if (transcript) {
+      bindTranscript(transcript, m);
+      bindSource(transcript, m);
+    }
+  }
+  function readOnlyHTML3(m) {
+    const archived = m.status === "archived";
+    const left = archived ? 0 : daysLeft(m.deletedAt, RETENTION_DAYS);
+    const status = archived ? `Archived ${fmtRelative(m.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
+    return `
+  <div class="screen detail-screen is-readonly meeting-screen">
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-back aria-label="Back to ${archived ? "Archived" : "Deleted"}">${icon("chevronLeft")}</button>
+      <span class="kicker">${archived ? "Archived" : "Deleted"} meeting</span>
+      <span class="icon-btn-spacer" aria-hidden="true"></span>
+    </header>
+    <div class="scroll-area">
+      <div class="notice ${archived ? "notice-neutral" : ""}">
+        ${icon(archived ? "archive" : "trash", 18)}
+        <span>${status}. Restore it to edit.</span>
+      </div>
+      <h1 class="note-ro-title ${m.title.trim() ? "" : "untitled"}">${esc(meetingTitle(m))}</h1>
+      <span class="hint mdate">${esc(dateLine(m))}</span>
+      ${m.transcript ? transcriptHTML(m, { readOnly: true }) : '<p class="empty">No transcript.</p>'}
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" data-ro-restore>${icon("undo", 18)}Restore</button>
+        <button class="btn btn-ghost danger" data-ro-delete>${archived ? "Delete" : "Delete forever"}</button>
+      </div>
+    </div>
+  </div>`;
+  }
+  function bindReadOnly3(m) {
+    bindScrollShadow();
+    const archived = m.status === "archived";
+    const toFolder = () => {
+      UI.detailId = null;
+      UI.screen = "folders";
+      UI.folder = archived ? "archived" : "deleted";
+      UI.folderKind = "meetings";
+    };
+    app.querySelector("[data-back]").addEventListener("click", () => {
+      toFolder();
+      rerender();
+    });
+    app.querySelector("[data-ro-restore]").addEventListener("click", () => {
+      toFolder();
+      restoreMeetingWithToast(m.id);
+    });
+    app.querySelector("[data-ro-delete]").addEventListener("click", async () => {
+      if (archived) {
+        toFolder();
+        deleteMeetingWithUndo(m.id);
+        return;
+      }
+      if (await confirmDialog("Delete forever?", "This meeting cannot be recovered afterwards.", { confirmLabel: "Delete forever", danger: true })) {
+        toFolder();
+        deleteMeetingForever(m.id);
+      }
+    });
+    const transcript = app.querySelector('[data-block="transcript"]');
+    if (transcript) bindTranscript(transcript, m, { readOnly: true });
+  }
+
+  // src/ui/meetings.js
+  function openMeetings() {
+    UI.screen = "meetings";
+    UI.query = "";
+    UI.sortMenu = false;
+    rerender();
+  }
+  function addMeeting() {
+    newMeeting();
+  }
+  function meetingChipsHTML(m) {
+    const chips = [];
+    if (m.recording) chips.push(`<span class="tag"><span aria-hidden="true">${icon("mic", 12)}</span>${fmtDuration(m.recording.durationMs)}</span>`);
+    if (m.jobs?.transcribe) chips.push('<span class="tag working">Transcribing…</span>');
+    else if (m.transcript) chips.push('<span class="tag">Transcript</span>');
+    if (m.jobs?.summarise) chips.push('<span class="tag working">Summarising…</span>');
+    else if (m.minutes) chips.push('<span class="tag">Minutes</span>');
+    const { proposed, added } = actionCounts(m);
+    if (proposed) chips.push(`<span class="tag">${proposed} action${proposed === 1 ? "" : "s"}</span>`);
+    else if (added) chips.push(`<span class="tag tag-done">${added} added</span>`);
+    if (m.lastError && !m.jobs?.transcribe && !m.jobs?.summarise) chips.push('<span class="tag tag-soon">Failed</span>');
+    return chips.length ? `<div class="t-meta mchips">${chips.join("")}</div>` : "";
+  }
+  function meetingRowHTML(m) {
+    const title = meetingTitle(m);
+    const when = fmtDateOrRelative(m.createdAt, S.dateFormat);
+    return `
+  <div class="row nrow mrow" data-id="${m.id}" role="button" tabindex="0" aria-label="${esc(title)}">
+    <div class="t-main">
+      <div class="nrow-line">
+        <span class="t-title ${m.title.trim() ? "" : "untitled"}">${esc(title)}</span>
+        <span class="nrow-date num">${esc(when)}</span>
+      </div>
+      ${meetingChipsHTML(m)}
+    </div>
+  </div>`;
+  }
+  var DEFAULT_SORT2 = "created-desc";
+  var SHORT2 = Object.fromEntries(MEETINGS_SORTS);
+  function sortbarHTML2() {
+    return `
+  <div class="viewbar notes-bar ${searchOpen() ? "searching" : ""}">
+    ${searchFieldHTML({ placeholder: "Search meetings" })}
+    <span class="sortwrap">
+      <button class="sortbtn ${S.meetingsSort !== DEFAULT_SORT2 ? "on" : ""}" data-sortbtn aria-haspopup="menu" aria-expanded="${UI.sortMenu}">${icon("sort")}${SHORT2[S.meetingsSort]}</button>
+      ${UI.sortMenu ? `
+      <div class="sortmenu" role="menu">
+        ${MEETINGS_SORTS.map(([v, label]) => `<button role="menuitemradio" aria-checked="${S.meetingsSort === v}" data-meetings-sort="${v}" class="${S.meetingsSort === v ? "active" : ""}">${label}</button>`).join("")}
+      </div>` : ""}
+    </span>
+    ${isDesktop.matches ? `<button class="btn btn-primary btn-sm" data-new-meeting>${icon("plus", 18)}New meeting</button>` : ""}
+  </div>`;
+  }
+  function bindSortbar2() {
+    app.querySelector("[data-new-meeting]")?.addEventListener("click", addMeeting);
+    app.querySelector("[data-sortbtn]")?.addEventListener("click", () => {
+      UI.sortMenu = !UI.sortMenu;
+      rerender();
+    });
+    app.querySelectorAll("[data-meetings-sort]").forEach((b) => b.addEventListener("click", () => {
+      UI.sortMenu = false;
+      setMeetingsSort(b.dataset.meetingsSort);
+      rerender();
+    }));
+  }
+  function meetingsHTML() {
+    queryFor("meetings");
+    const all = sortedMeetings();
+    const total = all.length;
+    const meetings = UI.query ? filterMeetings(all, UI.query, meetingTitle) : all;
+    const kicker = !total ? "No meetings" : UI.query ? `${meetings.length} of ${total} meeting${total === 1 ? "" : "s"}` : `${total} meeting${total === 1 ? "" : "s"}`;
+    const empty = !total ? "No meetings yet. Tap + to record one or paste a transcript." : `No meetings match “${esc(UI.query)}”.`;
+    return `
+  <div class="screen meetings-screen">
+    <header class="page-head">
+      <div class="page-title-row">
+        <h1 class="page-title-text">Meetings</h1>
+        <span class="head-right"><span class="kicker">${kicker}</span>${searchToggleHTML()}</span>
+      </div>
+      ${sortbarHTML2()}
+    </header>
+    <div class="scroll-area">
+      ${meetings.length ? `<div class="card list-card" role="list">${meetings.map(meetingRowHTML).join("")}</div>` : `<p class="empty">${empty}</p>`}
+    </div>
+  </div>`;
+  }
+  function bindMeetings() {
+    bindScrollShadow();
+    bindSortbar2();
+    bindSearch(app);
+    app.querySelectorAll(".mrow").forEach((row) => {
+      const id = row.dataset.id;
+      row.addEventListener("click", () => openMeeting(id));
+      row.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openMeeting(id);
+        }
+      });
+    });
+  }
+
   // src/ui/folders.js
   function openFolder(tab, kind) {
     if (tab === "deleted") purgeDeleted();
@@ -4080,13 +4858,25 @@
     </div>
   </div>`;
   }
+  function meetingRowHTML2(m, tab) {
+    return `
+  <div class="row frow nrow" data-meeting="${m.id}">
+    <div class="t-main">
+      <button class="t-title frow-open" data-open-meeting="${m.id}">${esc(meetingTitle(m))}</button>
+      ${meetingChipsHTML(m)}
+      <span class="frow-origin">Meeting · ${whenLabel(m, tab)}</span>
+      ${actionsHTML("meeting", m.id, tab)}
+    </div>
+  </div>`;
+  }
   function foldersHTML() {
     const tab = UI.folder, kind = UI.folderKind;
-    const tasks = folderTasks(tab), notes = folderNotes(tab);
-    const total = (t) => folderTasks(t).length + folderNotes(t).length;
-    const rows = kind === "notes" ? notes.map((n) => noteRowHTML2(n, tab)) : tasks.map((t) => taskRowHTML(t, tab));
-    const disclaimer = `Tasks and notes stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
-    const empty = tab === "archived" ? kind === "notes" ? "Nothing archived yet. Archive notes you are done with but want to keep." : "Nothing archived yet. Archive tasks you are done with but want to keep." : kind === "notes" ? "No deleted notes." : "Nothing in Deleted.";
+    const tasks = folderTasks(tab), notes = folderNotes(tab), meetings = folderMeetings(tab);
+    const total = (t) => folderTasks(t).length + folderNotes(t).length + folderMeetings(t).length;
+    const rows = kind === "notes" ? notes.map((n) => noteRowHTML2(n, tab)) : kind === "meetings" ? meetings.map((m) => meetingRowHTML2(m, tab)) : tasks.map((t) => taskRowHTML(t, tab));
+    const disclaimer = `Tasks, notes and meetings stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
+    const what = kind === "notes" ? "notes" : kind === "meetings" ? "meetings" : "tasks";
+    const empty = tab === "archived" ? `Nothing archived yet. Archive ${what} you are done with but want to keep.` : kind === "tasks" ? "Nothing in Deleted." : `No deleted ${what}.`;
     const seg = (k, label, n) => `<button class="seg ${kind === k ? "active" : ""}" data-kind="${k}" role="tab" aria-selected="${kind === k}">${label} · ${n}</button>`;
     return `
   <div class="screen">
@@ -4102,6 +4892,7 @@
       <div class="segmented solid folder-kind" role="tablist" aria-label="Kind">
         ${seg("tasks", "Tasks", tasks.length)}
         ${seg("notes", "Notes", notes.length)}
+        ${seg("meetings", "Meetings", meetings.length)}
       </div>
     </header>
     <div class="scroll-area">
@@ -4125,10 +4916,12 @@
     app.querySelectorAll(".frow").forEach((row) => row.addEventListener("click", (e) => {
       if (e.target.closest(".frow-actions")) return;
       if (row.dataset.note) openNote(row.dataset.note);
+      else if (row.dataset.meeting) openMeeting(row.dataset.meeting);
       else openDetail(row.dataset.id);
     }));
     app.querySelectorAll("[data-restore-task]").forEach((b) => b.addEventListener("click", () => restoreWithToast(b.dataset.restoreTask)));
     app.querySelectorAll("[data-restore-note]").forEach((b) => b.addEventListener("click", () => restoreNoteWithToast(b.dataset.restoreNote)));
+    app.querySelectorAll("[data-restore-meeting]").forEach((b) => b.addEventListener("click", () => restoreMeetingWithToast(b.dataset.restoreMeeting)));
     const confirmForever = (what) => confirmDialog("Delete forever?", `This ${what} cannot be recovered afterwards.`, { confirmLabel: "Delete forever", danger: true });
     app.querySelectorAll("[data-delete-task]").forEach((b) => b.addEventListener("click", async () => {
       const id = b.dataset.deleteTask;
@@ -4146,8 +4939,16 @@
       }
       if (await confirmForever("note")) deleteNoteForever(id);
     }));
+    app.querySelectorAll("[data-delete-meeting]").forEach((b) => b.addEventListener("click", async () => {
+      const id = b.dataset.deleteMeeting;
+      if (UI.folder === "archived") {
+        deleteMeetingWithUndo(id);
+        return;
+      }
+      if (await confirmForever("meeting")) deleteMeetingForever(id);
+    }));
     app.querySelector("[data-empty]")?.addEventListener("click", async () => {
-      if (await confirmDialog("Empty the Deleted folder?", "Every task and note in it is removed permanently.", { confirmLabel: "Empty folder", danger: true })) {
+      if (await confirmDialog("Empty the Deleted folder?", "Every task, note and meeting in it is removed permanently.", { confirmLabel: "Empty folder", danger: true })) {
         emptyDeleted();
       }
     });
@@ -4188,6 +4989,7 @@
     app.querySelectorAll("[data-open-folder]").forEach((el) => el.addEventListener("click", () => openFolder(el.dataset.openFolder)));
     app.querySelector("[data-open-settings]")?.addEventListener("click", () => openSettings());
     app.querySelector("[data-open-notes]")?.addEventListener("click", () => openNotes());
+    app.querySelector("[data-open-meetings]")?.addEventListener("click", () => openMeetings());
   }
   function listsMenuHTML() {
     return `
@@ -4217,6 +5019,11 @@
           <span class="lrow-icon">${icon("note", 18)}</span>
           <span class="lname">Notes</span>
           <span class="lcount num">${activeNotes().length}</span>
+        </div>
+        <div class="lrow" data-open-meetings>
+          <span class="lrow-icon">${icon("meeting", 18)}</span>
+          <span class="lname">Meetings</span>
+          <span class="lcount num">${activeMeetings().length}</span>
         </div>
       </div>
       <span class="section-title list-label">Folders</span>
@@ -4263,7 +5070,7 @@
       ${item("notes", "Notes", "note")}
       ${item("folders", "Folders", "folder")}
     </div>
-    <button class="nav-fab" data-add aria-label="${UI.screen === "notes" ? "New note" : "Add task"}">${icon("plus", 28)}</button>
+    <button class="nav-fab" data-add aria-label="${UI.screen === "notes" ? "New note" : UI.screen === "meetings" ? "New meeting" : "Add task"}">${icon("plus", 28)}</button>
   </nav>`;
   }
   function bindMobileNav() {
@@ -4281,12 +5088,12 @@
       UI.screen = target;
       rerender();
     }));
-    app.querySelector(".nav-fab")?.addEventListener("click", () => UI.screen === "notes" ? focusComposer() : openSheet());
+    app.querySelector(".nav-fab")?.addEventListener("click", () => UI.screen === "notes" ? focusComposer() : UI.screen === "meetings" ? addMeeting() : openSheet());
   }
   function desktopHTML() {
     const list = listById(S.currentList);
-    if (!["detail", "folders", "settings", "notes", "note"].includes(UI.screen)) boardKey();
-    const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : `
+    if (!["detail", "folders", "settings", "notes", "note", "meetings", "meeting"].includes(UI.screen)) boardKey();
+    const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meetings" ? meetingsHTML() : UI.screen === "meeting" ? meetingHTML() : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
       ${searchFieldHTML({ placeholder: "Search tasks" })}
@@ -4294,9 +5101,10 @@
       ${S.view === "kanban" ? `<button class="btn btn-primary btn-sm" data-add>${icon("plus", 18)}Add task</button>` : ""}
     </header>
     ${S.view === "kanban" ? kanbanHTML({ desktop: true }) : desktopTableHTML()}`;
-    const inFolders = UI.screen === "folders" || UI.screen === "detail" && taskById(UI.detailId)?.status !== "active" || UI.screen === "note" && noteById(UI.detailId)?.status !== "active";
+    const inFolders = UI.screen === "folders" || UI.screen === "detail" && taskById(UI.detailId)?.status !== "active" || UI.screen === "note" && noteById(UI.detailId)?.status !== "active" || UI.screen === "meeting" && meetingById(UI.detailId)?.status !== "active";
     const onNotes = UI.screen === "notes" || UI.screen === "note" && !inFolders;
-    const onBoard = !inFolders && !onNotes && UI.screen !== "settings";
+    const onMeetings = UI.screen === "meetings" || UI.screen === "meeting" && !inFolders;
+    const onBoard = !inFolders && !onNotes && !onMeetings && UI.screen !== "settings";
     return `
   <div class="shell">
     <aside class="sidebar">
@@ -4312,6 +5120,11 @@
         ${icon("note", 16)}
         <span class="name">Notes</span>
         <span class="count num">${activeNotes().length}</span>
+      </div>
+      <div class="side-item side-notes ${onMeetings ? "active" : ""}" data-open-meetings>
+        ${icon("meeting", 16)}
+        <span class="name">Meetings</span>
+        <span class="count num">${activeMeetings().length}</span>
       </div>
       <span class="section-title side-label">Folders</span>
       ${folderEntries().map((f) => `
@@ -4360,6 +5173,14 @@
       bindNoteDetail();
       return;
     }
+    if (UI.screen === "meetings") {
+      bindMeetings();
+      return;
+    }
+    if (UI.screen === "meeting") {
+      bindMeeting();
+      return;
+    }
     bindViewbar();
     bindSearch(app);
     bindChecks();
@@ -4396,8 +5217,8 @@
       app.innerHTML = desktopHTML();
       bindDesktop();
     } else {
-      const screen = UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : mobileListHTML();
-      const withNav = UI.screen !== "detail" && UI.screen !== "note" && !(UI.screen === "notes" && UI.composer.expanded);
+      const screen = UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meetings" ? meetingsHTML() : UI.screen === "meeting" ? meetingHTML() : mobileListHTML();
+      const withNav = !["detail", "note", "meeting"].includes(UI.screen) && !(UI.screen === "notes" && UI.composer.expanded);
       app.innerHTML = screen + (withNav ? mobileNavHTML() : "");
       if (UI.screen === "lists") bindListsMenu();
       else if (UI.screen === "detail") bindDetail();
@@ -4405,6 +5226,8 @@
       else if (UI.screen === "settings") bindSettings();
       else if (UI.screen === "notes") bindNotes();
       else if (UI.screen === "note") bindNoteDetail();
+      else if (UI.screen === "meetings") bindMeetings();
+      else if (UI.screen === "meeting") bindMeeting();
       else bindMobileList();
       if (withNav) bindMobileNav();
     }

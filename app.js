@@ -19,6 +19,8 @@ import { foldersHTML, bindFolders } from './src/ui/folders.js';
 import { settingsHTML, bindSettings } from './src/ui/settings.js';
 import { notesHTML, bindNotes } from './src/ui/notes.js';
 import { noteDetailHTML, bindNoteDetail } from './src/ui/notedetail.js';
+import { meetingsHTML, bindMeetings } from './src/ui/meetings.js';
+import { meetingHTML, bindMeeting } from './src/ui/meeting.js';
 
 function render() {
   applyTheme();
@@ -35,9 +37,11 @@ function render() {
       : UI.screen === 'settings' ? settingsHTML()
       : UI.screen === 'notes' ? notesHTML()
       : UI.screen === 'note' ? noteDetailHTML()
+      : UI.screen === 'meetings' ? meetingsHTML()
+      : UI.screen === 'meeting' ? meetingHTML()
       : mobileListHTML();
     /* no nav on a detail, nor behind an open composer (its toolbar must stay above the keyboard) */
-    const withNav = UI.screen !== 'detail' && UI.screen !== 'note' && !(UI.screen === 'notes' && UI.composer.expanded);
+    const withNav = !['detail', 'note', 'meeting'].includes(UI.screen) && !(UI.screen === 'notes' && UI.composer.expanded);
     app.innerHTML = screen + (withNav ? mobileNavHTML() : '');
     if (UI.screen === 'lists') bindListsMenu();
     else if (UI.screen === 'detail') bindDetail();
@@ -45,6 +49,8 @@ function render() {
     else if (UI.screen === 'settings') bindSettings();
     else if (UI.screen === 'notes') bindNotes();
     else if (UI.screen === 'note') bindNoteDetail();
+    else if (UI.screen === 'meetings') bindMeetings();
+    else if (UI.screen === 'meeting') bindMeeting();
     else bindMobileList();
     if (withNav) bindMobileNav();
   }

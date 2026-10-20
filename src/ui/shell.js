@@ -1,7 +1,7 @@
 /* App chrome: onboarding, mobile Boards menu, mobile bottom nav + FAB,
    desktop shell with sidebar. */
 
-import { S, UI, listById, taskById, noteById, openCount, folderCount, activeNotes, addTask, newList, commit, rerender } from '../store.js';
+import { S, UI, listById, taskById, noteById, meetingById, openCount, folderCount, activeNotes, activeMeetings, addTask, newList, commit, rerender } from '../store.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import {
@@ -15,6 +15,8 @@ import { settingsHTML, bindSettings, openSettings } from './settings.js';
 import { notesHTML, bindNotes, openNotes, focusComposer } from './notes.js';
 import { noteDetailHTML, bindNoteDetail } from './notedetail.js';
 import { searchFieldHTML, bindSearch } from './search.js';
+import { meetingsHTML, bindMeetings, openMeetings, addMeeting } from './meetings.js';
+import { meetingHTML, bindMeeting } from './meeting.js';
 
 /* — onboarding — */
 
@@ -56,6 +58,7 @@ function bindFolderLinks() {
     el.addEventListener('click', () => openFolder(el.dataset.openFolder)));
   app.querySelector('[data-open-settings]')?.addEventListener('click', () => openSettings());
   app.querySelector('[data-open-notes]')?.addEventListener('click', () => openNotes());
+  app.querySelector('[data-open-meetings]')?.addEventListener('click', () => openMeetings());
 }
 
 /* — mobile: Boards menu — */
@@ -88,6 +91,11 @@ export function listsMenuHTML() {
           <span class="lrow-icon">${icon('note', 18)}</span>
           <span class="lname">Notes</span>
           <span class="lcount num">${activeNotes().length}</span>
+        </div>
+        <div class="lrow" data-open-meetings>
+          <span class="lrow-icon">${icon('meeting', 18)}</span>
+          <span class="lname">Meetings</span>
+          <span class="lcount num">${activeMeetings().length}</span>
         </div>
       </div>
       <span class="section-title list-label">Folders</span>
@@ -137,7 +145,7 @@ export function mobileNavHTML() {
       ${item('notes', 'Notes', 'note')}
       ${item('folders', 'Folders', 'folder')}
     </div>
-    <button class="nav-fab" data-add aria-label="${UI.screen === 'notes' ? 'New note' : 'Add task'}">${icon('plus', 28)}</button>
+    <button class="nav-fab" data-add aria-label="${UI.screen === 'notes' ? 'New note' : UI.screen === 'meetings' ? 'New meeting' : 'Add task'}">${icon('plus', 28)}</button>
   </nav>`;
 }
 
@@ -150,19 +158,21 @@ export function bindMobileNav() {
       if (target === 'notes') { openNotes(); return; }
       UI.screen = target; rerender();
     }));
-  app.querySelector('.nav-fab')?.addEventListener('click', () => (UI.screen === 'notes' ? focusComposer() : openSheet()));
+  app.querySelector('.nav-fab')?.addEventListener('click', () => (UI.screen === 'notes' ? focusComposer() : UI.screen === 'meetings' ? addMeeting() : openSheet()));
 }
 
 /* — desktop shell — */
 
 export function desktopHTML() {
   const list = listById(S.currentList);
-  if (!['detail', 'folders', 'settings', 'notes', 'note'].includes(UI.screen)) boardKey();
+  if (!['detail', 'folders', 'settings', 'notes', 'note', 'meetings', 'meeting'].includes(UI.screen)) boardKey();
   const main = UI.screen === 'detail' ? detailHTML()
     : UI.screen === 'folders' ? foldersHTML()
     : UI.screen === 'settings' ? settingsHTML()
     : UI.screen === 'notes' ? notesHTML()
     : UI.screen === 'note' ? noteDetailHTML()
+    : UI.screen === 'meetings' ? meetingsHTML()
+    : UI.screen === 'meeting' ? meetingHTML()
     : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
@@ -174,9 +184,11 @@ export function desktopHTML() {
   /* a read-only (archived / deleted) detail belongs to the Folders section */
   const inFolders = UI.screen === 'folders'
     || (UI.screen === 'detail' && taskById(UI.detailId)?.status !== 'active')
-    || (UI.screen === 'note' && noteById(UI.detailId)?.status !== 'active');
+    || (UI.screen === 'note' && noteById(UI.detailId)?.status !== 'active')
+    || (UI.screen === 'meeting' && meetingById(UI.detailId)?.status !== 'active');
   const onNotes = UI.screen === 'notes' || (UI.screen === 'note' && !inFolders);
-  const onBoard = !inFolders && !onNotes && UI.screen !== 'settings';
+  const onMeetings = UI.screen === 'meetings' || (UI.screen === 'meeting' && !inFolders);
+  const onBoard = !inFolders && !onNotes && !onMeetings && UI.screen !== 'settings';
   return `
   <div class="shell">
     <aside class="sidebar">
@@ -192,6 +204,11 @@ export function desktopHTML() {
         ${icon('note', 16)}
         <span class="name">Notes</span>
         <span class="count num">${activeNotes().length}</span>
+      </div>
+      <div class="side-item side-notes ${onMeetings ? 'active' : ''}" data-open-meetings>
+        ${icon('meeting', 16)}
+        <span class="name">Meetings</span>
+        <span class="count num">${activeMeetings().length}</span>
       </div>
       <span class="section-title side-label">Folders</span>
       ${folderEntries().map((f) => `
@@ -225,6 +242,8 @@ export function bindDesktop() {
   if (UI.screen === 'settings') { bindSettings(); return; }
   if (UI.screen === 'notes') { bindNotes(); return; }
   if (UI.screen === 'note') { bindNoteDetail(); return; }
+  if (UI.screen === 'meetings') { bindMeetings(); return; }
+  if (UI.screen === 'meeting') { bindMeeting(); return; }
   bindViewbar();
   bindSearch(app);
   bindChecks();

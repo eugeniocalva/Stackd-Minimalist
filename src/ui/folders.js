@@ -1,23 +1,28 @@
-/* Folders screen: Archived and Deleted tabs, each with a Tasks ∕ Notes
-   switch (PRD-notes AC-05.2). Deleted keeps items for RETENTION_DAYS, then
+/* Folders screen: Archived and Deleted tabs, each with a Tasks ∕ Notes ∕
+   Meetings switch (PRD-notes AC-05.2, PRD-meetings AC-10.2). Deleted keeps items for RETENTION_DAYS, then
    purgeDeleted() drops them (run on boot and whenever this tab opens).
    Tapping a row opens the item read-only. */
 
 import {
-  UI, RETENTION_DAYS, listById, laneName, noteTitle, folderTasks, folderNotes, purgeDeleted,
-  deleteForever, deleteNoteForever, emptyDeleted, rerender,
+  UI, RETENTION_DAYS, listById, laneName, noteTitle, meetingTitle, folderTasks, folderNotes, folderMeetings, purgeDeleted,
+  deleteForever, deleteNoteForever, deleteMeetingForever, emptyDeleted, rerender,
 } from '../store.js';
 import { fmtRelative, daysLeft } from '../dates.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import { taskMetaHTML, bindScrollShadow, openDetail } from './board.js';
 import { confirmDialog } from './primitives.js';
-import { restoreWithToast, deleteWithUndo, restoreNoteWithToast, deleteNoteWithUndo } from './actions.js';
+import {
+  restoreWithToast, deleteWithUndo, restoreNoteWithToast, deleteNoteWithUndo,
+  restoreMeetingWithToast, deleteMeetingWithUndo,
+} from './actions.js';
 import { noteMetaHTML } from './notes.js';
 import { openNote } from './notedetail.js';
 import { colorBarHTML } from './noteeditor.js';
+import { meetingChipsHTML } from './meetings.js';
+import { openMeeting } from './meeting.js';
 
-/** tab: 'archived' | 'deleted'; kind (optional): 'tasks' | 'notes' */
+/** tab: 'archived' | 'deleted'; kind (optional): 'tasks' | 'notes' | 'meetings' */
 export function openFolder(tab, kind) {
   if (tab === 'deleted') purgeDeleted();
   UI.screen = 'folders';
@@ -69,16 +74,30 @@ function noteRowHTML(n, tab) {
   </div>`;
 }
 
+function meetingRowHTML(m, tab) {
+  return `
+  <div class="row frow nrow" data-meeting="${m.id}">
+    <div class="t-main">
+      <button class="t-title frow-open" data-open-meeting="${m.id}">${esc(meetingTitle(m))}</button>
+      ${meetingChipsHTML(m)}
+      <span class="frow-origin">Meeting · ${whenLabel(m, tab)}</span>
+      ${actionsHTML('meeting', m.id, tab)}
+    </div>
+  </div>`;
+}
+
 export function foldersHTML() {
   const tab = UI.folder, kind = UI.folderKind;
-  const tasks = folderTasks(tab), notes = folderNotes(tab);
-  const total = (t) => folderTasks(t).length + folderNotes(t).length;
-  const rows = kind === 'notes' ? notes.map((n) => noteRowHTML(n, tab)) : tasks.map((t) => taskRowHTML(t, tab));
-  const disclaimer = `Tasks and notes stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
+  const tasks = folderTasks(tab), notes = folderNotes(tab), meetings = folderMeetings(tab);
+  const total = (t) => folderTasks(t).length + folderNotes(t).length + folderMeetings(t).length;
+  const rows = kind === 'notes' ? notes.map((n) => noteRowHTML(n, tab))
+    : kind === 'meetings' ? meetings.map((m) => meetingRowHTML(m, tab))
+    : tasks.map((t) => taskRowHTML(t, tab));
+  const disclaimer = `Tasks, notes and meetings stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
+  const what = kind === 'notes' ? 'notes' : kind === 'meetings' ? 'meetings' : 'tasks';
   const empty = tab === 'archived'
-    ? (kind === 'notes' ? 'Nothing archived yet. Archive notes you are done with but want to keep.'
-      : 'Nothing archived yet. Archive tasks you are done with but want to keep.')
-    : (kind === 'notes' ? 'No deleted notes.' : 'Nothing in Deleted.');
+    ? `Nothing archived yet. Archive ${what} you are done with but want to keep.`
+    : (kind === 'tasks' ? 'Nothing in Deleted.' : `No deleted ${what}.`);
   const seg = (k, label, n) =>
     `<button class="seg ${kind === k ? 'active' : ''}" data-kind="${k}" role="tab" aria-selected="${kind === k}">${label} · ${n}</button>`;
   return `
@@ -95,6 +114,7 @@ export function foldersHTML() {
       <div class="segmented solid folder-kind" role="tablist" aria-label="Kind">
         ${seg('tasks', 'Tasks', tasks.length)}
         ${seg('notes', 'Notes', notes.length)}
+        ${seg('meetings', 'Meetings', meetings.length)}
       </div>
     </header>
     <div class="scroll-area">
@@ -119,12 +139,16 @@ export function bindFolders() {
   app.querySelectorAll('.frow').forEach((row) =>
     row.addEventListener('click', (e) => {
       if (e.target.closest('.frow-actions')) return;
-      if (row.dataset.note) openNote(row.dataset.note); else openDetail(row.dataset.id);
+      if (row.dataset.note) openNote(row.dataset.note);
+      else if (row.dataset.meeting) openMeeting(row.dataset.meeting);
+      else openDetail(row.dataset.id);
     }));
   app.querySelectorAll('[data-restore-task]').forEach((b) =>
     b.addEventListener('click', () => restoreWithToast(b.dataset.restoreTask)));
   app.querySelectorAll('[data-restore-note]').forEach((b) =>
     b.addEventListener('click', () => restoreNoteWithToast(b.dataset.restoreNote)));
+  app.querySelectorAll('[data-restore-meeting]').forEach((b) =>
+    b.addEventListener('click', () => restoreMeetingWithToast(b.dataset.restoreMeeting)));
   const confirmForever = (what) =>
     confirmDialog('Delete forever?', `This ${what} cannot be recovered afterwards.`, { confirmLabel: 'Delete forever', danger: true });
   app.querySelectorAll('[data-delete-task]').forEach((b) =>
@@ -139,8 +163,14 @@ export function bindFolders() {
       if (UI.folder === 'archived') { deleteNoteWithUndo(id); return; }
       if (await confirmForever('note')) deleteNoteForever(id);
     }));
+  app.querySelectorAll('[data-delete-meeting]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const id = b.dataset.deleteMeeting;
+      if (UI.folder === 'archived') { deleteMeetingWithUndo(id); return; }
+      if (await confirmForever('meeting')) deleteMeetingForever(id);
+    }));
   app.querySelector('[data-empty]')?.addEventListener('click', async () => {
-    if (await confirmDialog('Empty the Deleted folder?', 'Every task and note in it is removed permanently.', { confirmLabel: 'Empty folder', danger: true })) {
+    if (await confirmDialog('Empty the Deleted folder?', 'Every task, note and meeting in it is removed permanently.', { confirmLabel: 'Empty folder', danger: true })) {
       emptyDeleted();
     }
   });

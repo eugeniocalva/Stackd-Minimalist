@@ -6,7 +6,7 @@
 import { uid } from './util.js';
 import {
   daysFrom, nextOccurrence, addDays, daysBetween, reminderInstant,
-  defaultDateFormat, isDateFormat, setDefaultDateFormat,
+  defaultDateFormat, isDateFormat, setDefaultDateFormat, fmtDate, fmtClock,
 } from './dates.js';
 import { reminderKey } from './reminders.js';
 import { sanitize, toText } from './richtext.js';
@@ -59,6 +59,14 @@ export const NOTES_SORTS = [
 ];
 export const NOTE_COLORS = PRIORITY_COLORS;
 export const NOTE_DRAFT_KEY = 'stackd-note-draft';
+/* Meetings (docs/prd-meetings.md, architecture §19): list order, the
+   recording cap, the plan tiers and the proxy the AI steps talk to. */
+export const MEETINGS_SORTS = [
+  ['created-desc', 'Newest first'], ['created-asc', 'Oldest first'], ['title-asc', 'Title A–Z'],
+];
+export const MAX_RECORDING_MS = 30 * 60 * 1000;
+export const PLAN_TIERS = ['free', 'plus', 'pro', 'max'];
+export const PROXY_URL = 'https://stackd-proxy.eugeniocalva.workers.dev';
 /* reminder = minutes before the due time; null = none */
 export const REMINDER_OPTIONS = [
   [null, 'None'], [0, 'At time of due'], [10, '10 minutes before'],
@@ -76,10 +84,11 @@ export let S = migrate();
 
 /* transient UI state (not persisted) */
 export const UI = {
-  screen: 'list',        // 'lists' | 'list' | 'detail' | 'folders' | 'settings' | 'notes' | 'note'
+  screen: 'list',        // 'lists' | 'list' | 'detail' | 'folders' | 'settings' | 'notes' | 'note' | 'meetings' | 'meeting'
   folder: 'archived',    // which tab the folders screen shows
-  folderKind: 'tasks',   // 'tasks' | 'notes' — segment inside a folder
-  detailId: null,        // task id on 'detail', note id on 'note'
+  folderKind: 'tasks',   // 'tasks' | 'notes' | 'meetings' — segment inside a folder
+  detailId: null,        // task id on 'detail', note id on 'note', meeting id on 'meeting'
+  transcriptAll: false,  // meeting detail: the transcript is expanded past its first lines
   sortMenu: false,
   refocusAddsub: false,
   composer: { expanded: false, formatOpen: false, focus: null },   // Notes composer; focus = field to refocus after a render
@@ -131,6 +140,17 @@ function withSettings(state) {
   else if (!TASK_SORTS.some(([v]) => v === state.sort)) state.sort = 'manual';
   /* 1.4.3: lanes per board; boards from before carry the three built-in lanes */
   state.lists.forEach((l) => { l.lanes ??= defaultLanes(); });
+  /* Meetings (1.5.0): defaults only. The plan cache keeps its subscriber id
+     across loads; everything else in it is overwritten by the proxy. */
+  state.meetings ??= [];
+  if (!MEETINGS_SORTS.some(([v]) => v === state.meetingsSort)) state.meetingsSort = 'created-desc';
+  state.ai = { proxyUrl: null, disclosed: false, consented: false, ...(state.ai || {}) };
+  state.plan = {
+    tier: 'free', subscriberId: uid() + uid(), renewsAt: null,
+    audioSecondsLeft: 0, audioSecondsTotal: 0, summariesLeft: 0, summariesTotal: 0, checkedAt: 0,
+    ...(state.plan || {}),
+  };
+  if (!PLAN_TIERS.includes(state.plan.tier)) state.plan.tier = 'free';
   if (!isDateFormat(state.dateFormat)) state.dateFormat = defaultDateFormat();
   setDefaultDateFormat(state.dateFormat);   // every date the app writes follows it
   return state;
@@ -181,6 +201,22 @@ export function blankNote(extra = {}) {
     ...extra,
   };
 }
+
+/** A meeting with every field at its default (schema: docs/architecture.md
+    §19). The title is '' until the user types one; meetingTitle() shows the
+    dated default meanwhile, so it follows the Date format setting live. */
+export function blankMeeting(extra = {}) {
+  const now = Date.now();
+  return {
+    id: uid(), title: '', createdAt: now, updatedAt: now,
+    recording: null, transcript: null, minutes: null, actions: [],
+    jobs: { transcribe: null, summarise: null }, lastError: null,
+    status: 'active', archivedAt: null, deletedAt: null,
+    ...extra,
+  };
+}
+export const defaultMeetingTitle = (ts) => `Meeting · ${fmtDate(ts)} ${fmtClock(ts)}`;
+export const meetingTitle = (m) => m.title.trim() || defaultMeetingTitle(m.createdAt);
 
 /* — composer draft: its own key, no commit, no render — */
 
@@ -303,8 +339,39 @@ export function folderNotes(status) {
   const key = status === 'archived' ? 'archivedAt' : 'deletedAt';
   return S.notes.filter((n) => n.status === status).sort((a, b) => b[key] - a[key]);
 }
-/** Tasks + notes in a folder (sidebar and Boards-menu counts). */
-export const folderCount = (status) => folderTasks(status).length + folderNotes(status).length;
+/* — meetings — */
+
+export const meetingById = (id) => S.meetings.find((m) => m.id === id);   // any status
+export const activeMeetings = () => S.meetings.filter((m) => m.status === 'active');
+
+/** Date sorts by createdAt; title sort is case-insensitive, ties newest first. */
+export function sortedMeetings(sort = S.meetingsSort) {
+  const ms = activeMeetings();
+  if (sort === 'title-asc') {
+    ms.sort((a, b) => meetingTitle(a).localeCompare(meetingTitle(b), undefined, { sensitivity: 'base' }) || b.createdAt - a.createdAt);
+  } else {
+    ms.sort((a, b) => (sort === 'created-asc' ? a.createdAt - b.createdAt : b.createdAt - a.createdAt));
+  }
+  return ms;
+}
+
+export function folderMeetings(status) {
+  const key = status === 'archived' ? 'archivedAt' : 'deletedAt';
+  return S.meetings.filter((m) => m.status === status).sort((a, b) => b[key] - a[key]);
+}
+
+/** Proposed vs added action cards (row chip, Actions heading). */
+export const actionCounts = (m) => ({
+  proposed: m.actions.filter((a) => a.status === 'proposed').length,
+  added: m.actions.filter((a) => a.status === 'added').length,
+});
+/** The transcript changed after the minutes were made (AC-07.5). */
+export const minutesStale = (m) => !!(m.minutes && m.transcript && m.transcript.updatedAt > m.minutes.transcriptUpdatedAt);
+/** Nothing in it and no title of its own: dropped silently on back (AC-03.5). */
+export const meetingIsEmpty = (m) => !m.recording && !m.transcript && !m.title.trim();
+
+/** Tasks + notes + meetings in a folder (sidebar and Boards-menu counts). */
+export const folderCount = (status) => folderTasks(status).length + folderNotes(status).length + folderMeetings(status).length;
 
 /** Label usage split by kind, for Settings › Labels. */
 export const tagUseCounts = (name) => ({
@@ -517,6 +584,103 @@ export function reorderNote(id, beforeId) {
   const idx = ordered.findIndex((x) => x.id === beforeId);
   ordered.splice(idx === -1 ? ordered.length : idx, 0, n);
   ordered.forEach((x, i) => { x.order = i; });
+  commit();
+}
+
+/* — meetings (PRD-meetings US-03, US-06, US-10) — */
+
+const touchMeeting = (m) => { m.updatedAt = Date.now(); };
+const leaveMeeting = (id) => { if (UI.screen === 'meeting' && UI.detailId === id) { UI.detailId = null; UI.screen = 'meetings'; } };
+
+/** The + on the Meetings screen: a blank meeting, opened at once. */
+export function newMeeting() {
+  const m = blankMeeting();
+  S.meetings.push(m);
+  UI.detailId = m.id; UI.screen = 'meeting'; UI.transcriptAll = false;
+  commit();
+  return m;
+}
+
+/** Title autosave from the detail (quiet: the input keeps its caret). */
+export function updateMeeting(id, patch) {
+  const m = meetingById(id); if (!m || m.status !== 'active') return;
+  if (patch.title !== undefined) m.title = String(patch.title);
+  touchMeeting(m); persistQuiet();
+}
+
+/** Leaving the detail: trim the title; an untouched meeting is dropped (AC-03.5). */
+export function finalizeMeeting(id) {
+  const m = meetingById(id); if (!m || m.status !== 'active') return false;
+  m.title = m.title.trim();
+  if (meetingIsEmpty(m)) { S.meetings = S.meetings.filter((x) => x.id !== id); leaveMeeting(id); commit(); return true; }
+  commit();
+  return false;
+}
+
+/** A transcript from any source replaces the old one; the minutes and the
+    proposed actions go with it, added actions keep their tasks (AC-04.9). */
+export function setTranscript(id, { source, fileName = null, segments, speakers }) {
+  const m = meetingById(id); if (!m || m.status !== 'active') return;
+  const now = Date.now();
+  m.transcript = {
+    source, fileName,
+    segments: segments
+      .map((s) => ({ id: s.id || uid(), speaker: s.speaker, startMs: s.startMs ?? null, text: String(s.text ?? '').trim() }))
+      .filter((s) => s.text),
+    speakers: { ...speakers },
+    createdAt: now, updatedAt: now,
+  };
+  m.minutes = null;
+  m.actions = m.actions.filter((a) => a.status === 'added');
+  m.lastError = null;
+  touchMeeting(m); commit();
+}
+
+/** A name for a speaker label, for every segment of this meeting; null or
+    '' returns the default label (AC-06.2). Counts as a transcript edit. */
+export function renameSpeaker(id, label, name) {
+  const m = meetingById(id); const t = m?.transcript;
+  if (!t || !Object.hasOwn(t.speakers, label)) return;
+  const n = String(name ?? '').trim();
+  t.speakers[label] = n || null;
+  t.updatedAt = Date.now();
+  touchMeeting(m); commit();
+}
+
+export function setMeetingsSort(sort) {
+  if (!MEETINGS_SORTS.some(([v]) => v === sort) || S.meetingsSort === sort) return;
+  S.meetingsSort = sort; commit();
+}
+
+export function archiveMeeting(id) {
+  const m = meetingById(id); if (!m || m.status !== 'active') return;
+  m.status = 'archived'; m.archivedAt = Date.now();
+  leaveMeeting(id); commit();
+}
+
+/** Returns the status and archivedAt it had, so Undo can put it back. */
+export function softDeleteMeeting(id) {
+  const m = meetingById(id); if (!m || m.status === 'deleted') return null;
+  const prev = { status: m.status, archivedAt: m.archivedAt };
+  m.status = 'deleted'; m.deletedAt = Date.now(); m.archivedAt = null;
+  leaveMeeting(id); commit();
+  return prev;
+}
+
+export function returnMeetingToArchive(id, archivedAt) {
+  const m = meetingById(id); if (!m || m.status !== 'deleted') return;
+  m.status = 'archived'; m.archivedAt = archivedAt; m.deletedAt = null;
+  commit();
+}
+
+export function restoreMeeting(id) {
+  const m = meetingById(id); if (!m || m.status === 'active') return;
+  m.status = 'active'; m.archivedAt = null; m.deletedAt = null;
+  commit();
+}
+
+export function deleteMeetingForever(id) {
+  S.meetings = S.meetings.filter((m) => m.id !== id);
   commit();
 }
 
@@ -826,20 +990,22 @@ export function deleteForever(id) {
   commit();
 }
 
-/** Tasks and notes alike. */
+/** Tasks, notes and meetings alike. */
 export function emptyDeleted() {
   S.tasks = S.tasks.filter((t) => t.status !== 'deleted');
   S.notes = S.notes.filter((n) => n.status !== 'deleted');
+  S.meetings = S.meetings.filter((m) => m.status !== 'deleted');
   commit();
 }
 
-/** Drops deleted tasks and notes older than RETENTION_DAYS. Returns how many went. */
+/** Drops deleted tasks, notes and meetings older than RETENTION_DAYS. Returns how many went. */
 export function purgeDeleted(now = Date.now()) {
   const keep = (x) => x.status !== 'deleted' || now - x.deletedAt < RETENTION_MS;
-  const before = S.tasks.length + S.notes.length;
+  const before = S.tasks.length + S.notes.length + S.meetings.length;
   S.tasks = S.tasks.filter(keep);
   S.notes = S.notes.filter(keep);
-  const removed = before - S.tasks.length - S.notes.length;
+  S.meetings = S.meetings.filter(keep);
+  const removed = before - S.tasks.length - S.notes.length - S.meetings.length;
   if (removed) save();
   return removed;
 }
