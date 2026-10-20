@@ -1,11 +1,13 @@
 # Technical Architecture: Stack'd Minimalist
 
-Implements two PRDs: `docs/prd.md` (tasks, v2 — §1–§8, shipped in 1.1.0 →
-1.3.0) and `docs/prd-notes.md` (Notes, 1.4.0 — §9 onwards). Structural code
-only (schemas, interfaces, module layout, phases); no application logic
-here. Everything in §9 builds on §1–§8 without changing them; where a v2
-module gains a responsibility, §9 says so and the v2 section stays as the
-record of what was built.
+Implements three PRDs: `docs/prd.md` (tasks, v2 — §1–§8, shipped in 1.1.0
+→ 1.3.0), `docs/prd-notes.md` (Notes, 1.4.0 — §9–§17, shipped) and
+`docs/prd-meetings.md` (Meetings and paid plans, 1.5.0 — §18 onwards).
+Structural code only (schemas, interfaces, module layout, phases); no
+application logic here. Each part builds on the ones before without
+changing them; where an earlier module gains a responsibility, the later
+part says so and the earlier section stays as the record of what was
+built.
 
 ---
 
@@ -809,3 +811,746 @@ riskiest code in the release.
 | `scripts/check-dates.mjs` (extended) | `fmtDate` in `dmy` / `mdy` / `ymd`, `defaultDateFormat` for `en-US`, `pt-PT`, `sv-SE`, `ja-JP`; `fmtDateLong`, `fmtRelative`, `fmtDue` ≥ 7 days per format. |
 | `scripts/check-store.mjs` (extended) | §10 invariants: defaults on an old store, `addNote` order, draft key round trip, `updatedAt` on tick, `sortedNotes` per sort, `reorderNote`, `copyNote`, restore keeps order, purge / empty / label rename and delete reach notes, `sanitize(body) === body`. |
 | `scripts/check-shell.mjs` (unchanged) | Fails until the five new files are in SHELL. |
+
+---
+
+# Part III — Meetings and paid plans (1.5.0, `docs/prd-meetings.md`)
+
+## 18. Approach
+
+- **Meetings are a third array with a linear lifecycle.** `S.meetings`
+  sits next to `S.tasks` and `S.notes`. A meeting is a record that fills
+  in from the top (recording → transcript → minutes → actions) and the
+  detail screen renders exactly the blocks that exist plus the next
+  button, so the UI never needs a state machine beyond "which fields are
+  non-null".
+- **Audio never enters `S`.** Recordings are blobs in an IndexedDB
+  database of their own (`stackd-media`), addressed by a key the meeting
+  stores. `localStorage` stays a few hundred KB; a 30-minute recording is
+  about 11 MB. `media.js` is the only module that touches IndexedDB.
+- **The proxy is the only thing that spends money, so it is the only
+  thing that counts.** Entitlement and allowance live server-side in
+  Workers KV keyed by subscriber id; the app caches what the proxy
+  returns for display and never decides on its own whether a step is
+  allowed. A Free user is refused before any provider is called.
+- **Jobs are persisted, not awaited.** Transcribe and Summarise return a
+  job id that is written to the meeting; a single `ai.js` poller resumes
+  every open job on app start and on `resume`, so leaving the screen,
+  the app or the phone's lock does not lose a result.
+- **Reuse the gestures and sheets that exist.** The swipe code in
+  `board.js` grows a right-hand action; the Move / Copy sheet and the
+  add-task sheet grow options. No second swipe implementation, no second
+  board picker, no second task form.
+- **Native only where the web platform cannot.** The recorder is
+  `MediaRecorder` everywhere; the shells add a background-audio mode
+  (iOS) and a foreground service (Android) around it. Purchases are the
+  one place a plugin is unavoidable, and it is reached the way haptics
+  and notifications are: through the bridge-injected
+  `globalThis.Capacitor.Plugins`, guarded so the web build simply shows
+  the Free variant.
+- **Pure where possible, so Node can test it.** `transcript.js` (parsers,
+  merge, serialisation), the allowance maths, the proxy's schema
+  validation and the job-state reducer have no DOM or network dependency
+  and are covered by `npm run check`.
+
+---
+
+## 19. Data Schema additions (still `stackd-v2`, no migration)
+
+```js
+// localStorage['stackd-v2'] — new top-level fields, added by withSettings()
+{
+  …,                                   // everything from §3 and §10 unchanged
+  meetings: [ Meeting, … ],            // ??= []
+  meetingsSort: 'created-desc',        // ??= ; 'created-desc' | 'created-asc' | 'title-asc'
+  ai: {                                // ??= { proxyUrl: null, disclosed: false, consented: false }
+    proxyUrl: null | 'https://…',      // Settings › Developer override; null = PROXY_URL constant
+    disclosed: false,                  // AC-05.6 one-time dialog shown
+    consented: false,                  // AC-04.1 one-time dialog shown
+  },
+  plan: {                              // ??= { tier: 'free', subscriberId: uid(), … }; cache of the proxy's truth
+    tier: 'free' | 'plus' | 'pro' | 'max',
+    subscriberId: 'a1b2…',             // generated once; handed to RevenueCat as the app user id
+    renewsAt: null | 1760000000000,    // current period end (pool reset)
+    audioSecondsLeft: 0, audioSecondsTotal: 0,
+    summariesLeft: 0, summariesTotal: 0,
+    checkedAt: 0,                      // last successful /allowance; stale after 10 min → refetch on Settings / AI buttons
+  },
+}
+
+// Meeting
+{
+  id: 'f3a9c1d2',
+  title: 'Meeting · 20/10/2026 14:03',   // default from createdAt in S.dateFormat; editable
+  createdAt: 1760000000000,
+  updatedAt: 1760000000000,            // bumped by title, transcript, minutes, action and speaker edits
+  recording: null | {
+    key: 'rec-f3a9c1d2',               // IndexedDB key in 'stackd-media'
+    mimeType: 'audio/mp4' | 'audio/webm',
+    durationMs: 754000, sizeBytes: 4521000,
+    recordedAt: 1760000000000,
+  },
+  transcript: null | {
+    source: 'recording' | 'pasted' | 'file',
+    fileName: null | 'teams.vtt',
+    segments: [ { id, speaker: 'S1', startMs: null | 12000, text: '…' } ],   // authoring order
+    speakers: { S1: null, S2: 'Marco' },   // label → user-given name (null = default "Speaker n")
+    createdAt, updatedAt,              // updatedAt bumps on rename and text edit
+  },
+  minutes: null | {
+    summary: '', decisions: [''], openQuestions: [''],
+    generatedAt: 1760000000000,
+    transcriptUpdatedAt: 1760000000000,   // the transcript.updatedAt it was made from; stale ⇔ transcript.updatedAt > this
+  },
+  actions: [ {
+    id, title: '', due: null | '2026-10-24', priority: 'none' | priorityId,
+    excerpt: '', status: 'proposed' | 'added' | 'dismissed', taskId: null | id,
+  } ],
+  jobs: {                              // open provider jobs; null when idle
+    transcribe: null | { id: 'job_…', startedAt, phase: 'upload' | 'wait' },
+    summarise:  null | { id: 'job_…', startedAt, phase: 'wait' },
+  },
+  lastError: null | { step: 'transcribe' | 'summarise', code: ErrorCode, message: '', at },
+  status: 'active' | 'archived' | 'deleted',
+  archivedAt: null | ms, deletedAt: null | ms,
+}
+
+// Task — one new optional field
+task.from = null | { meetingId, actionId }
+
+// IndexedDB 'stackd-media', object store 'recordings' (keyPath 'key')
+{ key: 'rec-f3a9c1d2', mimeType, chunks: [ Blob, … ], durationMs, sizeBytes, updatedAt }
+// chunks are appended every 5 s while recording (MediaRecorder timeslice) and
+// concatenated into one Blob for playback / upload; a crash keeps the chunks.
+```
+
+### Transient UI state additions (`UI`, not persisted)
+
+```js
+UI.screen: … | 'meetings' | 'meeting'
+UI.detailId     // meeting id on 'meeting'
+UI.folderKind   // 'tasks' | 'notes' | 'meetings'
+UI.recorder     // null | { state: 'idle'|'recording'|'stopping', startedAt, elapsedMs }   (one at a time, app-wide)
+UI.player       // null | { meetingId, playing, positionMs }
+UI.openCard     // action card whose swipe is open (mirrors openRow in board.js)
+```
+
+### Invariants (enforced in `store.js` and `ai.js`, tested in `check-store.mjs` / `check-ai.mjs`)
+- Meetings list, counts, search: `status === 'active'` only; folder counts
+  are `tasks + notes + meetings`.
+- `recording`, `transcript`, `minutes` fill in that order and only that
+  order: `minutes` ⇒ `transcript`; `transcript.source === 'recording'` ⇒
+  `recording` existed when it was made (it may be deleted later).
+- `actions.length > 0` ⇒ `minutes !== null`; an `added` action has a
+  `taskId` whose task has `from.meetingId === meeting.id`; deleting that
+  task forever does not touch the action (the card shows "task removed").
+- `jobs.transcribe` ⇒ `recording !== null`; `jobs.summarise` ⇒
+  `transcript !== null`; at most one job per step per meeting; a job
+  older than 2 hours is dropped on resume with `lastError.code =
+  'timeout'`.
+- `minutes.transcriptUpdatedAt < transcript.updatedAt` ⇔ the stale chip.
+- `S.plan.tier === 'free'` ⇒ both `*Left` are 0; the app never increments
+  or decrements `*Left` itself, it only copies what the proxy returns.
+- `S.ai.proxyUrl`, when set, must be `https:` (or `http://localhost…`);
+  anything else is ignored.
+- Deleting a meeting forever, emptying the Deleted folder and
+  `purgeDeleted()` call `media.remove(key)` for every recording they drop;
+  `media.js` exposes `orphans(keys)` and boot removes blobs no meeting
+  references.
+
+---
+
+## 20. System Architecture (additions)
+
+```
+┌──────────── device ────────────┐        ┌──────── Cloudflare ────────┐
+│ app (web / iOS / Android)      │  HTTPS │ proxy/ (Worker)            │
+│  ui/meeting.js ─ ai.js ───────────────▶ │  POST /v1/transcribe ──────┼──▶ speech-to-text provider (async job)
+│  media.js (IndexedDB blobs)    │        │  GET  /v1/transcribe/:id   │◀── poll
+│  purchases.js ─ Capacitor ─────┐        │  POST /v1/summarise ───────┼──▶ Claude (structured output)
+│                                │        │  GET  /v1/allowance        │
+│                                │        │  POST /v1/rc-webhook ◀─────┼──── RevenueCat (renewal / refund)
+└────────────────────────────────┘        │  KV: sub:{id} · pool:{id}:{period} · tester:{id} · rccache:{id}
+       │ native purchase sheet            └────────────┬───────────────┘
+       ▼                                               │ GET /v1/subscribers/{id}
+   App Store / Google Play ──▶ RevenueCat ◀────────────┘
+```
+
+**Request contract.** Every proxy call carries `X-Stackd-App: <appToken>`
+(a constant in the client, rotated by redeploy; it stops drive-by use,
+not a determined attacker) and `X-Stackd-Subscriber: <subscriberId>`.
+The proxy answers JSON with `{ ok: true, …, allowance }` or
+`{ ok: false, code, message }`; `allowance` is always the post-call
+state so the app can refresh its cache from any response.
+
+| Endpoint | Body | Returns | Charges |
+|---|---|---|---|
+| `POST /v1/transcribe` | multipart: `audio` (≤ 40 MB, `audio/mp4` or `audio/webm`), `durationMs` | `{ jobId }` after the provider accepted the upload | reserves `ceil(durationMs / 60000)` minutes; refunded on provider failure |
+| `GET /v1/transcribe/:jobId` | — | `{ state: 'queued'|'processing'|'done'|'error', transcript?: { segments, speakers }, code? }` | — |
+| `POST /v1/summarise` | `{ transcript: { segments, speakers }, meetingDate, priorities: ['High','Medium','Low'], dateFormat }` | `{ minutes: { summary, decisions, openQuestions }, actions: [ { title, due, priority, excerpt } ] }` | 1 summary on success |
+| `GET /v1/allowance` | — | `{ tier, renewsAt, audioSecondsLeft, audioSecondsTotal, summariesLeft, summariesTotal }` | — |
+| `POST /v1/rc-webhook` | RevenueCat event (signed) | 204 | invalidates `rccache:{id}` |
+
+**Error codes** (`ErrorCode`): `offline` (client-side), `unauthorized`
+(bad app token), `plan_required` (Free), `allowance_exhausted` (with
+`resetsAt`), `too_large`, `too_quiet` (provider found no speech),
+`provider_unavailable`, `timeout`, `invalid_audio`, `bad_request`. The
+app maps each to the PRD's messages (AC-05.4, AC-12.6).
+
+**Entitlement.** `sub:{id}` is read from `rccache:{id}` (TTL 5 min) or
+fetched from RevenueCat's REST API (`GET /v1/subscribers/{app_user_id}`,
+secret key in a Worker secret) and reduced to `{ tier, renewsAt }` from
+the active entitlement with the highest tier. `tester:{id}` entries
+(config, not code) give `{ tier: 'tester' }`, which the pool logic treats
+as 60 min + 10 summaries **per day**.
+
+**Pools.** `pool:{id}:{period}` where `period` is `YYYY-MM` of
+`renewsAt`'s period start for subscribers and `YYYY-MM-DD` for testers;
+value `{ audioSeconds, summaries }` used so far. Limits per tier are a
+config object in `proxy/src/plans.js` (Plus 8 h / 20, Pro 16 h / 50, Max
+24 h / 100). Reservation on `/transcribe` is written before the provider
+call and released on failure, so two parallel uploads cannot overspend.
+
+**Providers.** The speech-to-text provider is chosen in Phase 20 (PRD
+Q13) and sits behind one adapter interface (`proxy/src/stt/*.js`):
+`start(audioBlob, mimeType) → providerJobId`, `poll(providerJobId) →
+{ state, segments, speakers }`. Claude is called through the official
+SDK with structured output (`output_config.format`, strict JSON schema),
+model id from config (`claude-haiku-5-5` or `claude-sonnet-5-5` after the
+Phase 16 benchmark, PRD Q15), streaming off (the output is small),
+`max_tokens` 4 000. The system prompt is a frozen string in
+`proxy/src/prompts.js` with `cache_control` on it.
+
+**Deploy.** `proxy/` has its own `package.json` and `wrangler.toml`;
+`.github/workflows/proxy.yml` (manual) runs `npm ci` and `wrangler deploy`
+with `CLOUDFLARE_API_TOKEN` from repository secrets; provider keys, the
+RevenueCat secret key and webhook secret, and the app token are Worker
+secrets set once with `wrangler secret put`. The client's `PROXY_URL`
+constant points at the `workers.dev` route (or a custom domain later).
+
+---
+
+## 21. File & Folder Structure (delta)
+
+```
+Stackd Minimalist/
+├─ app.js                      + routes 'meetings' and 'meeting'; FAB branch; ai.resumeJobs() on boot/resume
+├─ src/
+│  ├─ store.js                 + meetings state, selectors, mutations; S.ai, S.plan; folders/purge/search cover meetings
+│  ├─ media.js                 NEW  IndexedDB 'stackd-media': open, put/append chunks, get, remove, size, orphans, estimate
+│  ├─ transcript.js            NEW  pure: parseVTT, parseSRT, parsePasted, parseDocx(xmlText), mergeSegments,
+│  │                                speakerName, toModelText, defaultLabels
+│  ├─ ai.js                    NEW  proxy client: transcribe(meeting), summarise(meeting), allowance(), resumeJobs(),
+│  │                                errors → ErrorCode, upload progress, poll loop, job persistence
+│  ├─ purchases.js             NEW  RevenueCat bridge: available(), configure(subscriberId), offerings(), buy(product),
+│  │                                restore(), manageUrl(); web → available() === false
+│  └─ ui/
+│     ├─ meetings.js           NEW  Meetings screen: header (kicker, search, sort), rows with status chips, empty state
+│     ├─ meeting.js            NEW  meeting detail: title, date line, block composition, ⋯ menu, read-only variant
+│     ├─ recorder.js           NEW  Source / Recording block: consent + permission, MediaRecorder, level line (canvas),
+│     │                             clock, 30:00 cap, chunk writes, playback + scrubber, delete / replace
+│     ├─ transcriptview.js     NEW  Transcript block: segments, rename speaker, tap-to-seek, inline edit, Show all
+│     ├─ minutesview.js        NEW  Minutes block: three sections, AI label, inline edit, stale chip, Regenerate
+│     ├─ actioncards.js        NEW  Actions block: cards, inline title, swipe left / right, add-to-board flow, added state
+│     ├─ sourcesheet.js        NEW  Paste sheet and file picker (txt / vtt / srt / docx) → transcript.js
+│     ├─ paywall.js            NEW  plan cards, Subscribe / Restore / Manage, "plan required" and "allowance used" sheets
+│     ├─ board.js              ~ bindRowGestures() → bindSwipe(el, { left, right, onTap, onDoubleTap, onLongPress })
+│     ├─ addsheet.js           ~ openSheet({ initial, fixedList, lane, submitLabel, onSaved })
+│     ├─ movecopy.js           ~ openMoveCopy({ mode: 'move'|'copy'|'add', title, listId, lane, onConfirm })
+│     ├─ detail.js             ~ "From meeting ‹title›" line when task.from is set
+│     ├─ shell.js              ~ Meetings in sidebar and Boards menu; FAB → newMeeting(); folder counts
+│     ├─ folders.js            ~ Tasks ∕ Notes ∕ Meetings segment; meeting rows; recording size
+│     ├─ settings.js           ~ Plan section (paywall.js), Meetings & AI section, Developer proxy URL
+│     ├─ actions.js            ~ archive / delete / restore with Undo for meetings; dismissAction with Undo
+│     └─ icons.js              + mic, stop, play, pause, document, sparkle, attach, clipboard, meeting, lock
+├─ styles/
+│  ├─ components.css           + level line, clock, player, segment, action card + swipe-right control,
+│  │                             plan card, allowance bar, status chips (≤ 220 lines)
+│  └─ screens.css              + meetings list, meeting detail blocks (≤ 120 lines)
+├─ proxy/                      NEW  Cloudflare Worker
+│  ├─ package.json, wrangler.toml, README.md
+│  ├─ src/index.js             router, auth, CORS (GitHub Pages origin + capacitor://localhost + http://localhost)
+│  ├─ src/plans.js             tier limits, tester limits, period maths (pure, shared with the client checks)
+│  ├─ src/entitlement.js       RevenueCat lookup + KV cache + webhook handler
+│  ├─ src/pool.js              reservation / charge / release on KV
+│  ├─ src/stt/{provider}.js    adapter(s): start / poll
+│  ├─ src/summarise.js         Claude call, JSON schema, due-date and priority post-validation
+│  ├─ src/prompts.js           frozen system prompt
+│  └─ src/schema.js            transcript / minutes / actions schemas (pure)
+├─ android/                    NEW  generated by `npx cap add android`, committed (unlike ios/) because the
+│                              foreground-service plugin and manifest edits are hand-maintained
+├─ plugins/
+│  └─ recording-service/       NEW  tiny local Capacitor plugin: Android foreground service start/stop while
+│                              recording; iOS no-op (background audio mode handles it)
+├─ .github/workflows/
+│  ├─ ios-testflight.yml       ~ PlistBuddy adds NSMicrophoneUsageDescription + UIBackgroundModes [audio]
+│  ├─ android-play.yml         NEW  build signed AAB, upload to Play internal testing (manual)
+│  └─ proxy.yml                NEW  wrangler deploy (manual)
+├─ scripts/
+│  ├─ check-store.mjs          + meetings invariants (§19)
+│  ├─ check-transcript.mjs     NEW  transcript.js parsers + merge + model text; plans.js maths
+│  ├─ check-ai.mjs             NEW  ai.js job reducer and error mapping against a fake fetch; proxy schema validation
+│  └─ check-shell.mjs          (unchanged) fails until the new files are in SHELL
+├─ sw.js                       SHELL += src/{media,transcript,ai,purchases}.js, src/ui/{meetings,meeting,recorder,
+│                              transcriptview,minutesview,actioncards,sourcesheet,paywall}.js; VERSION 'stackd-v1.5.0'
+├─ privacy.html, terms.html    NEW  static pages on GitHub Pages (store requirement, PRD AC-12.9)
+└─ docs/                       prd-meetings.md (this release), qa-report.md (+1.5.0 section)
+```
+
+`scripts/build-www.mjs` gains `privacy.html` and `terms.html` only if
+they must ship inside the shells (they need not: the store links point at
+the website). `www/` and `ios/` stay generated; `android/` is committed.
+
+---
+
+## 22. Core Interfaces & Types (additions)
+
+```js
+/** @typedef {'free'|'plus'|'pro'|'max'} Tier */
+/** @typedef {{ id: string, speaker: string, startMs: number|null, text: string }} Segment */
+/** @typedef {{ source: 'recording'|'pasted'|'file', fileName: string|null, segments: Segment[], speakers: Record<string, string|null>, createdAt: number, updatedAt: number }} Transcript */
+/** @typedef {{ summary: string, decisions: string[], openQuestions: string[], generatedAt: number, transcriptUpdatedAt: number }} Minutes */
+/** @typedef {{ id: string, title: string, due: string|null, priority: string, excerpt: string, status: 'proposed'|'added'|'dismissed', taskId: string|null }} Action */
+/** @typedef {'offline'|'unauthorized'|'plan_required'|'allowance_exhausted'|'too_large'|'too_quiet'|'provider_unavailable'|'timeout'|'invalid_audio'|'bad_request'} ErrorCode */
+/** @typedef {{ tier: Tier, renewsAt: number|null, audioSecondsLeft, audioSecondsTotal, summariesLeft, summariesTotal }} Allowance */
+
+// src/store.js — additions
+export const MEETINGS_SORTS;                       // [['created-desc','Newest first'], ['created-asc','Oldest first'], ['title-asc','Title A–Z']]
+export const MAX_RECORDING_MS = 30 * 60 * 1000;
+export const PROXY_URL = 'https://stackd-proxy.<account>.workers.dev';
+export function blankMeeting(extra = {}): Meeting;  // title from createdAt + S.dateFormat
+export function defaultMeetingTitle(ts): string;
+
+// selectors (active only unless named otherwise)
+export const meetingById = (id) => Meeting | undefined;   // any status
+export function activeMeetings(): Meeting[];
+export function sortedMeetings(sort = S.meetingsSort): Meeting[];
+export function folderMeetings(status): Meeting[];
+export function folderCount(status): number;       // tasks + notes + meetings
+export function meetingStatusChips(m): { recording?: string, transcript: boolean, minutes: boolean, actions: { open, added }, job?: 'transcribe'|'summarise', failed: boolean };
+export function minutesStale(m): boolean;
+export function actionCounts(m): { proposed, added };
+export function proxyUrl(): string;                // S.ai.proxyUrl || PROXY_URL
+
+// mutations — every one calls commit() unless noted
+export function newMeeting(): Meeting;             // adds, opens (UI.screen = 'meeting')
+export function updateMeeting(id, patch: Partial<Pick<Meeting,'title'>>): void;        // touches updatedAt; quiet
+export function setRecording(id, rec: Meeting['recording']): void;                     // null clears; also clears nothing else
+export function replaceRecording(id, rec): void;   // AC-04.9: clears transcript, minutes, proposed actions; keeps added
+export function setTranscript(id, t: Transcript): void;                                // clears minutes + proposed actions
+export function renameSpeaker(id, label, name: string|null): void;                     // touches transcript.updatedAt
+export function editSegment(id, segmentId, text): void;                                // touches transcript.updatedAt; quiet
+export function setMinutes(id, minutes: Minutes, actions: Omit<Action,'id'|'status'|'taskId'>[]): void;   // replaces proposed actions, keeps added + dismissed
+export function editMinutes(id, patch: Partial<Pick<Minutes,'summary'|'decisions'|'openQuestions'>>): void;   // quiet
+export function editAction(id, actionId, patch: Partial<Pick<Action,'title'|'due'|'priority'>>): void;      // quiet
+export function dismissAction(id, actionId): Action;          // status 'dismissed' (Undo restores 'proposed')
+export function undismissAction(id, actionId): void;
+export function addActionToBoard(id, actionId, draft): Task;  // addTask({ …draft, from: { meetingId, actionId } }); action → 'added'
+export function setJob(id, step, job | null): void;           // quiet (persistQuiet)
+export function setLastError(id, err | null): void;           // quiet
+export function setMeetingsSort(sort): void;
+export function archiveMeeting(id), softDeleteMeeting(id), returnMeetingToArchive(id, archivedAt), restoreMeeting(id), deleteMeetingForever(id);
+export function setPlanCache(a: Allowance, subscriberId?): void;   // S.plan ← allowance; quiet unless tier changed
+export function setProxyUrl(url: string|null): void;
+export function markDisclosed(), markConsented(): void;
+// purgeDeleted(), emptyDeleted() cover meetings and call media.remove()
+
+// src/media.js — the only IndexedDB module (promises; no store import)
+export const DB = 'stackd-media', STORE = 'recordings';
+export function available(): boolean;              // indexedDB exists and opens (file:// in Chrome: yes; private mode: maybe not)
+export function begin(key, mimeType): Promise<void>;           // creates the record with no chunks
+export function append(key, chunk: Blob, durationMs): Promise<void>;   // adds a chunk, updates duration/size (AC-04.4)
+export function blob(key): Promise<Blob | null>;   // concatenated, for playback (object URL) and upload
+export function remove(key): Promise<void>;
+export function size(key): Promise<number>;
+export function keys(): Promise<string[]>;
+export function orphans(referenced: string[]): Promise<string[]>;   // keys not in the list (boot cleanup)
+export function persist(): Promise<boolean>;       // navigator.storage.persist(), once
+export function estimate(): Promise<{ usage, quota } | null>;   // AC-04.7 thresholds live in recorder.js
+
+// src/transcript.js — pure (Node-testable)
+export function parseVTT(text): Segment[];         // cue times → startMs; <v Name> → speaker label keyed by name
+export function parseSRT(text): Segment[];
+export function parsePasted(text): Segment[];      // "Name: text" | "[00:12] Name: text" | "Name  00:12" shapes; else one 'T' segment
+export function parseDocxXml(documentXml: string): string;   // w:p → lines; caller unzips (see §26)
+export function mergeAdjacent(segments): Segment[];          // same speaker, consecutive → one segment (display only)
+export function defaultLabels(segments): Record<string, null>;   // S1…Sn in order of first appearance
+export function speakerName(t: Transcript, label): string;   // name || 'Speaker n'
+export function toModelText(t: Transcript): string;          // "[00:12] Marco: …" lines, names applied
+export function fromProvider(result): { segments: Segment[], speakers: Record<string, null> };   // provider-neutral shape
+
+// src/ai.js — proxy client (fetch; XMLHttpRequest for upload progress)
+export function isOnline(): boolean;
+export function transcribe(meetingId, { onProgress(pct) }): Promise<void>;   // AC-05.1: reads media.blob → POST → setJob → poll
+export function summarise(meetingId): Promise<void>;                          // AC-07.1
+export function cancelUpload(meetingId): void;     // upload phase only
+export function allowance({ force = false } = {}): Promise<Allowance>;        // GET /v1/allowance; caches into S.plan
+export function resumeJobs(): void;                // boot + 'resume' + 'online': restart polling for every open job
+export function errorFor(response | Error): { code: ErrorCode, message: string };
+export const POLL_MS = 4000, JOB_TTL_MS = 2 * 3600 * 1000;
+// internal: reduce(meeting, event) → next jobs/lastError/transcript/minutes, pure and tested
+
+// src/purchases.js — RevenueCat through the Capacitor bridge
+export function available(): boolean;              // globalThis.Capacitor?.Plugins?.Purchases exists
+export function configure(subscriberId): Promise<void>;        // once per launch, after S is loaded
+export function offerings(): Promise<{ plus, pro, max }>;      // packages with localized price strings
+export function buy(tier: 'plus'|'pro'|'max'): Promise<{ tier }>;   // native sheet; resolves after RevenueCat confirms
+export function restore(): Promise<{ tier }>;
+export function manageUrl(): Promise<string>;      // store management page
+// after buy/restore the caller calls ai.allowance({ force: true }) so the proxy's view wins
+
+// src/ui/board.js — swipe generalised (task rows keep their behaviour)
+export function bindSwipe(el, {
+  left: null | { el: HTMLElement, onAct() },       // revealed on swipe left (Delete)
+  right: null | { el: HTMLElement, onAct() },      // revealed on swipe right (Add to board) — new
+  onTap(), onDoubleTap?(), onLongPress?(),
+  enabled?: () => boolean,
+}): void;
+// bindRowGestures(el, task) becomes a thin wrapper over bindSwipe
+
+// src/ui/addsheet.js — options (existing callers unchanged)
+export function openSheet({
+  lane, initial: Partial<TaskDraft>,                // title, due, priority prefilled (AC-08.5)
+  fixedList: listId | null,                         // board chip shown but not changeable
+  submitLabel: 'Add task' | 'Save',
+  onSaved(task): void,                              // called instead of the default addTask path when given
+} = {}): void;
+
+// src/ui/movecopy.js — options
+export function openMoveCopy({ mode: 'move'|'copy'|'add', title, listId, lane, onConfirm(listId, lane) }): void;
+// 'add' has no "same place" disabling and defaults to S.currentList / firstLane
+
+// src/ui/meetings.js — screen
+export function openMeetings(): void;
+export function meetingsHTML(): string;
+export function bindMeetings(): void;
+export function meetingRowHTML(m, { folder = false }): string;   // also used by folders.js
+
+// src/ui/meeting.js — screen, composes the blocks
+export function openMeeting(id): void;
+export function meetingHTML(): string;             // title, date line, then recorder / transcriptview / minutesview / actioncards HTML
+export function bindMeeting(): void;               // binds each block; back → finalizeMeeting (AC-03.5)
+
+// src/ui/recorder.js
+export function recorderHTML(m): string;           // Source block | recording | saved + player
+export function bindRecorder(root, m): void;
+export function stopIfRecording(): Promise<void>;  // app-wide guard (navigation while recording is blocked, AC-04.2)
+// internal: MediaRecorder with timeslice 5000 → media.append; AnalyserNode → canvas; cap at MAX_RECORDING_MS
+
+// src/ui/actioncards.js
+export function actionsHTML(m): string;
+export function bindActions(root, m): void;
+// swipe right → openMoveCopy({ mode: 'add' }) → openSheet({ initial, fixedList, lane, submitLabel: 'Save',
+//   onSaved: (t) => addActionToBoard(m.id, a.id, t) })
+
+// src/ui/paywall.js
+export function planSectionHTML(): string;         // Settings: current plan, bars, plan cards, Restore / Manage; web variant
+export function bindPlanSection(root): void;
+export function openPlanRequired({ step: 'transcribe'|'summarise' }): void;     // AC-12.6 sheet for Free
+export function openAllowanceUsed({ step, resetsAt, tier }): void;              // AC-12.6 sheet for subscribers
+export function aiButtonState(step, m): { locked: boolean, hint: string };      // AC-12.5 text next to the buttons
+```
+
+Routing: `app.js` and `desktopHTML()` map `'meetings'` → `meetings.js`
+and `'meeting'` → `meeting.js`; the mobile nav hides on `'meeting'`;
+`inFolders` is true for a non-active meeting. `UI.query` resets in
+`openMeetings()`. Boot order: `migrate()` → `purchases.configure(S.plan.subscriberId)`
+(no-op on web) → `media.orphans()` cleanup → `ai.resumeJobs()` → render;
+`ai.resumeJobs()` runs again on Capacitor's `resume` and on `online`.
+
+---
+
+## 23. Component Inventory (additions)
+
+| Component | Source of styling | Used by |
+|---|---|---|
+| Mic button (idle) / Stop button (recording) | round 64 px primary button; recording: red surface, square glyph; `aria-pressed` | recorder |
+| Level line | `<canvas>` 100 % × 40 px, accent bars from `AnalyserNode`, static bars under reduced motion | recorder |
+| Clock | Manrope tabular numerals "mm:ss / 30:00" | recorder |
+| Player | `.btn-ghost` play/pause + `<input type="range">` styled on the Finance track + times | recorder, transcript (seek) |
+| Status chips | neutral `.chip` size S; spinner variant; amber "Failed" | meeting rows, folders |
+| Segment | speaker label (Manrope, secondary) + body text; `.playing` highlight; inline `contenteditable` text | transcriptview |
+| Minutes section | section title + paragraph / bullets; AI label line in secondary text | minutesview |
+| Action card | surface card, inline title input, chips row, excerpt in secondary; swipe layer with left Delete (red) and right Board (accent) | actioncards |
+| Added card | same card, muted, check icon, "Added to ‹board› · ‹lane›" link | actioncards |
+| Plan card | surface card: name, price, pool lines, primary Subscribe or "Current plan" | paywall (Settings) |
+| Allowance bar | 4 px track + accent fill + label | paywall (Settings) |
+| Plan-required / allowance-used sheets | existing `.sheet` with two plan cards or one message + Upgrade | paywall |
+| Source sheet | existing `.sheet` with a textarea or the file picker trigger | sourcesheet |
+| Tasks ∕ Notes ∕ Meetings segment | existing `.segmented` with three options | folders |
+
+---
+
+## 24. Implementation Phases (the roadmap, continued)
+
+Numbering continues from §14. Same rules: each phase is a vertical slice
+that leaves the app working, ends with its acceptance criteria ticked in
+`docs/prd-meetings.md`, `npm run check` green, `npm run bundle` run, and
+is offered for commit before the next starts. Estimates are focused build
+time; device time (two phones) is listed separately where it is needed.
+
+### Phase 14 — Android shell, store accounts, workflows · M (~5 h + owner tasks) — AC-11.5, prerequisite of US-12
+- `npx cap add android`, commit `android/`; `applicationId`
+  `com.eugeniocalva.stackd`, version from `sw.js` like iOS; permissions
+  `RECORD_AUDIO`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MICROPHONE`,
+  `POST_NOTIFICATIONS` in the manifest; adaptive icons via
+  `@capacitor/assets`.
+- `.github/workflows/android-play.yml` (manual): JDK 17, `npm run build`,
+  `cap sync android`, `gradlew bundleRelease` signed with an upload key
+  from secrets (`ANDROID_KEYSTORE_B64`, passwords), upload with
+  `r0adkll/upload-google-play` to the internal track using a service
+  account JSON secret; dry-run input like the iOS workflow.
+- `ios-testflight.yml`: PlistBuddy adds `NSMicrophoneUsageDescription`
+  and `UIBackgroundModes` = `[audio]` next to the encryption key.
+- `plugins/recording-service/`: local Capacitor plugin skeleton
+  (`start()`, `stop()`), Android foreground service with the recording
+  notification, iOS and web no-ops; registered in both shells.
+- Owner checklist (PRD §09): Play Console, paid-apps agreement, both
+  small-business enrolments, RevenueCat project with `plus_monthly`,
+  `pro_monthly`, `max_monthly` in one group on each store, `privacy.html`
+  and `terms.html` content.
+- **Done when:** the Android workflow produces an installable internal
+  build that runs 1.4.3 unchanged; the iOS build still passes its plist
+  inspection with the two new keys; the plugin's `start()` shows a
+  notification on Android.
+
+### Phase 15 — Meetings area, text path · L (~8 h) — US-01, US-02, US-03, US-06 (5–6), US-10
+- `store.js`: `withSettings()` defaults (`meetings`, `meetingsSort`, `ai`,
+  `plan` with a generated `subscriberId`), `blankMeeting`,
+  `defaultMeetingTitle`, selectors, `newMeeting`, `updateMeeting`,
+  `setTranscript`, `renameSpeaker`, sorts, archive / delete / restore /
+  forever, folder helpers; search covers meetings; `purgeDeleted` /
+  `emptyDeleted` cover meetings (media removal wired in Phase 19).
+- `transcript.js`: `parseVTT`, `parseSRT`, `parsePasted`,
+  `mergeAdjacent`, `defaultLabels`, `speakerName`.
+- `sourcesheet.js`: paste sheet; file picker for `.txt` / `.vtt` / `.srt`
+  (`.docx` in Phase 21); errors for unreadable / empty files.
+- `meetings.js`: header, search, sort, rows with status chips (jobs and
+  failures render once Phase 16 writes them), empty state. `meeting.js`:
+  shell, title, date line, Source block button row, ⋯ menu, empty-on-back
+  delete, read-only variant. `transcriptview.js`: segments, Show all,
+  speaker rename (edit and seek come in Phase 20).
+- `shell.js` / `app.js`: sidebar and Boards-menu entries, routes, FAB →
+  `newMeeting()`. `folders.js`: three-way segment, meeting rows.
+  `icons.js`: meeting, document, attach, clipboard. CSS. SHELL.
+- Checks: `check-transcript.mjs` (VTT with and without `<v>`, SRT, the
+  three pasted shapes, fallback, merge, labels), `check-store.mjs`
+  (defaults, lifecycle, folder counts, search fields, invariants that
+  apply without AI).
+- **Done when:** AC-01.1–01.5, AC-02.1–02.2, AC-02.4–02.7, AC-03.1–03.5,
+  AC-06.1–06.2, AC-06.5–06.6 (minus docx), AC-10.1–10.3 pass; a 1.4.3
+  store opens with an empty Meetings list.
+
+### Phase 16 — Proxy and minutes · L (~9 h) — US-07, US-09 (1–3, 5–6), US-11 (1–2), US-05 (4–6, summarise half)
+- `proxy/`: Worker with router, CORS, app-token check, `plans.js`,
+  `pool.js` on KV, `entitlement.js` with a **stub** that returns `tester`
+  for allow-listed ids and `free` otherwise (RevenueCat lands in Phase
+  18), `summarise.js` with the JSON schema, due-date resolution relative
+  to `meetingDate`, priority names → validated against the list passed,
+  ≤ 12 actions, `prompts.js`; `/v1/allowance`; `proxy.yml` deploy; README
+  with the secrets list.
+- Summary-model benchmark (PRD Q15): five real transcripts through
+  `claude-haiku-5-5` and `claude-sonnet-5-5`, blind rating sheet in
+  `docs/benchmarks/summary-model.md`; the winner becomes the config
+  default.
+- `ai.js`: `summarise`, `allowance`, `resumeJobs`, `errorFor`, the pure
+  job reducer, `isOnline`. `store.js`: `setMinutes`, `editMinutes`,
+  `setJob`, `setLastError`, `setPlanCache`, `setProxyUrl`,
+  `markDisclosed`, `minutesStale`.
+- `minutesview.js`: three sections, AI label, inline edit, Regenerate
+  with confirm, stale chip; Summarise button states (idle / running /
+  failed with Retry / offline / locked placeholder text from Phase 18).
+  Disclosure dialog. `settings.js`: Meetings & AI section with the
+  disclosure text, reset of the one-time dialogs, Developer proxy URL.
+- Checks: `check-ai.mjs` (reducer: start → wait → done / error / timeout;
+  resume after reload; error mapping), `check-transcript.mjs`
+  (`toModelText`, `plans.js` period and limit maths).
+- **Done when:** AC-07.1–07.5, AC-09.1, AC-09.3 (summaries half), AC-09.4
+  (stub), AC-09.5–09.6, AC-11.1–11.2, AC-05.4–05.6 for Summarise pass
+  against the deployed Worker from the PWA and the iOS shell.
+
+### Phase 17 — Action cards · M (~5 h) — US-08
+- `board.js`: `bindSwipe()` with left and right actions; task rows
+  re-wired through it with no behaviour change (regression walk of swipe
+  delete, tap, double-tap, long-press).
+- `movecopy.js` `'add'` mode; `addsheet.js` `initial` / `fixedList` /
+  `submitLabel` / `onSaved`. `store.js`: `editAction`, `dismissAction`,
+  `undismissAction`, `addActionToBoard`, `actionCounts`; `task.from`.
+- `actioncards.js`: cards with inline title, chips, excerpt; swipe left
+  Delete with Undo; swipe right Board icon → picker → prefilled sheet →
+  Save; added state with link to the task; desktop hover controls; a11y
+  buttons for both actions. `detail.js`: "From meeting" line.
+  `meetings.js` chips and Actions heading counts.
+- Checks: `check-store.mjs` (action lifecycle, counts, `from` pointer,
+  added action survives task deletion).
+- **Done when:** AC-08.1–08.8 and AC-02.2's action chip pass on 375 px
+  and 1280 px.
+
+### Phase 18 — Plans and purchases · L (~9 h + 2 h on devices) — US-12, AC-09.2, AC-09.4
+- `npm i @revenuecat/purchases-capacitor`, `cap sync`; `purchases.js`
+  through the bridge with the web guard; `configure()` at boot with
+  `S.plan.subscriberId`.
+- `proxy/src/entitlement.js`: real RevenueCat lookup with KV cache,
+  `/v1/rc-webhook` with signature check; `pool.js` keyed by period from
+  `renewsAt`; tester allow-list kept.
+- `paywall.js`: Plan section (bars, cards with localized prices from
+  `offerings()`, Subscribe, Restore, Manage), the two sheets, `aiButtonState`
+  for locked buttons with cost hints; web variant. `settings.js` places it.
+  `minutesview.js` and (later) `recorder.js` consult `aiButtonState`.
+  Lapsed handling = whatever `/v1/allowance` says on the next check.
+- Sandbox runs on both stores: buy Plus, use a summary, Restore on the
+  second device, upgrade to Pro, let the sandbox subscription expire.
+- Checks: `check-transcript.mjs` extended with `plans.js` tier limits and
+  tester day pools; `check-ai.mjs` with `plan_required` and
+  `allowance_exhausted` mapping and the cache refresh rule.
+- **Done when:** AC-12.1–12.9, AC-09.2, AC-09.4 pass on iPhone and
+  Android sandbox; the web build shows the Free variant with no plugin
+  errors in the console.
+
+### Phase 19 — Recording · L (~9 h + 3 h on devices) — US-04
+- **Spike first (half a day):** a throwaway TestFlight build with
+  `MediaRecorder` + the background audio mode, screen locked 10 minutes;
+  same on an Android internal build with the foreground service. Outcome
+  recorded in `docs/benchmarks/background-recording.md`. If iOS stops the
+  recorder, `recorder.js` gets a native path through the
+  `recording-service` plugin (AVAudioRecorder writing `.m4a`, returned as
+  a Blob through the bridge) and the rest of this phase is unchanged.
+- `media.js` complete; `recorder.js`: consent dialog (`markConsented`),
+  `getUserMedia` with denied-state UI and settings deep link via
+  `App.openUrl` / `app-settings:`, MediaRecorder with `timeslice 5000`
+  → `media.append`, `AnalyserNode` level line, clock, cap at
+  `MAX_RECORDING_MS` with toast + haptic, `UI.recorder` guard on
+  navigation, persistence request, `estimate()` warnings, saved state
+  with player and scrubber, Delete recording (confirm, size), Replace
+  (confirm → `replaceRecording`), the post-transcript "delete to free"
+  toast (wired in Phase 20). `store.js`: `setRecording`,
+  `replaceRecording`; `purgeDeleted` / `emptyDeleted` / forever call
+  `media.remove`; boot `orphans()` cleanup. `folders.js` shows sizes.
+- Checks: `check-store.mjs` (replace clears the right fields, purge
+  reaches media via an injected stub).
+- **Done when:** AC-04.1–04.9 pass on iPhone, Android and desktop Chrome;
+  a 30-minute recording is ≤ 15 MB, survives an app kill and a restart,
+  and the PRD lock-screen metric holds on both phones.
+
+### Phase 20 — Transcription · M (~6 h + benchmark) — US-05, US-06 (1–4, 7), AC-07.5, AC-09.3
+- Provider benchmark (PRD Q13): three real recordings (headset,
+  phone-on-table, two speakers overlapping) through two providers;
+  speaker accuracy first, price second, aiming at ≤ $0.20 / h; result in
+  `docs/benchmarks/stt-provider.md`; `proxy/src/stt/<winner>.js`.
+- `proxy/`: `/v1/transcribe` (multipart, size limit, reservation,
+  provider start), `/v1/transcribe/:id` (poll, provider → neutral shape,
+  charge on done, release on error), `too_quiet` detection.
+- `ai.js`: `transcribe` with XHR progress and cancel, poll loop, resume;
+  `transcript.fromProvider`. `recorder.js`: Transcribe button states,
+  cost hint via `aiButtonState`, the "delete to free" toast.
+  `transcriptview.js`: times, tap-to-seek with `.playing` highlight,
+  inline text edit (`editSegment`), stale chip wiring, Summarise /
+  Regenerate placement.
+- Checks: `check-ai.mjs` (upload → wait → done path, cancel during
+  upload, resume after kill, 2-hour TTL), `check-transcript.mjs`
+  (`fromProvider` on the chosen provider's sample payload).
+- **Done when:** AC-05.1–05.6, AC-06.1–06.4, AC-06.7, AC-07.5, AC-09.3
+  pass; a 30-minute recording transcribes in under 5 minutes end to end
+  on a phone on mobile data.
+
+### Phase 21 — `.docx`, Should items, polish · S (~4 h) — AC-06.6, Should list
+- `.docx`: a minimal zip reader in `transcript.js` (central directory →
+  `word/document.xml` entry → `DecompressionStream('deflate-raw')`) and
+  `parseDocxXml`; if `DecompressionStream` is missing (older WebView), the
+  file picker says so rather than failing silently. No dependency unless
+  the reader exceeds ~120 lines, in which case `fflate` is bundled.
+- Copy minutes to clipboard; extra pasted-text shapes; `prefers-reduced-motion`
+  pass on the level line; screen-reader pass (AC-11.4); icon and spacing
+  polish against the Finance tokens (AC-11.3).
+- **Done when:** AC-06.6 (docx), AC-11.3–11.4 and the Should items chosen
+  for the release pass.
+
+### Phase 22 — Release 1.5.0 · M (~4 h + QA on two phones) — AC-04.3, AC-11.5, AC-12.9
+- Walk `docs/prd-meetings.md` as QA (`agents/qa_tester.md`) on Chrome
+  375 px + 1280 px, light + dark, iPhone (TestFlight) and Android
+  (internal track), including sandbox purchases, lock-screen recording,
+  an app kill mid-job and an offline pass; append to `docs/qa-report.md`;
+  fix.
+- `privacy.html` / `terms.html` live; store listings carry the
+  subscription text; `file://` bundle run (AI buttons explain they need
+  http(s)); PWA install.
+- README (Meetings, plans, proxy, Android, new check scripts), `VERSION`
+  `stackd-v1.5.0`, `npm run check`, `npm run bundle`, commit, push
+  `main`, then the three manual workflows (proxy, iOS, Android).
+
+Order rationale: the Android shell (14) comes first because every later
+phase is verified on it and the store accounts have lead time; the text
+path (15) is the product without any infrastructure and proves the
+screen; the proxy (16) is needed by every AI step and the summary half is
+the cheaper one to prove it with; action cards (17) complete the "meeting
+to tasks" loop before any money is involved; plans (18) go before audio
+so TestFlight sees the paywall early and the proxy's entitlement path is
+real before the expensive step exists; recording (19) and transcription
+(20) are the hardest and the only device-bound work, so they come once
+everything around them is stable; docx and polish (21) can be dropped
+without a hole; release (22) last.
+
+---
+
+## 25. Acceptance criteria → phase
+
+| PRD criterion | Phase |
+|---|---|
+| AC-01.1 – 01.5 | 15 |
+| AC-02.1 – 02.2, 02.4 – 02.7 | 15 (02.2 action chip: 17; job / failed chips: 16, 20) |
+| AC-02.3 | 16 (summarise), 20 (transcribe) |
+| AC-03.1 – 03.5 | 15 |
+| AC-04.1 – 04.9 | 19 (04.3 iOS keys and Android service: 14 + 19; 04.8 toast: 20) |
+| AC-05.1 – 05.3 | 20 |
+| AC-05.4 – 05.6 | 16 (summarise), 20 (transcribe) |
+| AC-06.1 – 06.2, 06.5 | 15 |
+| AC-06.3 – 06.4, 06.7 | 20 |
+| AC-06.6 | 15 (txt / vtt / srt), 21 (docx) |
+| AC-07.1 – 07.4 | 16 |
+| AC-07.5 | 16 (chip), 20 (wired to edits) |
+| AC-08.1 – 08.8 | 17 |
+| AC-09.1, 09.3 (summaries), 09.5 – 09.6 | 16 |
+| AC-09.2, 09.4 | 18 |
+| AC-09.3 (audio minutes) | 20 |
+| AC-10.1 – 10.3 | 15 |
+| AC-10.4 | 19 |
+| AC-11.1 – 11.2 | 16 |
+| AC-11.3 – 11.4 | 21 |
+| AC-11.5 | 14 (shells, keys), 22 (verified) |
+| AC-12.1 – 12.9 | 18 (12.9 pages live: 22) |
+
+---
+
+## 26. Risks and Mitigations (1.5.0)
+
+| Risk | Mitigation |
+|---|---|
+| `MediaRecorder` in WKWebView stops when the app is backgrounded even with the audio background mode | Phase 19 spike before any recorder code; fallback is a native AVAudioRecorder path inside the `recording-service` plugin returning a Blob; the web code keeps `MediaRecorder`. |
+| IndexedDB eviction or private-mode failure loses recordings | `media.persist()` once; `estimate()` warnings; the shells store in the app sandbox, which is not evicted; `available()` false → recorder explains and offers paste / attach only. |
+| An app kill mid-recording loses audio | `timeslice 5000` chunks written as they arrive; `media.begin` before the first chunk; on boot a recording record with chunks but no meeting link is attached back or offered for deletion. |
+| 11 MB upload on a flaky mobile connection | XHR progress + cancel; `too_large` before upload; job id persisted so a retry re-uploads but never double-charges (reservation keyed by meeting id + recording key, idempotent). |
+| Pool overspend by parallel requests or reinstalls | Reservation before the provider call; counters keyed by subscriber id (RevenueCat app user id, restored with purchases), not device; the proxy, never the client, decides. |
+| RevenueCat plugin not reachable through the bridge for some method (complex return shapes) | `purchases.js` is the only caller; if a method needs the JS wrapper, that wrapper is bundled with esbuild into `app.bundle.js` only (the module build keeps the bridge path); verified in Phase 18 sandbox runs. |
+| Store review rejects the subscription screens | AC-12.9 checklist in `paywall.js`: price, period, renewal text, terms and privacy links, Restore visible; no mention of other platforms' prices; the web variant never says "buy". |
+| Provider prices or quality change after the benchmark | One adapter interface; tier limits and model id are config; §11 of the PRD is re-run with the benchmark's numbers before 1.5.0 ships. |
+| Claude returns something outside the schema (dates, priorities) | Structured output with a strict schema on the proxy; dates re-validated as ISO within −30…+365 days of the meeting; priorities validated against the list sent; invalid items dropped, never shown. |
+| CORS / origin drift between GitHub Pages, `capacitor://localhost` (iOS), `http://localhost` (Android) and `file://` | Allow-list in `proxy/src/index.js` from config; `file://` sends a `null` origin, so the bundle's AI buttons explain they need http(s) (AC-11.5). |
+| `.docx` unzip without a dependency | Minimal reader behind one function; size cap ~120 lines or switch to `fflate`; both tested in `check-transcript.mjs` with a real Teams export. |
+| Three swipe behaviours drift (task rows, action cards, future note rows) | One `bindSwipe()`; task regression walk in Phase 17. |
+| Service-worker shell drift with twelve new files | `check-shell.mjs`; VERSION bump in Phase 22. |
+| Proxy secrets or app token in the public repository | Only `wrangler.toml` (no secrets) and code are committed; secrets via `wrangler secret put` and GitHub secrets; the app token is a low-value constant by design and documented as such. |
+
+---
+
+## 27. Checks added to `npm run check`
+
+| Script | Covers |
+|---|---|
+| `scripts/check-transcript.mjs` (new) | `transcript.js`: VTT with and without `<v>` cues, SRT, the pasted shapes and fallback, `mergeAdjacent`, `defaultLabels`, `speakerName`, `toModelText`, `fromProvider` on the chosen provider's sample, `parseDocxXml` and the zip reader on a real export. `proxy/src/plans.js`: tier limits, tester day pools, period boundaries around `renewsAt`. |
+| `scripts/check-ai.mjs` (new) | `ai.js` reducer: summarise and transcribe state paths (start, wait, done, error, cancel, resume after reload, 2-hour TTL), `errorFor` mapping for every `ErrorCode`, plan cache refresh rule. `proxy/src/schema.js`: minutes / actions schema validation, date and priority post-validation. Runs against a fake `fetch`; no network. |
+| `scripts/check-store.mjs` (extended) | §19 invariants: defaults on a 1.4.3 store, lifecycle order, `replaceRecording` and `setTranscript` clearing rules, action lifecycle and `task.from`, folder counts with three kinds, purge reaching `media.remove` through an injected stub, `proxyUrl()` scheme rule. |
+| `scripts/check-shell.mjs` (unchanged) | Fails until the twelve new files are in SHELL. |
+
+The proxy has its own `npm test` in `proxy/` (Node, no framework, same
+style) for `pool.js` reservation / charge / release on an in-memory KV and
+the webhook signature check; `proxy.yml` runs it before `wrangler deploy`.
