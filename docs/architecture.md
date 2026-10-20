@@ -1117,7 +1117,7 @@ the website). `www/` and `ios/` stay generated; `android/` is committed.
 // src/store.js — additions
 export const MEETINGS_SORTS;                       // [['created-desc','Newest first'], ['created-asc','Oldest first'], ['title-asc','Title A–Z']]
 export const MAX_RECORDING_MS = 30 * 60 * 1000;
-export const PROXY_URL = 'https://stackd-proxy.<account>.workers.dev';
+export const PROXY_URL = 'https://stackd-proxy.eugenio-calvaresi.workers.dev';
 export function blankMeeting(extra = {}): Meeting;  // title from createdAt + S.dateFormat
 export function defaultMeetingTitle(ts): string;
 

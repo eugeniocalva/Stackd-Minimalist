@@ -5,6 +5,10 @@ name = "stackd-proxy"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
+# Served on https://stackd-proxy.eugenio-calvaresi.workers.dev (src/store.js PROXY_URL).
+# No per-version preview URLs: every deployed version would be reachable on its own address.
+workers_dev = true
+preview_urls = false
 
 # Per-subscriber counters (pool:…), the entitlement cache (rccache:…).
 # Create it once: `wrangler kv namespace create POOL`, then paste the id.
