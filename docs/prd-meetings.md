@@ -7,7 +7,7 @@ turns it into a transcript with speaker labels, turns the transcript into
 cards**, and sends the actions they keep to a board as tasks. Notes stay
 exactly as shipped in 1.4.0.
 
-Status: **approved 2026-10-20; in build** — Phases 14 (Android shell), 15 (Meetings area, text path), 16 (proxy and minutes), 17 (action cards) and 18 (plans and purchases) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
+Status: **approved 2026-10-20; in build** — Phases 14 (Android shell), 15 (Meetings area, text path), 16 (proxy and minutes), 17 (action cards), 18 (plans and purchases) and 19 (recording) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
 are in §07; the few calls the analyst made alone are in §08; the remaining
 open questions are in §09; the unit economics of the paid plans are in
 §11. Companion documents: `docs/prd.md` (tasks, v2), `docs/prd-notes.md`
@@ -187,19 +187,19 @@ each step appears only when the previous one exists.*
 *As a user, I want to tap a mic and trust that the whole meeting is being
 captured, even with the phone locked in my pocket.*
 
-- [ ] AC-04.1 **First use**: before the first recording the app shows a
+- [x] AC-04.1 **First use**: before the first recording the app shows a
       one-time dialog "Recording a meeting — make sure everyone present
       knows and agrees." with **Record** / **Cancel**; after that the
       system microphone permission prompt. Denied permission shows an
       in-place message with a button that opens the system settings on
       iOS / Android and instructions on the web.
-- [ ] AC-04.2 **Recording**: the mic button becomes a **red square Stop**
+- [x] AC-04.2 **Recording**: the mic button becomes a **red square Stop**
       button; a **level line** animates with the microphone input (a
       horizontal line of bars or a waveform that scrolls, in the accent
       colour, flat when silent); a **clock** "mm:ss" counts up from 00:00
       next to a muted "/ 30:00"; a red dot and "Recording" sit in the
       header. The ⋯ menu and back are disabled while recording.
-- [ ] AC-04.3 **Lock screen and background**: on iPhone and Android the
+- [ ] AC-04.3 *(iOS keys and the Android service are in place; the device spike is docs/benchmarks/background-recording.md)* **Lock screen and background**: on iPhone and Android the
       recording continues when the screen locks or the user switches app,
       and the system shows its own recording indicator (orange dot on iOS,
       the notification of a foreground service on Android). On the web the
@@ -207,32 +207,32 @@ captured, even with the phone locked in my pocket.*
       on mobile browsers the OS may stop it when the screen locks, and the
       Record screen says so once ("On the web, keep the screen on while
       recording.").
-- [ ] AC-04.4 **Stop**: tapping Stop ends the recording. At **30:00** the
+- [x] AC-04.4 **Stop**: tapping Stop ends the recording. At **30:00** the
       recording stops by itself, with a toast "Stopped at 30 minutes" and a
       haptic. Either way the recording is saved before the UI changes;
       an app kill mid-recording keeps what was captured up to the last
       saved chunk (at most a few seconds lost).
-- [ ] AC-04.5 **Saved**: the Recording block shows a **Play / Pause**
+- [x] AC-04.5 **Saved**: the Recording block shows a **Play / Pause**
       button, a scrubber, the elapsed and total time "03:12 / 12:34", and a
       **Transcribe** button with the document icon (AC-05.1). Playback
       pauses when another playback starts or the user leaves the screen.
-- [ ] AC-04.6 **Size and place**: audio is recorded mono at a bitrate that
+- [x] AC-04.6 **Size and place**: audio is recorded mono at a bitrate that
       keeps 30 minutes under about 15 MB, in the format the platform
       produces natively (AAC on iOS and Safari, Opus on Chrome and
       Android). It is stored on the device outside the main store (the
       main document stays small) and survives app updates and restarts.
       The app asks the browser for persistent storage the first time it
       records.
-- [ ] AC-04.7 **Space**: when free storage is below twice the maximum
+- [x] AC-04.7 **Space**: when free storage is below twice the maximum
       recording size, Record is still allowed but a warning sits above the
       mic button ("Low space: about 40 MB left"). When there is not enough
       space for one minute, Record is disabled with the reason.
-- [ ] AC-04.8 **Delete recording**: a secondary "Delete recording · 11 MB"
+- [ ] AC-04.8 *(delete with size done in Phase 19; the post-transcript toast comes with Phase 20)* **Delete recording**: a secondary "Delete recording · 11 MB"
       action in the Recording block (confirm). Deleting it keeps the
       transcript and minutes; tap-to-seek (AC-06.3) is then unavailable.
       After a transcript is made, a toast suggests it once: "Transcript
       ready. Delete the recording to free 11 MB?" with **Delete** / dismiss.
-- [ ] AC-04.9 One recording per meeting. Recording again on a meeting that
+- [x] AC-04.9 One recording per meeting. Recording again on a meeting that
       has one replaces it after a confirm, and clears its transcript,
       minutes and un-added actions (added tasks stay on their boards).
 
@@ -411,7 +411,7 @@ each plan can cost me.*
       "Removed in 27 days".
 - [x] AC-10.3 An archived or deleted meeting opens read-only with Restore
       and Delete / Delete forever; playback still works, AI buttons do not.
-- [ ] AC-10.4 The recording file is removed when the meeting is deleted
+- [x] AC-10.4 The recording file is removed when the meeting is deleted
       forever, emptied from the folder, or purged after 30 days; Archive
       keeps it. Folder rows show the recording size so the user sees what
       "Empty folder" frees.

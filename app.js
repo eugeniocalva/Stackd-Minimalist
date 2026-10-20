@@ -5,6 +5,7 @@
 import './src/boot.js'; // first: tells index.html's file:// fallback the modules started
 import {
   S, UI, isDesktop, setRenderer, setAfterCommit, rerender, commit, purgeDeleted, taskById,
+  setMediaRemover, meetingById, setRecording,
 } from './src/store.js';
 import { initReminders, syncReminders } from './src/notify.js';
 import { applyTheme, systemDark } from './src/theme.js';
@@ -23,10 +24,18 @@ import { meetingsHTML, bindMeetings } from './src/ui/meetings.js';
 import { meetingHTML, bindMeeting } from './src/ui/meeting.js';
 import { resumeJobs, setPlanErrorHandler } from './src/ai.js';
 import { configure as configurePurchases } from './src/purchases.js';
+import * as media from './src/media.js';
+import { isRecording, recordingMeetingId } from './src/ui/recorder.js';
+import { toast } from './src/ui/primitives.js';
 import { openPlanRequired, openAllowanceUsed } from './src/ui/paywall.js';
 
 function render() {
   applyTheme();
+  /* a running recording pins the app to its meeting (AC-04.2): stop it first */
+  if (isRecording() && !(UI.screen === 'meeting' && UI.detailId === recordingMeetingId())) {
+    UI.screen = 'meeting'; UI.detailId = recordingMeetingId();
+    toast('Stop the recording first');
+  }
   const focusAddsub = document.activeElement?.classList?.contains('addsub-input');
   if (!S.onboarded) { app.innerHTML = onboardingHTML(); bindOnboarding(); return; }
 
@@ -67,7 +76,19 @@ function render() {
 
 setRenderer(render);
 setAfterCommit(syncReminders); // native: keep iOS pending reminders in step
+setMediaRemover((keys) => keys.forEach((k) => media.remove(k).catch(() => {})));
 purgeDeleted();
+/* recordings on disk that no meeting references: a crash mid-recording left
+   the chunks without the row in the document → attach them back; anything
+   else is cruft → remove (architecture §19) */
+if (media.available()) {
+  media.orphans(S.meetings.map((m) => m.recording?.key).filter(Boolean)).then((rows) => rows.forEach((row) => {
+    const m = meetingById(row.meetingId);
+    if (m && m.status === 'active' && !m.recording && row.sizeBytes > 0 && row.durationMs > 0) {
+      setRecording(m.id, { key: row.key, mimeType: row.mimeType, durationMs: row.durationMs, sizeBytes: row.sizeBytes, recordedAt: row.updatedAt - row.durationMs });
+    } else media.remove(row.key).catch(() => {});
+  })).catch(() => {});
+}
 resumeJobs();                                   // an AI job persisted before a reload was lost with the page
 configurePurchases(S.plan.subscriberId);        // native shells only; a no-op on the web
 setPlanErrorHandler((code, { step, resetsAt }) => {

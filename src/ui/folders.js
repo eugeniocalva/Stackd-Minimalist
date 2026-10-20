@@ -20,6 +20,7 @@ import { noteMetaHTML } from './notes.js';
 import { openNote } from './notedetail.js';
 import { colorBarHTML } from './noteeditor.js';
 import { meetingChipsHTML } from './meetings.js';
+import { fmtBytes } from '../media.js';
 import { openMeeting } from './meeting.js';
 
 /** tab: 'archived' | 'deleted'; kind (optional): 'tasks' | 'notes' | 'meetings' */
@@ -80,7 +81,7 @@ function meetingRowHTML(m, tab) {
     <div class="t-main">
       <button class="t-title frow-open" data-open-meeting="${m.id}">${esc(meetingTitle(m))}</button>
       ${meetingChipsHTML(m)}
-      <span class="frow-origin">Meeting · ${whenLabel(m, tab)}</span>
+      <span class="frow-origin">Meeting${m.recording ? ` · recording ${fmtBytes(m.recording.sizeBytes)}` : ''} · ${whenLabel(m, tab)}</span>
       ${actionsHTML('meeting', m.id, tab)}
     </div>
   </div>`;

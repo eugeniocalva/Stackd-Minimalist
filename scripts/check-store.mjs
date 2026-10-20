@@ -447,4 +447,45 @@ assert.equal(S.meetings.length, 0);
   store.softDeleteMeeting(mA.id); store.emptyDeleted();
 }
 
+// recordings (Phase 19, PRD-meetings AC-04.5, AC-04.8, AC-04.9, AC-10.4): the store keeps keys, the remover gets them
+{
+  const removed = [];
+  store.setMediaRemover((keys) => removed.push(...keys));
+  const mR = store.newMeeting();
+  const rec = { key: `rec-${mR.id}`, mimeType: 'audio/webm', durationMs: 754000, sizeBytes: 4521000, recordedAt: 123, extra: 'dropped' };
+  store.setRecording(mR.id, rec);
+  assert.deepEqual(mR.recording, { key: `rec-${mR.id}`, mimeType: 'audio/webm', durationMs: 754000, sizeBytes: 4521000, recordedAt: 123 });
+  assert.equal(store.meetingIsEmpty(mR), false, 'a recording makes the meeting worth keeping');
+  store.setTranscript(mR.id, { source: 'recording', segments: [{ speaker: 'S1', text: 'hi' }], speakers: { S1: null } });
+  store.setMinutes(mR.id, { summary: 's', decisions: [], openQuestions: [] }, [{ title: 'a', due: null, priority: null, excerpt: '' }]);
+  mR.actions[0].status = 'added'; mR.actions[0].taskId = 't';
+  mR.actions.push({ id: 'p', title: 'proposed', due: null, priority: 'none', excerpt: '', status: 'proposed', taskId: null });
+  // delete the recording: transcript and minutes stay, the blob goes
+  store.setRecording(mR.id, null);
+  assert.equal(mR.recording, null);
+  assert.ok(mR.transcript && mR.minutes, 'deleting the recording keeps the transcript and minutes');
+  assert.deepEqual(removed, [`rec-${mR.id}`]);
+  // record again: everything derived goes, added actions stay, the old blob goes
+  store.setRecording(mR.id, { ...rec, key: 'old' });
+  removed.length = 0;
+  store.replaceRecording(mR.id, { ...rec, key: 'new', durationMs: 10 });
+  assert.equal(mR.recording.key, 'new');
+  assert.equal(mR.transcript, null); assert.equal(mR.minutes, null);
+  assert.deepEqual(mR.actions.map((a) => a.status), ['added']);
+  assert.deepEqual(removed, ['old']);
+  // forever / empty / purge drop the blobs
+  removed.length = 0;
+  store.softDeleteMeeting(mR.id);
+  store.emptyDeleted();
+  assert.deepEqual(removed, ['new'], 'emptying the folder removes the recording');
+  const mP = store.newMeeting(); store.setRecording(mP.id, { ...rec, key: 'purged' });
+  store.softDeleteMeeting(mP.id); mP.deletedAt -= 31 * 86400000;
+  removed.length = 0; store.purgeDeleted();
+  assert.deepEqual(removed, ['purged']);
+  const mF = store.newMeeting(); store.setRecording(mF.id, { ...rec, key: 'forever' });
+  removed.length = 0; store.deleteMeetingForever(mF.id);
+  assert.deepEqual(removed, ['forever']);
+  store.setMediaRemover(() => {});
+}
+
 console.log('check-store: all assertions passed');

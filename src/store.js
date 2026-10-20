@@ -100,6 +100,8 @@ export const UI = {
   folderKind: 'tasks',   // 'tasks' | 'notes' | 'meetings' — segment inside a folder
   detailId: null,        // task id on 'detail', note id on 'note', meeting id on 'meeting'
   transcriptAll: false,  // meeting detail: the transcript is expanded past its first lines
+  recorder: null,        // { meetingId } while a recording runs (ui/recorder.js owns the session)
+  recorderDenied: false, // the microphone permission was refused on the last attempt
   sortMenu: false,
   refocusAddsub: false,
   composer: { expanded: false, formatOpen: false, focus: null },   // Notes composer; focus = field to refocus after a render
@@ -605,6 +607,33 @@ export function reorderNote(id, beforeId) {
 
 /* — meetings (PRD-meetings US-03, US-06, US-10) — */
 
+/* Recordings live outside this document (media.js). The store only knows
+   their keys; app.js injects the function that deletes the blobs, so the
+   store stays free of IndexedDB and the Node checks can stub it. */
+let mediaRemover = () => {};
+export function setMediaRemover(fn) { mediaRemover = fn; }
+const dropMedia = (ms) => { const keys = ms.map((m) => m.recording?.key).filter(Boolean); if (keys.length) mediaRemover(keys); };
+
+/** The recorder saved (or deleted) this meeting's recording (AC-04.5, AC-04.8). */
+export function setRecording(id, rec) {
+  const m = meetingById(id); if (!m || m.status !== 'active') return;
+  if (!rec && m.recording) mediaRemover([m.recording.key]);
+  m.recording = rec ? { key: rec.key, mimeType: rec.mimeType, durationMs: rec.durationMs, sizeBytes: rec.sizeBytes, recordedAt: rec.recordedAt } : null;
+  touchMeeting(m); commit();
+}
+
+/** Recording again (AC-04.9): the new recording replaces the old one, and the
+    transcript, minutes and proposed actions go with it; added ones stay. */
+export function replaceRecording(id, rec) {
+  const m = meetingById(id); if (!m || m.status !== 'active') return;
+  if (m.recording && m.recording.key !== rec.key) mediaRemover([m.recording.key]);
+  m.recording = { key: rec.key, mimeType: rec.mimeType, durationMs: rec.durationMs, sizeBytes: rec.sizeBytes, recordedAt: rec.recordedAt };
+  m.transcript = null; m.minutes = null;
+  m.actions = m.actions.filter((a) => a.status === 'added');
+  m.jobs = { transcribe: null, summarise: null }; m.lastError = null;
+  touchMeeting(m); commit();
+}
+
 const touchMeeting = (m) => { m.updatedAt = Date.now(); };
 const leaveMeeting = (id) => { if (UI.screen === 'meeting' && UI.detailId === id) { UI.detailId = null; UI.screen = 'meetings'; } };
 
@@ -808,6 +837,7 @@ export function restoreMeeting(id) {
 }
 
 export function deleteMeetingForever(id) {
+  dropMedia(S.meetings.filter((m) => m.id === id));
   S.meetings = S.meetings.filter((m) => m.id !== id);
   commit();
 }
@@ -1122,6 +1152,7 @@ export function deleteForever(id) {
 export function emptyDeleted() {
   S.tasks = S.tasks.filter((t) => t.status !== 'deleted');
   S.notes = S.notes.filter((n) => n.status !== 'deleted');
+  dropMedia(S.meetings.filter((m) => m.status === 'deleted'));
   S.meetings = S.meetings.filter((m) => m.status !== 'deleted');
   commit();
 }
@@ -1132,6 +1163,7 @@ export function purgeDeleted(now = Date.now()) {
   const before = S.tasks.length + S.notes.length + S.meetings.length;
   S.tasks = S.tasks.filter(keep);
   S.notes = S.notes.filter(keep);
+  dropMedia(S.meetings.filter((m) => !keep(m)));
   S.meetings = S.meetings.filter(keep);
   const removed = before - S.tasks.length - S.notes.length - S.meetings.length;
   if (removed) save();

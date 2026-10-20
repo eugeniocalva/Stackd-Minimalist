@@ -10,7 +10,8 @@ import {
   S, UI, RETENTION_DAYS, meetingById, meetingTitle, defaultMeetingTitle,
   updateMeeting, finalizeMeeting, setTranscript, deleteMeetingForever, rerender,
 } from '../store.js';
-import { fmtDate, fmtClock, fmtRelative, daysLeft } from '../dates.js';
+import { fmtDate, fmtClock, fmtRelative, daysLeft, fmtDuration } from '../dates.js';
+import { fmtBytes } from '../media.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import { bindScrollShadow } from './board.js';
@@ -20,6 +21,7 @@ import { transcriptHTML, bindTranscript } from './transcriptview.js';
 import { summariseCtaHTML, bindSummariseCta, minutesHTML, bindMinutes } from './minutesview.js';
 import { actionsHTML, bindActions } from './actioncards.js';
 import { openPasteSheet, pickTranscriptFile } from './sourcesheet.js';
+import { recorderHTML, bindRecorder, isRecording, recordingMeetingId, stopPlayback } from './recorder.js';
 
 export function openMeeting(id) {
   if (!meetingById(id)) return;
@@ -29,26 +31,13 @@ export function openMeeting(id) {
 
 const dateLine = (m) => `${m.recording ? 'Recorded' : 'Created'} ${fmtDate(m.recording?.recordedAt || m.createdAt, S.dateFormat)} · ${fmtClock(m.recording?.recordedAt || m.createdAt)}`;
 
-/* ── Source block (AC-03.2) ──────────────────────────────────────────── */
-
-function sourceHTML() {
-  return `
-  <div class="card source-block" data-source>
-    <button type="button" class="mic-btn" data-record aria-label="Record">${icon('mic', 30)}</button>
-    <span class="source-label">Record</span>
-    <div class="source-alt">
-      <button type="button" class="btn btn-secondary" data-paste>${icon('clipboard', 18)}Paste transcript</button>
-      <button type="button" class="btn btn-secondary" data-attach>${icon('attach', 18)}Attach file</button>
-    </div>
-  </div>`;
-}
+/* ── Source: paste / attach (AC-03.2); the mic is recorder.js ─────────── */
 
 /** Paste / attach: a transcript from text or a file, replacing an existing
     one only after a confirm (the minutes and proposed actions go with it). */
 function bindSource(root, m) {
   const confirmReplace = async () => !m.transcript
     || confirmDialog('Replace the transcript?', 'The minutes and the actions not yet added to a board are removed with it.', { confirmLabel: 'Replace' });
-  root.querySelector('[data-record]')?.addEventListener('click', () => toast('Recording arrives in the next build'));
   root.querySelector('[data-paste]')?.addEventListener('click', async () => {
     if (!await confirmReplace()) return;
     openPasteSheet({ onUse: (parsed) => { setTranscript(m.id, { source: 'pasted', ...parsed }); toast('Transcript added'); } });
@@ -71,17 +60,18 @@ export function meetingHTML() {
   const m = meetingById(UI.detailId);
   if (!m) { UI.screen = 'meetings'; return '<div class="screen"></div>'; }
   if (m.status !== 'active') return readOnlyHTML(m);
+  const live = isRecording() && recordingMeetingId() === m.id;
   return `
-  <div class="screen detail-screen meeting-screen">
+  <div class="screen detail-screen meeting-screen ${live ? 'is-live' : ''}">
     <header class="page-head detail-top">
-      <button class="icon-btn" data-back aria-label="Back to Meetings">${icon('chevronLeft')}</button>
-      <span class="kicker">Meeting</span>
-      <button class="icon-btn" data-more aria-label="More actions" aria-haspopup="menu">${icon('more')}</button>
+      <button class="icon-btn" data-back aria-label="Back to Meetings" ${live ? 'disabled' : ''}>${icon('chevronLeft')}</button>
+      ${live ? '<span class="kicker rec-indicator"><span class="rec-dot" aria-hidden="true"></span>Recording</span>' : '<span class="kicker">Meeting</span>'}
+      <button class="icon-btn" data-more aria-label="More actions" aria-haspopup="menu" ${live ? 'disabled' : ''}>${icon('more')}</button>
     </header>
     <div class="scroll-area">
       <input class="mtitle" data-title value="${esc(m.title)}" placeholder="${esc(defaultMeetingTitle(m.createdAt))}" aria-label="Meeting title" autocomplete="off" maxlength="120">
       <span class="hint mdate" data-dates>${esc(dateLine(m))}</span>
-      ${m.transcript ? '' : sourceHTML()}
+      ${recorderHTML(m)}
       ${m.transcript ? transcriptHTML(m, { readOnly: false }) : ''}
       ${summariseCtaHTML(m)}
       ${minutesHTML(m)}
@@ -109,8 +99,9 @@ export function bindMeeting() {
   input.addEventListener('blur', flush);
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } });
 
-  const leaving = () => { flush(); flushCurrent = null; };
+  const leaving = () => { flush(); flushCurrent = null; stopPlayback(); };
   app.querySelector('[data-back]').addEventListener('click', () => {
+    if (isRecording()) { toast('Stop the recording first'); return; }
     leaving();
     UI.detailId = null; UI.screen = 'meetings';
     finalizeMeeting(m.id);
@@ -127,8 +118,7 @@ export function bindMeeting() {
     { label: 'Delete', icon: 'trash', danger: true, onClick: () => { leaving(); deleteMeetingWithUndo(m.id); } },
   ]));
 
-  const source = app.querySelector('[data-source]');
-  if (source) bindSource(source, m);
+  bindRecorder(app, m, { bindSource: (root) => bindSource(root, m) });
   const transcript = app.querySelector('[data-block="transcript"]');
   if (transcript) { bindTranscript(transcript, m); bindSource(transcript, m); }
   const cta = app.querySelector('[data-cta="summarise"]');
@@ -160,6 +150,7 @@ function readOnlyHTML(m) {
       </div>
       <h1 class="note-ro-title ${m.title.trim() ? '' : 'untitled'}">${esc(meetingTitle(m))}</h1>
       <span class="hint mdate">${esc(dateLine(m))}</span>
+      ${m.recording ? `<span class="hint">${icon('mic', 12)} Recording · ${fmtDuration(m.recording.durationMs)} · ${esc(fmtBytes(m.recording.sizeBytes))}</span>` : ''}
       ${m.transcript ? transcriptHTML(m, { readOnly: true }) : '<p class="empty">No transcript.</p>'}
       ${minutesHTML(m, { readOnly: true })}
       <div class="dialog-actions">

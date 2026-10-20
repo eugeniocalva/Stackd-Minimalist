@@ -406,3 +406,22 @@ textarea.input.paste-area { width: 100%; min-height: 220px; resize: vertical; fo
 .cta-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .cta-hint { white-space: nowrap; }
 .btn.is-locked { background: var(--bg-surface-sunken); color: var(--text-secondary); }
+/* recorder (PRD-meetings US-04) */
+.rec-block { display: flex; flex-direction: column; gap: var(--space-3); }
+.rec-level { display: block; width: 100%; height: 48px; color: var(--color-accent); }
+.rec-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.rec-clock { font-family: var(--font-family-display); font-weight: 800; font-size: var(--text-xl); letter-spacing: -0.01em; }
+.stop-btn { width: 64px; height: 64px; border-radius: 50%; background: var(--color-danger-solid); color: var(--text-on-danger); display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 20px rgba(220, 38, 38, 0.28); transition: transform var(--dur-quick) var(--ease-spring); }
+.stop-btn:active { transform: scale(0.94); }
+.rec-indicator { color: var(--color-danger-text); display: inline-flex; align-items: center; gap: 6px; }
+.rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-danger-solid); animation: mpulse 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
+.player { display: flex; align-items: center; gap: var(--space-3); }
+.play-btn { width: 44px; height: 44px; flex: none; border-radius: 50%; background: var(--color-primary); color: var(--text-on-primary); display: flex; align-items: center; justify-content: center; }
+.play-btn svg { width: 20px; height: 20px; }
+.scrub { flex: 1; min-width: 0; accent-color: var(--color-accent); height: 24px; }
+.rec-times { font-size: var(--text-xs); color: var(--text-tertiary); white-space: nowrap; }
+.rec-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.rec-actions .btn svg { width: 18px; height: 18px; }
+.rec-actions .btn-sm svg { width: 16px; height: 16px; }
+.source-block .notice { width: 100%; text-align: left; }
