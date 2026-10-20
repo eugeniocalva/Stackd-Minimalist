@@ -449,7 +449,7 @@
   var PLAN_POOLS = { plus: { hours: 8, summaries: 20 }, pro: { hours: 16, summaries: 50 }, max: { hours: 24, summaries: 100 } };
   var PLAN_PRICES = { plus: "€9.99", pro: "€19.99", max: "€29.99" };
   var planName = (tier) => ({ free: "Free", plus: "Plus", pro: "Pro", max: "Max", tester: "Tester" })[tier] || "Free";
-  var PROXY_URL = "https://stackd-proxy.eugenio-calvaresi.workers.dev";
+  var PROXY_URL = "https://minimalist-api.stackdplatform.com";
   var APP_TOKEN = "stackd-app-2026-10";
   var proxyUrl = () => S.ai.proxyUrl || PROXY_URL;
   var REMINDER_OPTIONS = [

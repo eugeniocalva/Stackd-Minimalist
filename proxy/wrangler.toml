@@ -5,8 +5,12 @@ name = "stackd-proxy"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
-# Served on https://stackd-proxy.eugenio-calvaresi.workers.dev (src/store.js PROXY_URL).
+# Served on https://minimalist-api.stackdplatform.com (src/store.js PROXY_URL): a
+# custom domain on the stackdplatform.com zone in this account, so its certificate
+# comes from the zone. The workers.dev address stays on as a fallback, but on
+# 2026-10-20 the account's workers.dev subdomain had no certificate at the edge.
 # No per-version preview URLs: every deployed version would be reachable on its own address.
+routes = [{ pattern = "minimalist-api.stackdplatform.com", custom_domain = true }]
 workers_dev = true
 preview_urls = false
 
