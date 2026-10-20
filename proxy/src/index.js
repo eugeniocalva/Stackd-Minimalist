@@ -7,9 +7,14 @@ import { getUsed, reserve, release } from './pool.js';
 import { resolve, webhook } from './entitlement.js';
 import { summarise, SummariseError } from './summarise.js';
 import { toModelText, isTranscript } from './transcript.js';
+import { provider } from './stt/index.js';
+import { createJob, getJob, updateJob } from './jobs.js';
 
 const SUB_ID = /^[a-z0-9]{8,64}$/;
 const MAX_TRANSCRIPT_CHARS = 300_000;
+const MAX_AUDIO_BYTES = 40 * 1024 * 1024;
+const MAX_AUDIO_MS = 31 * 60 * 1000;          // the app caps at 30:00; a little slack
+const JOB_ID = /^job_[a-z0-9]{6,40}$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const origins = (env) => String(env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -52,7 +57,9 @@ export default {
     try {
       if (request.method === 'GET' && url.pathname === '/v1/allowance') return await handleAllowance(env, sub, cors);
       if (request.method === 'POST' && url.pathname === '/v1/summarise') return await handleSummarise(request, env, sub, cors);
-      if (url.pathname.startsWith('/v1/transcribe')) return fail('not_implemented', 'Transcription arrives in a later build.', 501, cors);
+      if (request.method === 'POST' && url.pathname === '/v1/transcribe') return await handleTranscribe(request, env, sub, cors);
+      const poll = /^\/v1\/transcribe\/([^/]+)$/.exec(url.pathname);
+      if (request.method === 'GET' && poll) return await handlePoll(decodeURIComponent(poll[1]), env, sub, cors);
       return fail('bad_request', 'No such route.', 404, cors);
     } catch (e) {
       if (e instanceof SummariseError) return fail(e.code, e.message, e.status, cors);
@@ -99,4 +106,66 @@ async function handleSummarise(request, env, sub, cors) {
     await release(env.POOL, sub, key, { summaries: 1 });   // a failed step is not charged (AC-09.3)
     throw e;
   }
+}
+
+/* ── Transcription (PRD-meetings US-05, AC-09.3) ─────────────────────── */
+
+async function handleTranscribe(request, env, sub, cors) {
+  let form;
+  try { form = await request.formData(); } catch { return fail('bad_request', 'Send the recording as multipart form data.', 400, cors); }
+  const audio = form.get('audio');
+  const durationMs = Number(form.get('durationMs'));
+  if (!audio || typeof audio === 'string' || !audio.size) return fail('bad_request', 'A recording is required.', 400, cors);
+  if (!Number.isFinite(durationMs) || durationMs <= 0 || durationMs > MAX_AUDIO_MS) return fail('bad_request', 'durationMs must be the recording length in milliseconds.', 400, cors);
+  if (audio.size > MAX_AUDIO_BYTES) return fail('too_large', 'This recording is too large to transcribe.', 413, cors);
+
+  const { ent, key, allowance: before } = await currentAllowance(env, sub);
+  if (ent.tier === 'free') return fail('plan_required', 'Transcribing needs a plan.', 403, cors, { allowance: before });
+  const reservedSeconds = Math.ceil(durationMs / 60000) * 60;     // charged by the minute, rounded up
+  const r = await reserve(env.POOL, sub, key, ent.tier, { audioSeconds: reservedSeconds });
+  if (!r.ok) return fail('allowance_exhausted', "You've used this period's audio minutes.", 429, cors, { resetsAt: before.renewsAt, allowance: before });
+
+  let p, providerId;
+  try {
+    p = provider(env);
+    providerId = await p.start(audio, audio.type || 'application/octet-stream');
+  } catch (e) {
+    await release(env.POOL, sub, key, { audioSeconds: reservedSeconds });
+    console.error('transcribe start', e?.message || e);
+    return fail(/not set/.test(String(e?.message)) ? 'misconfigured' : 'provider_unavailable', 'The transcription service is unavailable. Try again in a minute.', 503, cors);
+  }
+  const job = await createJob(env.POOL, { subscriberId: sub, tier: ent.tier, periodKey: key, reservedSeconds, providerName: p.name, providerId });
+  return json({ ok: true, jobId: job.id, allowance: allowance(ent.tier, r.used, ent.renewsAt) }, 200, cors);
+}
+
+async function handlePoll(jobId, env, sub, cors) {
+  if (!JOB_ID.test(jobId)) return fail('bad_request', 'No such job.', 404, cors);
+  const job = await getJob(env.POOL, jobId);
+  if (!job || job.subscriberId !== sub) return fail('bad_request', 'No such job.', 404, cors);
+  if (job.state === 'done') return json({ ok: true, state: 'done', transcript: job.result }, 200, cors);
+  if (job.state === 'error') return fail(job.code || 'provider_unavailable', job.message || 'Transcription failed.', job.code === 'too_quiet' ? 422 : 502, cors, { state: 'error' });
+  let r;
+  try { r = await provider(env).poll(job.providerId); }
+  catch (e) { console.error('transcribe poll', e?.message || e); return json({ ok: true, state: 'processing' }, 200, cors); }   // a transient provider error: keep waiting
+  if (r.state === 'done') {
+    const empty = !r.segments?.length;
+    if (empty) {
+      await release(env.POOL, sub, job.periodKey, { audioSeconds: job.reservedSeconds });
+      await updateJob(env.POOL, { ...job, state: 'error', code: 'too_quiet', message: 'No speech was found in the recording.' });
+      return fail('too_quiet', 'No speech was found in the recording.', 422, cors, { state: 'error' });
+    }
+    const result = { segments: r.segments, speakers: r.speakers || {} };
+    await updateJob(env.POOL, { ...job, state: 'done', result });
+    const { ent } = await currentAllowance(env, sub);
+    return json({ ok: true, state: 'done', transcript: result, allowance: allowance(ent.tier, await getUsed(env.POOL, sub, job.periodKey), ent.renewsAt) }, 200, cors);
+  }
+  if (r.state === 'error') {
+    await release(env.POOL, sub, job.periodKey, { audioSeconds: job.reservedSeconds });   // a failed step is not charged
+    const code = r.code === 'too_quiet' ? 'too_quiet' : 'provider_unavailable';
+    const message = code === 'too_quiet' ? 'The recording was too quiet to transcribe.' : 'Transcription failed. Try again.';
+    await updateJob(env.POOL, { ...job, state: 'error', code, message });
+    return fail(code, message, code === 'too_quiet' ? 422 : 502, cors, { state: 'error' });
+  }
+  if (job.state !== r.state) await updateJob(env.POOL, { ...job, state: r.state });
+  return json({ ok: true, state: r.state }, 200, cors);
 }

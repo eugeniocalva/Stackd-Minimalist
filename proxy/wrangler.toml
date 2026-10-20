@@ -19,6 +19,9 @@ ALLOWED_ORIGINS = "https://eugeniocalva.github.io,capacitor://localhost,ionic://
 # Minutes model (PRD-meetings Q15: the Phase 16 benchmark picks between the
 # small and mid tiers; the mid tier is the fallback).
 SUMMARY_MODEL = "claude-sonnet-5-5"
+# Speech-to-text provider for Transcribe (PRD-meetings Q13: the benchmark in
+# benchmark/stt.mjs picks; 'assemblyai' needs the ASSEMBLYAI_API_KEY secret).
+STT_PROVIDER = "assemblyai"
 # Subscriber ids (Settings › Meetings & AI shows them) that get the tester
 # allowance (60 audio minutes + 10 summaries a day) without a purchase.
 TESTERS = ""

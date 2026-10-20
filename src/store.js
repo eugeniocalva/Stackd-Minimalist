@@ -804,6 +804,16 @@ export function addActionToBoard(id, actionId, draft) {
   return t;
 }
 
+/** Inline edit of one segment's text (AC-06.4); quiet, counts as a transcript edit. */
+export function editSegment(id, segmentId, text) {
+  const m = meetingById(id); const seg = m?.transcript?.segments.find((s) => s.id === segmentId);
+  if (!seg || m.status !== 'active') return;
+  const t = String(text ?? '').trim();
+  if (!t || t === seg.text) return;
+  seg.text = t; m.transcript.updatedAt = Date.now();
+  touchMeeting(m); persistQuiet();
+}
+
 export function setMeetingsSort(sort) {
   if (!MEETINGS_SORTS.some(([v]) => v === sort) || S.meetingsSort === sort) return;
   S.meetingsSort = sort; commit();

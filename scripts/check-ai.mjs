@@ -130,6 +130,68 @@ const empty = store.newMeeting();
 await ai.summarise(empty.id);
 assert.equal(calls.length, n);
 
+/* ── transcribe: upload → wait → done, cancel, too quiet, resume by job id ── */
+{
+  const mediaMod = await import('../src/media.js');
+  let uploads = [];
+  let uploadAnswer = null;
+  ai.setUpload(async (url, fd, { onProgress, signal }) => {
+    uploads.push({ url, duration: fd.get('durationMs'), name: fd.get('audio')?.name });
+    onProgress?.(40); onProgress?.(100);
+    if (signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    return uploadAnswer;
+  });
+  /* media.blob is IndexedDB; stand it in */
+  ai.setBlob(async () => new Blob([new Uint8Array(5000)], { type: 'audio/webm' }));
+  void mediaMod;
+  const mr = store.newMeeting();
+  store.setRecording(mr.id, { key: 'rec-x', mimeType: 'audio/webm', durationMs: 754000, sizeBytes: 5000, recordedAt: 1 });
+  // free plan: nothing uploaded, the error is kept
+  S.plan.tier = 'free';
+  uploadAnswer = reply(403, { ok: false, code: 'plan_required', message: 'Transcribing needs a plan.', allowance: { tier: 'free', summariesLeft: 0, summariesTotal: 0, audioSecondsLeft: 0, audioSecondsTotal: 0 } });
+  await ai.transcribe(mr.id);
+  assert.equal(mr.lastError.code, 'plan_required'); assert.equal(mr.jobs.transcribe, null);
+  // happy path: upload → job id → processing → done
+  let polls = 0;
+  uploadAnswer = reply(200, { ok: true, jobId: 'job_abc123', allowance: { tier: 'tester', audioSecondsLeft: 2820, audioSecondsTotal: 3600, summariesLeft: 10, summariesTotal: 10 } });
+  answer = (url) => { polls++; return polls < 2 ? reply(200, { ok: true, state: 'processing' }) : reply(200, { ok: true, state: 'done', transcript: { segments: [{ speaker: 'S1', startMs: 12000, text: 'Hello' }], speakers: { S1: null } } }); };
+  const origPoll = ai.POLL_MS;
+  const t = ai.transcribe(mr.id);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(mr.jobs.transcribe?.phase, 'wait', 'after the upload the job waits with the proxy id');
+  assert.equal(mr.jobs.transcribe?.id, 'job_abc123');
+  assert.equal(S.plan.audioSecondsLeft, 2820, 'the reservation shows in the cache');
+  await t;
+  assert.equal(uploads.length, 2, 'the free-plan attempt uploaded too (the proxy refuses after)'); assert.equal(uploads[1].duration, '754000'); assert.equal(uploads[1].name, 'recording.webm');
+  assert.equal(mr.jobs.transcribe, null);
+  assert.equal(mr.transcript?.source, 'recording');
+  assert.equal(mr.transcript.segments[0].text, 'Hello');
+  assert.equal(polls, 2);
+  // too quiet from the poll: error kept
+  polls = 0;
+  answer = () => reply(422, { ok: false, code: 'too_quiet', message: 'No speech was found in the recording.', state: 'error' });
+  await ai.transcribe(mr.id);
+  assert.equal(mr.lastError.code, 'too_quiet'); assert.equal(mr.jobs.transcribe, null);
+  // resume: a persisted waiting job is polled again, not marked interrupted
+  mr.jobs.transcribe = { id: 'job_zzz', startedAt: Date.now(), phase: 'wait' };
+  mr.lastError = null;
+  answer = () => reply(200, { ok: true, state: 'done', transcript: { segments: [{ speaker: 'S1', startMs: 0, text: 'Resumed' }], speakers: { S1: null } } });
+  ai.resumeJobs();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(mr.transcript.segments[0].text, 'Resumed');
+  assert.equal(mr.jobs.transcribe, null);
+  // a job stuck in the upload phase is lost with the page
+  mr.jobs.transcribe = { id: 'local', startedAt: Date.now(), phase: 'upload' };
+  ai.resumeJobs();
+  assert.equal(mr.jobs.transcribe, null); assert.equal(mr.lastError.code, 'interrupted');
+  // an old waiting job is dropped too
+  mr.jobs.transcribe = { id: 'job_old', startedAt: Date.now() - ai.JOB_TTL_MS - 1, phase: 'wait' };
+  ai.resumeJobs();
+  assert.equal(mr.jobs.transcribe, null); assert.equal(mr.lastError.code, 'interrupted');
+  S.plan.tier = 'tester';
+  void origPoll;
+}
+
 /* ── allowance caching ─────────────────────────────────────────────── */
 answer = reply(200, { ok: true, allowance: { tier: 'plus', renewsAt: 1, audioSecondsLeft: 100, audioSecondsTotal: 200, summariesLeft: 3, summariesTotal: 20 } });
 const before = calls.length;

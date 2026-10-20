@@ -8,6 +8,7 @@ import { validate, validDue, validPriority, MAX_ACTIONS } from '../src/schema.js
 import { toModelText, isTranscript } from '../src/transcript.js';
 import worker from '../src/index.js';
 import { fromSubscriber, resolve, webhook, cacheKey } from '../src/entitlement.js';
+import { fromUtterances } from '../src/stt/assemblyai.js';
 
 /* ── plans ─────────────────────────────────────────────────────────── */
 assert.equal(TIERS.plus.audioSeconds, 8 * 3600); assert.equal(TIERS.plus.summaries, 20);
@@ -116,7 +117,7 @@ assert.equal(res.status, 400);
 res = await call('/v1/summarise', { method: 'POST', headers: H('tester00000001'), body: { transcript: { segments: [{ speaker: 'S1', text: 'hi' }] }, meetingDate: '20/10/2026' } });
 assert.equal(res.status, 400, 'meetingDate must be ISO');
 res = await call('/v1/transcribe', { method: 'POST', headers: H('tester00000001'), body: {} });
-assert.equal(res.status, 501);
+assert.equal(res.status, 400, 'a JSON body is not a recording upload');
 res = await call('/v1/nope', { headers: H('tester00000001') });
 assert.equal(res.status, 404);
 /* a tester's summaries are counted and refused at the limit: the model call is
@@ -159,5 +160,62 @@ assert.ok(!rcMem.has(cacheKey('sub00000001')), 'the webhook drops the cache');
 assert.equal((await hook('hook-secret', { event: {} })).status, 204, 'an event without an id is accepted and ignored');
 res = await call('/v1/rc-webhook', { method: 'POST', headers: { Authorization: 'nope' }, body: { event: {} } });
 assert.equal(res.status, 401, 'the route needs the webhook auth, not the app token');
+
+/* ── transcription: provider mapping and the job flow (stub provider) ── */
+let u = fromUtterances([{ speaker: 'B', start: 12000, end: 15000, text: ' Hello ' }, { speaker: 'A', start: 15500, end: 17000, text: 'Hi' }, { speaker: 'B', start: 18000, end: 19000, text: '  ' }]);
+assert.deepEqual(u.speakers, { S1: null, S2: null });
+assert.deepEqual(u.segments, [{ speaker: 'S1', startMs: 12000, text: 'Hello' }, { speaker: 'S2', startMs: 15500, text: 'Hi' }], 'labels in order of first appearance, blanks dropped');
+u = fromUtterances([], 'Plain text only');
+assert.deepEqual(u, { segments: [{ speaker: 'S1', startMs: 0, text: 'Plain text only' }], speakers: { S1: 'Transcript' } });
+assert.deepEqual(fromUtterances(null, '').segments, []);
+const sttEnv = { ...env, STT_PROVIDER: 'stub' };
+const upload = (sub, bytes, durationMs) => {
+  const fd = new FormData();
+  fd.append('audio', new Blob([new Uint8Array(bytes)], { type: 'audio/webm' }), 'rec.webm');
+  fd.append('durationMs', String(durationMs));
+  return worker.fetch(new Request('https://proxy.test/v1/transcribe', { method: 'POST', headers: { 'X-Stackd-App': 'tok', 'X-Stackd-Subscriber': sub }, body: fd }), sttEnv);
+};
+res = await upload('someoneelse01', 5000, 60000);
+assert.equal(res.status, 403); assert.equal((await res.json()).code, 'plan_required');
+res = await upload('tester00000001', 5000, 0);
+assert.equal(res.status, 400, 'durationMs required');
+const usedBefore = (await getUsed(kv, 'tester00000001', periodKey('tester'))).audioSeconds;
+res = await upload('tester00000001', 5000, 754000);
+assert.equal(res.status, 200);
+body = await res.json();
+assert.match(body.jobId, /^job_/);
+assert.equal((await getUsed(kv, 'tester00000001', periodKey('tester'))).audioSeconds, usedBefore + 13 * 60, '12:34 is charged as 13 minutes');
+assert.equal(body.allowance.audioSecondsLeft, 3600 - 13 * 60);
+const pollJob = (id, sub = 'tester00000001') => worker.fetch(new Request(`https://proxy.test/v1/transcribe/${id}`, { headers: { 'X-Stackd-App': 'tok', 'X-Stackd-Subscriber': sub } }), sttEnv);
+res = await pollJob(body.jobId, 'someoneelse01');
+assert.equal(res.status, 404, 'another subscriber cannot read the job');
+res = await pollJob(body.jobId);
+assert.deepEqual(await res.json(), { ok: true, state: 'processing' });
+res = await pollJob(body.jobId);
+let done = await res.json();
+assert.equal(done.state, 'done');
+assert.equal(done.transcript.segments.length, 2);
+assert.deepEqual(done.transcript.speakers, { S1: null, S2: null });
+res = await pollJob(body.jobId);
+assert.equal((await res.json()).state, 'done', 'a finished job answers from its row');
+// too quiet: the reservation comes back
+const before2 = (await getUsed(kv, 'tester00000001', periodKey('tester'))).audioSeconds;
+res = await upload('tester00000001', 10, 60000);
+const quiet = await res.json();
+await pollJob(quiet.jobId);
+res = await pollJob(quiet.jobId);
+assert.equal(res.status, 422); assert.equal((await res.json()).code, 'too_quiet');
+assert.equal((await getUsed(kv, 'tester00000001', periodKey('tester'))).audioSeconds, before2, 'a failed transcription is not charged');
+res = await pollJob(quiet.jobId);
+assert.equal(res.status, 422, 'the error is remembered');
+// the pool refuses what does not fit (13 min used; 30 fits, the next 30 does not)
+res = await upload('tester00000001', 5000, 30 * 60000);
+assert.equal(res.status, 200);
+res = await upload('tester00000001', 5000, 30 * 60000);
+assert.equal(res.status, 429); assert.equal((await res.json()).code, 'allowance_exhausted');
+res = await upload('tester00000001', 5000, 45 * 60000);
+assert.equal(res.status, 400, 'longer than the app can record');
+res = await pollJob('job_nope');
+assert.equal(res.status, 404);
 
 console.log('proxy tests: ok');

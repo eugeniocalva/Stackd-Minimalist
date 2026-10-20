@@ -16,8 +16,8 @@ Every request carries `X-Stackd-App: <app token>` and
 |---|---|---|
 | `GET /v1/allowance` | — | the plan and this period's remaining audio seconds and summaries |
 | `POST /v1/summarise` | `{ transcript: { segments, speakers }, meetingDate: 'YYYY-MM-DD', priorities: ['High', …] }` | `{ minutes: { summary, decisions, openQuestions }, actions: [{ title, due, priority, excerpt }] }` |
-| `POST /v1/transcribe` | multipart audio | Phase 20 (501 until then) |
-| `GET /v1/transcribe/:id` | — | Phase 20 |
+| `POST /v1/transcribe` | multipart: `audio` (≤ 40 MB, the recording), `durationMs` | `{ jobId }` once the provider accepted the upload; audio minutes (rounded up) are reserved |
+| `GET /v1/transcribe/:id` | — | `{ state: 'queued' \| 'processing' }`, or `{ state: 'done', transcript: { segments, speakers } }`; on failure the error code with `state: 'error'` and the reservation released; `too_quiet` when no speech was found |
 | `POST /v1/rc-webhook` | RevenueCat event (its own `Authorization` value) | drops that subscriber's cached entitlement; 204 |
 
 Error codes (`code`): `unauthorized`, `bad_request`, `plan_required`,
@@ -50,6 +50,7 @@ npm ci
 npx wrangler login
 npx wrangler kv namespace create POOL      # paste the id into wrangler.toml
 npx wrangler secret put ANTHROPIC_API_KEY  # the Anthropic key for the minutes
+npx wrangler secret put ASSEMBLYAI_API_KEY # the speech-to-text key (STT_PROVIDER in wrangler.toml)
 npx wrangler secret put APP_TOKEN          # any long random string; the same value goes into src/store.js APP_TOKEN
 npx wrangler secret put RC_SECRET_KEY      # RevenueCat › Project › API keys › secret key (sk_…)
 npx wrangler secret put RC_WEBHOOK_AUTH    # any long random string; paste the same into RevenueCat › Integrations › Webhooks › Authorization header
@@ -75,6 +76,7 @@ reads secrets from a `.dev.vars` file (git-ignored):
 
 ```
 ANTHROPIC_API_KEY=sk-ant-…
+ASSEMBLYAI_API_KEY=…
 APP_TOKEN=dev-token
 RC_SECRET_KEY=sk_…          # optional: without it only TESTERS get an allowance
 RC_WEBHOOK_AUTH=dev-hook
@@ -101,6 +103,15 @@ writes `benchmark/out/<name>.A.json` and `.B.json` with the model names
 hidden in `benchmark/out/key.json`, so they can be rated blind on: actions
 found vs missed, actions invented, summary accuracy. The winner goes into
 `SUMMARY_MODEL`. Needs `ANTHROPIC_API_KEY` in the environment.
+
+## STT benchmark (PRD-meetings Q13)
+
+`benchmark/stt.mjs` runs every `benchmark/recordings/*` (git-ignored; the
+architecture asks for a headset recording, a phone-on-table one and one
+with two speakers overlapping) through the provider named by
+`STT_PROVIDER` and writes `out/<name>.<provider>.txt` plus a log. Adding a
+provider is one file in `src/stt/` with `start(blob, mimeType)` and
+`poll(id)`, registered in `src/stt/index.js`.
 
 ## Tests
 

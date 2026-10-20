@@ -7,7 +7,7 @@ turns it into a transcript with speaker labels, turns the transcript into
 cards**, and sends the actions they keep to a board as tasks. Notes stay
 exactly as shipped in 1.4.0.
 
-Status: **approved 2026-10-20; in build** — Phases 14 (Android shell), 15 (Meetings area, text path), 16 (proxy and minutes), 17 (action cards), 18 (plans and purchases) and 19 (recording) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
+Status: **approved 2026-10-20; in build** — Phases 14 (Android shell), 15 (Meetings area, text path), 16 (proxy and minutes), 17 (action cards), 18 (plans and purchases), 19 (recording) and 20 (transcription) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
 are in §07; the few calls the analyst made alone are in §08; the remaining
 open questions are in §09; the unit economics of the paid plans are in
 §11. Companion documents: `docs/prd.md` (tasks, v2), `docs/prd-notes.md`
@@ -227,7 +227,7 @@ captured, even with the phone locked in my pocket.*
       recording size, Record is still allowed but a warning sits above the
       mic button ("Low space: about 40 MB left"). When there is not enough
       space for one minute, Record is disabled with the reason.
-- [ ] AC-04.8 *(delete with size done in Phase 19; the post-transcript toast comes with Phase 20)* **Delete recording**: a secondary "Delete recording · 11 MB"
+- [x] AC-04.8 **Delete recording**: a secondary "Delete recording · 11 MB"
       action in the Recording block (confirm). Deleting it keeps the
       transcript and minutes; tap-to-seek (AC-06.3) is then unavailable.
       After a transcript is made, a toast suggests it once: "Transcript
@@ -240,28 +240,28 @@ captured, even with the phone locked in my pocket.*
 *As a user, I want the recording turned into text where I can see who said
 what.*
 
-- [ ] AC-05.1 **Transcribe** uploads the recording to the proxy, which
+- [x] AC-05.1 **Transcribe** uploads the recording to the proxy, which
       sends it to the speech-to-text provider with speaker labelling on,
       English. The button becomes a progress state: "Uploading 40 %" with a
       bar, then "Transcribing… about 2 min" with a spinner. Cancel is
       available during upload; after that the step completes or fails.
-- [ ] AC-05.2 **Survives leaving**: the step keeps running if the user
+- [x] AC-05.2 **Survives leaving**: the step keeps running if the user
       goes back to the list, to a board, or closes the app; the meeting
       row shows "Transcribing…" (AC-02.3), and on return or app start the
       app resumes waiting for the result. The result is stored the moment
       it arrives.
-- [ ] AC-05.3 **Result**: the Transcript block (US-06) appears with the
+- [x] AC-05.3 **Result**: the Transcript block (US-06) appears with the
       segments, each labelled "Speaker 1", "Speaker 2"… in order of first
       appearance, each with its start time.
-- [ ] AC-05.4 *(Summarise half done in Phase 16; Transcribe in Phase 20)* **Failure**: a clear in-place message with the reason the
+- [x] AC-05.4 **Failure**: a clear in-place message with the reason the
       user can act on ("No connection", "Recording too quiet to
       transcribe", "Daily limit reached, try tomorrow", "Service
       unavailable, try again") and a **Retry** button. Nothing is
       partially written.
-- [ ] AC-05.5 *(Summarise half done in Phase 16)* **Offline**: with no connection Transcribe and Summarise are
+- [x] AC-05.5 **Offline**: with no connection Transcribe and Summarise are
       disabled with the hint "Needs a connection"; everything else on the
       screen works.
-- [ ] AC-05.6 *(done in Phase 16 for both buttons)* **Disclosure**: the first time either AI button is pressed,
+- [x] AC-05.6 **Disclosure**: the first time either AI button is pressed,
       a one-time dialog says what leaves the device and where ("The
       recording is sent to our server and to a speech-to-text provider to
       make the transcript. Nothing is sent until you press this button.")
@@ -280,10 +280,10 @@ what.*
       speaker in this meeting, is stored on the meeting, and is used in the
       minutes and actions generated afterwards. Clearing the name returns
       the default label.
-- [ ] AC-06.3 **Tap to seek**: when the recording exists, tapping a
+- [x] AC-06.3 **Tap to seek**: when the recording exists, tapping a
       segment's time starts playback there and the playing segment is
       highlighted while audio runs.
-- [ ] AC-06.4 **Edit text**: a segment's text is editable in place (tap the
+- [x] AC-06.4 **Edit text**: a segment's text is editable in place (tap the
       text, edit, blur to save). Edits set `updatedAt` and mark minutes as
       possibly stale (AC-07.5).
 - [x] AC-06.5 **Pasted transcript** (AC-03.2): a sheet with a multi-line
@@ -297,7 +297,7 @@ what.*
       names. `.txt` and `.docx` are treated as pasted text (AC-06.5). The
       file name is kept as the source. Unreadable or empty files show
       "Couldn't read this file" without creating a transcript.
-- [ ] AC-06.7 Under the Transcript block, a **Summarise** button with the
+- [x] AC-06.7 Under the Transcript block, a **Summarise** button with the
       sparkle icon, labelled "Summarise into minutes and actions"
       (US-07). Once minutes exist it reads **Regenerate** (confirm, since it
       replaces the minutes and the un-added actions).
@@ -379,7 +379,7 @@ each plan can cost me.*
       an expired plan, or a used-up allowance gets a specific error that
       the app turns into the paywall or the "allowance used" message
       (AC-12.6), never a generic failure.
-- [ ] AC-09.3 *(summaries done in Phase 16; audio minutes in Phase 20)* Allowances are **monthly pools per subscriber** (§07 Q3,
+- [x] AC-09.3 Allowances are **monthly pools per subscriber** (§07 Q3,
       §11), counted by the proxy: audio minutes are charged by the
       recording's duration rounded up to the minute when a transcription
       is accepted; a summary is charged when it is accepted. Failed steps

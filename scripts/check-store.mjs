@@ -488,4 +488,22 @@ assert.equal(S.meetings.length, 0);
   store.setMediaRemover(() => {});
 }
 
+// transcript text edits (Phase 20, AC-06.4): a changed segment bumps the transcript and makes the minutes stale
+{
+  const mE = store.newMeeting();
+  store.setTranscript(mE.id, { source: 'pasted', segments: [{ speaker: 'S1', text: 'one' }, { speaker: 'S2', text: 'two' }], speakers: { S1: null, S2: null } });
+  store.setMinutes(mE.id, { summary: 's', decisions: [], openQuestions: [] }, []);
+  const seg = mE.transcript.segments[0];
+  const before = mE.transcript.updatedAt;
+  store.editSegment(mE.id, seg.id, '  one  ');
+  assert.equal(mE.transcript.updatedAt, before, 'an unchanged text is not an edit');
+  await new Promise((res) => setTimeout(res, 2));
+  store.editSegment(mE.id, seg.id, 'one edited');
+  assert.equal(seg.text, 'one edited');
+  assert.equal(store.minutesStale(mE), true);
+  store.editSegment(mE.id, seg.id, '   ');
+  assert.equal(seg.text, 'one edited', 'an empty edit is ignored');
+  store.softDeleteMeeting(mE.id); store.emptyDeleted();
+}
+
 console.log('check-store: all assertions passed');

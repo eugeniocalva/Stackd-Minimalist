@@ -1234,6 +1234,17 @@
     commit();
     return t;
   }
+  function editSegment(id, segmentId, text) {
+    const m = meetingById(id);
+    const seg = m?.transcript?.segments.find((s) => s.id === segmentId);
+    if (!seg || m.status !== "active") return;
+    const t = String(text ?? "").trim();
+    if (!t || t === seg.text) return;
+    seg.text = t;
+    m.transcript.updatedAt = Date.now();
+    touchMeeting(m);
+    persistQuiet();
+  }
   function setMeetingsSort(sort) {
     if (!MEETINGS_SORTS.some(([v]) => v === sort) || S.meetingsSort === sort) return;
     S.meetingsSort = sort;
@@ -2553,16 +2564,135 @@
     }
   }
 
+  // src/media.js
+  var DB = "stackd-media";
+  var VERSION = 1;
+  var RECS = "recordings";
+  var CHUNKS = "chunks";
+  var available = () => typeof indexedDB !== "undefined";
+  var keyFor = (meetingId) => `rec-${meetingId}`;
+  var dbPromise = null;
+  function open() {
+    if (!available()) return Promise.reject(new Error("IndexedDB is not available"));
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB, VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(RECS)) db.createObjectStore(RECS, { keyPath: "key" });
+        if (!db.objectStoreNames.contains(CHUNKS)) db.createObjectStore(CHUNKS, { keyPath: ["key", "i"] });
+      };
+      req.onsuccess = () => {
+        req.result.onversionchange = () => {
+          req.result.close();
+          dbPromise = null;
+        };
+        resolve(req.result);
+      };
+      req.onerror = () => {
+        dbPromise = null;
+        reject(req.error);
+      };
+      req.onblocked = () => reject(new Error("IndexedDB is blocked"));
+    });
+    return dbPromise;
+  }
+  var done = (tx) => new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  var result = (req) => new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  var range = (key) => IDBKeyRange.bound([key, 0], [key, Number.MAX_SAFE_INTEGER]);
+  async function begin(key, { meetingId, mimeType }) {
+    const db = await open();
+    const tx = db.transaction([RECS, CHUNKS], "readwrite");
+    tx.objectStore(RECS).put({ key, meetingId, mimeType, durationMs: 0, sizeBytes: 0, chunks: 0, updatedAt: Date.now() });
+    tx.objectStore(CHUNKS).delete(range(key));
+    await done(tx);
+  }
+  async function append(key, chunk, durationMs) {
+    const db = await open();
+    const tx = db.transaction([RECS, CHUNKS], "readwrite");
+    const recs = tx.objectStore(RECS);
+    const row = await result(recs.get(key));
+    if (!row) throw new Error("recording row missing");
+    tx.objectStore(CHUNKS).put({ key, i: row.chunks, blob: chunk });
+    recs.put({ ...row, chunks: row.chunks + 1, sizeBytes: row.sizeBytes + chunk.size, durationMs, updatedAt: Date.now() });
+    await done(tx);
+    return { chunks: row.chunks + 1, sizeBytes: row.sizeBytes + chunk.size };
+  }
+  async function finish(key, durationMs) {
+    const db = await open();
+    const tx = db.transaction(RECS, "readwrite");
+    const row = await result(tx.objectStore(RECS).get(key));
+    if (row) tx.objectStore(RECS).put({ ...row, durationMs, updatedAt: Date.now() });
+    await done(tx);
+    return row ? { ...row, durationMs } : null;
+  }
+  async function list() {
+    const db = await open();
+    return result(db.transaction(RECS).objectStore(RECS).getAll()) || [];
+  }
+  async function blob(key) {
+    const db = await open();
+    const tx = db.transaction([RECS, CHUNKS]);
+    const row = await result(tx.objectStore(RECS).get(key));
+    if (!row) return null;
+    const rows = await result(tx.objectStore(CHUNKS).getAll(range(key)));
+    rows.sort((a, b) => a.i - b.i);
+    return new Blob(rows.map((r) => r.blob), { type: row.mimeType });
+  }
+  async function remove(key) {
+    if (!available()) return;
+    const db = await open();
+    const tx = db.transaction([RECS, CHUNKS], "readwrite");
+    tx.objectStore(RECS).delete(key);
+    tx.objectStore(CHUNKS).delete(range(key));
+    await done(tx);
+  }
+  async function orphans(referenced) {
+    const keep = new Set(referenced);
+    return (await list()).filter((r) => !keep.has(r.key));
+  }
+  var persisted = null;
+  async function persist() {
+    if (persisted !== null) return persisted;
+    try {
+      persisted = navigator.storage?.persist ? await navigator.storage.persist() : false;
+    } catch {
+      persisted = false;
+    }
+    return persisted;
+  }
+  async function estimate() {
+    try {
+      const e = await navigator.storage?.estimate?.();
+      if (!e || typeof e.quota !== "number") return null;
+      return { usage: e.usage || 0, quota: e.quota, free: Math.max(0, e.quota - (e.usage || 0)) };
+    } catch {
+      return null;
+    }
+  }
+  var fmtBytes = (n) => n >= 1024 * 1024 ? `${Math.round(n / 1024 / 1024 * 10) / 10} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+
   // src/ai.js
   var STEPS = ["transcribe", "summarise"];
   var REQUEST_TIMEOUT_MS = 15e4;
   var ALLOWANCE_TTL_MS = 10 * 60 * 1e3;
+  var POLL_MS = 4e3;
+  var JOB_TTL_MS = 2 * 3600 * 1e3;
   var MESSAGES = {
     offline: "No connection. Try again when you are back online.",
     unauthorized: "This build cannot reach the service. Update the app.",
     plan_required: "This needs a plan.",
     allowance_exhausted: "You've used this period's summaries.",
-    too_large: "This transcript is too long to summarise.",
+    too_large: "This is too large to send.",
+    too_quiet: "The recording was too quiet to transcribe.",
+    invalid_audio: "The recording could not be read.",
     refused: "The service declined to summarise this transcript.",
     provider_unavailable: "The service is unavailable right now. Try again in a minute.",
     timeout: "That took too long. Try again.",
@@ -2582,6 +2712,22 @@
     return { code: "provider_unavailable", message: MESSAGES.provider_unavailable };
   }
   var fetchImpl = (...args) => globalThis.fetch(...args);
+  var uploadImpl = (url, formData, { headers, onProgress, signal }) => new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    xhr.responseType = "text";
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(Math.round(100 * e.loaded / e.total));
+    };
+    xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, json: async () => JSON.parse(xhr.responseText) });
+    xhr.onerror = () => reject(new TypeError("Network request failed"));
+    xhr.onabort = () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    signal?.addEventListener("abort", () => xhr.abort());
+    xhr.send(formData);
+  });
+  var blobImpl = (key) => blob(key);
+  var headersFor = () => ({ "X-Stackd-App": APP_TOKEN, "X-Stackd-Subscriber": S.plan.subscriberId });
   async function call(path, { method = "GET", body, signal } = {}) {
     const res = await fetchImpl(proxyUrl() + path, {
       method,
@@ -2607,13 +2753,16 @@
     const jobs = { transcribe: null, summarise: null, ...m.jobs || {} };
     switch (ev.type) {
       case "start":
-        return { jobs: { ...jobs, [ev.step]: { id: ev.id, startedAt: ev.at, phase: "wait" } }, lastError: null };
+        return { jobs: { ...jobs, [ev.step]: { id: ev.id, startedAt: ev.at, phase: ev.phase || "wait" } }, lastError: null };
+      case "phase":
+        return jobs[ev.step] ? { jobs: { ...jobs, [ev.step]: { ...jobs[ev.step], phase: ev.phase, ...ev.id ? { id: ev.id } : {} } } } : null;
       case "done":
         return { jobs: { ...jobs, [ev.step]: null }, lastError: null };
       case "error":
         return { jobs: { ...jobs, [ev.step]: null }, lastError: { step: ev.step, code: ev.code, message: ev.message, at: ev.at, ...ev.resetsAt ? { resetsAt: ev.resetsAt } : {} } };
       case "resume": {
-        const lost = STEPS.filter((s) => jobs[s] && !ev.inflight.includes(s));
+        const resumable = (s) => s === "transcribe" && jobs[s]?.phase === "wait" && /^job_/.test(jobs[s].id || "") && ev.at - (jobs[s].startedAt || 0) < JOB_TTL_MS;
+        const lost = STEPS.filter((s) => jobs[s] && !ev.inflight.includes(s) && !resumable(s));
         if (!lost.length) return null;
         const next = { ...jobs };
         lost.forEach((s) => {
@@ -2681,6 +2830,125 @@
       inflight.delete(key);
     }
   }
+  var progress = /* @__PURE__ */ new Map();
+  var uploadProgress = (meetingId) => progress.get(meetingId)?.pct ?? null;
+  async function transcribe(meetingId, { onProgress = null } = {}) {
+    const m = meetingById(meetingId);
+    const key = `${meetingId}:transcribe`;
+    if (!m || m.status !== "active" || !m.recording || inflight.has(key)) return;
+    const now = Date.now();
+    if (!isOnline()) {
+      apply(meetingId, reduce(m, { type: "error", step: "transcribe", code: "offline", message: MESSAGES.offline, at: now }));
+      return;
+    }
+    const ac = new AbortController();
+    inflight.set(key, ac);
+    progress.set(meetingId, { pct: 0, onProgress });
+    apply(meetingId, reduce(m, { type: "start", step: "transcribe", id: uid(), at: now, phase: "upload" }));
+    try {
+      const blob2 = await blobImpl(m.recording.key);
+      if (!blob2 || !blob2.size) throw Object.assign(new Error("The recording is missing from this device."), { code: "invalid_audio" });
+      const fd = new FormData();
+      fd.append("audio", blob2, `recording.${blob2.type.includes("mp4") ? "m4a" : "webm"}`);
+      fd.append("durationMs", String(m.recording.durationMs));
+      const res = await uploadImpl(proxyUrl() + "/v1/transcribe", fd, {
+        headers: headersFor(),
+        signal: ac.signal,
+        onProgress: (pct) => {
+          const p = progress.get(meetingId);
+          if (p) {
+            p.pct = pct;
+            p.onProgress?.(pct);
+          }
+        }
+      });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+      }
+      if (data?.allowance) setPlanCache(data.allowance);
+      if (!res.ok || !data?.ok) {
+        const err = new Error(data?.message || `The service answered ${res.status}.`);
+        err.code = data?.code || (res.status === 401 ? "unauthorized" : "provider_unavailable");
+        err.resetsAt = data?.resetsAt ?? null;
+        throw err;
+      }
+      const cur = meetingById(meetingId);
+      if (!cur) return;
+      apply(meetingId, reduce(cur, { type: "phase", step: "transcribe", phase: "wait", id: data.jobId }));
+      inflight.delete(key);
+      await pollTranscription(meetingId, data.jobId);
+    } catch (e) {
+      inflight.delete(key);
+      const cur = meetingById(meetingId);
+      if (cur) {
+        const { code, message, resetsAt } = errorFor(e);
+        const cancelled2 = e?.name === "AbortError" && ac.signal.aborted && progress.get(meetingId)?.cancelled;
+        if (cancelled2) apply(meetingId, reduce(cur, { type: "done", step: "transcribe" }));
+        else {
+          apply(meetingId, reduce(cur, { type: "error", step: "transcribe", code, message, resetsAt, at: Date.now() }));
+          onPlanError?.(code, { step: "transcribe", resetsAt });
+        }
+      }
+    } finally {
+      inflight.delete(key);
+      progress.delete(meetingId);
+    }
+  }
+  function cancelUpload(meetingId) {
+    const key = `${meetingId}:transcribe`;
+    const ac = inflight.get(key);
+    const p = progress.get(meetingId);
+    if (!ac || !p) return false;
+    p.cancelled = true;
+    ac.abort();
+    return true;
+  }
+  var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function pollTranscription(meetingId, jobId) {
+    const key = `${meetingId}:transcribe:poll`;
+    if (inflight.has(key)) return;
+    inflight.set(key, new AbortController());
+    try {
+      for (; ; ) {
+        const m = meetingById(meetingId);
+        if (!m || !m.jobs?.transcribe || m.jobs.transcribe.id !== jobId) return;
+        if (Date.now() - (m.jobs.transcribe.startedAt || 0) > JOB_TTL_MS) {
+          apply(meetingId, reduce(m, { type: "error", step: "transcribe", code: "timeout", message: MESSAGES.timeout, at: Date.now() }));
+          return;
+        }
+        let data;
+        try {
+          data = await call(`/v1/transcribe/${encodeURIComponent(jobId)}`);
+        } catch (e) {
+          if (e?.code && e.code !== "provider_unavailable" && e.code !== "offline") {
+            const { code, message, resetsAt } = errorFor(e);
+            apply(meetingId, reduce(m, { type: "error", step: "transcribe", code, message, resetsAt, at: Date.now() }));
+            onPlanError?.(code, { step: "transcribe", resetsAt });
+            return;
+          }
+          await sleep(POLL_MS * 2);
+          continue;
+        }
+        if (data.state === "done") {
+          const cur = meetingById(meetingId);
+          if (!cur) return;
+          apply(meetingId, reduce(cur, { type: "done", step: "transcribe" }));
+          setTranscript(meetingId, { source: "recording", segments: data.transcript.segments, speakers: data.transcript.speakers });
+          onTranscribed?.(meetingId);
+          return;
+        }
+        await sleep(POLL_MS);
+      }
+    } finally {
+      inflight.delete(key);
+    }
+  }
+  var onTranscribed = null;
+  function setTranscribedHandler(fn) {
+    onTranscribed = fn;
+  }
   async function allowance({ force = false } = {}) {
     if (!force && Date.now() - (S.plan.checkedAt || 0) < ALLOWANCE_TTL_MS) return S.plan;
     await call("/v1/allowance");
@@ -2688,8 +2956,10 @@
   }
   function resumeJobs(now = Date.now()) {
     S.meetings.forEach((m) => {
-      const running = STEPS.filter((s) => inflight.has(`${m.id}:${s}`));
+      const running = STEPS.filter((s) => inflight.has(`${m.id}:${s}`) || inflight.has(`${m.id}:${s}:poll`));
       apply(m.id, reduce(m, { type: "resume", inflight: running, at: now }));
+      const t = m.jobs?.transcribe;
+      if (t && t.phase === "wait" && /^job_/.test(t.id || "") && !running.includes("transcribe") && isOnline()) pollTranscription(m.id, t.id);
     });
   }
 
@@ -2699,11 +2969,11 @@
   var PRODUCT_IDS = { plus: "plus_monthly", pro: "pro_monthly", max: "max_monthly" };
   var plugin3 = () => globalThis.Capacitor?.Plugins?.Purchases;
   var platform = () => globalThis.Capacitor?.getPlatform?.() || "web";
-  var available = () => !!(globalThis.Capacitor?.isNativePlatform?.() && typeof plugin3()?.configure === "function" && RC_KEYS[platform()] && !RC_KEYS[platform()].includes("REPLACE_ME"));
+  var available2 = () => !!(globalThis.Capacitor?.isNativePlatform?.() && typeof plugin3()?.configure === "function" && RC_KEYS[platform()] && !RC_KEYS[platform()].includes("REPLACE_ME"));
   var configured = false;
   var offeringsCache = null;
   async function configure(subscriberId) {
-    if (!available() || configured) return false;
+    if (!available2() || configured) return false;
     try {
       await plugin3().configure({ apiKey: RC_KEYS[platform()], appUserID: subscriberId });
       configured = true;
@@ -2781,7 +3051,7 @@
   function cardHTML(tier, current) {
     const price = prices[tier] || PLAN_PRICES[tier];
     const isCurrent = current === tier;
-    const action = !available() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : `<button type="button" class="btn ${current === "free" || current === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current === "free" || current === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current) ? "Upgrade" : "Switch"}</button>`;
+    const action = !available2() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : `<button type="button" class="btn ${current === "free" || current === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current === "free" || current === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current) ? "Upgrade" : "Switch"}</button>`;
     return `
   <div class="plan-card ${isCurrent ? "is-current" : ""}">
     <div class="plan-head">
@@ -2816,14 +3086,14 @@
     ${bars}
     <div class="plan-actions">
       <button type="button" class="btn btn-sm btn-secondary" data-plan-check>${icon("undo", 16)}Refresh</button>
-      ${available() ? '<button type="button" class="btn btn-sm btn-secondary" data-plan-restore>Restore purchases</button>' : ""}
-      ${available() && paid ? '<button type="button" class="btn btn-sm btn-ghost" data-plan-manage>Manage subscription</button>' : ""}
+      ${available2() ? '<button type="button" class="btn btn-sm btn-secondary" data-plan-restore>Restore purchases</button>' : ""}
+      ${available2() && paid ? '<button type="button" class="btn btn-sm btn-ghost" data-plan-manage>Manage subscription</button>' : ""}
     </div>
   </div>
   <div class="plan-cards">
     ${PAID_TIERS.map((t) => cardHTML(t, current)).join("")}
   </div>
-  <p class="hint set-hint">${available() ? "Monthly subscriptions renew automatically until cancelled in your store account. The allowance resets on the renewal date; unused minutes and summaries do not carry over." : "Subscribe in the Stack’d app on iPhone or Android; the plan then applies there. Monthly subscriptions renew until cancelled."}
+  <p class="hint set-hint">${available2() ? "Monthly subscriptions renew automatically until cancelled in your store account. The allowance resets on the renewal date; unused minutes and summaries do not carry over." : "Subscribe in the Stack’d app on iPhone or Android; the plan then applies there. Monthly subscriptions renew until cancelled."}
     <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>`;
   }
   async function refresh(btn) {
@@ -2858,7 +3128,7 @@
       else toast("Open your store account to manage the subscription");
     });
     root.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", () => purchase(b.dataset.buy, b)));
-    if (available() && !Object.keys(prices).length) {
+    if (available2() && !Object.keys(prices).length) {
       offerings().then((o) => {
         const next = Object.fromEntries(Object.entries(o).map(([t, v]) => [t, v.price]).filter(([, v]) => v));
         if (Object.keys(next).length) {
@@ -2920,7 +3190,7 @@
     </div>
     <p class="plan-intro">${esc(STEP_TEXT[step] || "")}</p>
     <div class="plan-cards">${PAID_TIERS.map((t) => cardHTML(t, S.plan.tier)).join("")}</div>
-    ${available() ? "" : '<p class="hint">Subscribe in the Stack’d app on iPhone or Android.</p>'}
+    ${available2() ? "" : '<p class="hint">Subscribe in the Stack’d app on iPhone or Android.</p>'}
     <p class="hint">Renews monthly until cancelled · <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>
   </div>`);
     ov.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", async () => {
@@ -2941,7 +3211,7 @@
       <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
     </div>
     <p class="plan-intro">You've used this ${tier === "tester" ? "day's" : "month's"} ${what}.${when ? ` Resets ${esc(fmtDate(when, S.dateFormat))}.` : ""}</p>
-    ${next && available() ? `<div class="plan-cards">${cardHTML(next, tier)}</div>` : ""}
+    ${next && available2() ? `<div class="plan-cards">${cardHTML(next, tier)}</div>` : ""}
     <button type="button" class="btn btn-secondary btn-block" data-close>OK</button>
   </div>`);
     ov.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", async () => {
@@ -4120,120 +4390,425 @@
   }
   var chipHTML = (name, on) => `<button class="chip ${on ? "on" : ""}" data-val="${esc(name)}">#${esc(name)}</button>`;
 
-  // src/media.js
-  var DB = "stackd-media";
-  var VERSION = 1;
-  var RECS = "recordings";
-  var CHUNKS = "chunks";
-  var available2 = () => typeof indexedDB !== "undefined";
-  var keyFor = (meetingId) => `rec-${meetingId}`;
-  var dbPromise = null;
-  function open() {
-    if (!available2()) return Promise.reject(new Error("IndexedDB is not available"));
-    if (dbPromise) return dbPromise;
-    dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB, VERSION);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(RECS)) db.createObjectStore(RECS, { keyPath: "key" });
-        if (!db.objectStoreNames.contains(CHUNKS)) db.createObjectStore(CHUNKS, { keyPath: ["key", "i"] });
-      };
-      req.onsuccess = () => {
-        req.result.onversionchange = () => {
-          req.result.close();
-          dbPromise = null;
-        };
-        resolve(req.result);
-      };
-      req.onerror = () => {
-        dbPromise = null;
-        reject(req.error);
-      };
-      req.onblocked = () => reject(new Error("IndexedDB is blocked"));
+  // src/ui/recorder.js
+  var TIMESLICE_MS = 5e3;
+  var BITRATE = 48e3;
+  var EXPECTED_BYTES = 15 * 1024 * 1024;
+  var LOW_SPACE = 2 * EXPECTED_BYTES;
+  var MIN_SPACE = 512 * 1024;
+  var BARS = 48;
+  var nativeService = () => globalThis.Capacitor?.Plugins?.RecordingService;
+  function pickMimeType() {
+    if (typeof MediaRecorder === "undefined") return null;
+    for (const t of ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]) {
+      if (MediaRecorder.isTypeSupported?.(t)) return t;
+    }
+    return "";
+  }
+  var canRecord = () => typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia && available();
+  var session = null;
+  var isRecording = () => !!session;
+  var recordingMeetingId = () => session?.meetingId || null;
+  async function startRecording(m) {
+    if (session || !canRecord()) return;
+    const key = keyFor(m.id);
+    const svc = nativeService();
+    let stream;
+    try {
+      if (svc?.start) await svc.start();
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, channelCount: 1 } });
+    } catch (e) {
+      UI.recorderDenied = true;
+      rerender();
+      return;
+    }
+    const mimeType = pickMimeType();
+    let rec;
+    try {
+      rec = new MediaRecorder(stream, { ...mimeType ? { mimeType } : {}, audioBitsPerSecond: BITRATE });
+    } catch (e) {
+      stream.getTracks().forEach((t) => t.stop());
+      toast("This browser can't record audio.");
+      return;
+    }
+    await persist();
+    await begin(key, { meetingId: m.id, mimeType: rec.mimeType || mimeType || "audio/webm" });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    session = {
+      meetingId: m.id,
+      key,
+      stream,
+      rec,
+      ctx,
+      analyser,
+      mimeType: rec.mimeType || mimeType,
+      startedAt: Date.now(),
+      durationMs: 0,
+      levels: new Array(BARS).fill(0),
+      stopping: false,
+      tick: null,
+      raf: null,
+      chunkQueue: Promise.resolve()
+    };
+    UI.recorder = { meetingId: m.id };
+    rec.addEventListener("dataavailable", (e) => {
+      if (!e.data || !e.data.size) return;
+      const at = Date.now() - session.startedAt;
+      session.chunkQueue = session.chunkQueue.then(() => append(key, e.data, at)).catch((err) => console.error("recording: write failed", err));
     });
-    return dbPromise;
+    rec.addEventListener("stop", () => finish2());
+    rec.addEventListener("error", (e) => {
+      console.error("recording", e.error || e);
+      stopRecording();
+    });
+    rec.start(TIMESLICE_MS);
+    rerender();
   }
-  var done = (tx) => new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
-  var result = (req) => new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-  var range = (key) => IDBKeyRange.bound([key, 0], [key, Number.MAX_SAFE_INTEGER]);
-  async function begin(key, { meetingId, mimeType }) {
-    const db = await open();
-    const tx = db.transaction([RECS, CHUNKS], "readwrite");
-    tx.objectStore(RECS).put({ key, meetingId, mimeType, durationMs: 0, sizeBytes: 0, chunks: 0, updatedAt: Date.now() });
-    tx.objectStore(CHUNKS).delete(range(key));
-    await done(tx);
-  }
-  async function append(key, chunk, durationMs) {
-    const db = await open();
-    const tx = db.transaction([RECS, CHUNKS], "readwrite");
-    const recs = tx.objectStore(RECS);
-    const row = await result(recs.get(key));
-    if (!row) throw new Error("recording row missing");
-    tx.objectStore(CHUNKS).put({ key, i: row.chunks, blob: chunk });
-    recs.put({ ...row, chunks: row.chunks + 1, sizeBytes: row.sizeBytes + chunk.size, durationMs, updatedAt: Date.now() });
-    await done(tx);
-    return { chunks: row.chunks + 1, sizeBytes: row.sizeBytes + chunk.size };
-  }
-  async function finish(key, durationMs) {
-    const db = await open();
-    const tx = db.transaction(RECS, "readwrite");
-    const row = await result(tx.objectStore(RECS).get(key));
-    if (row) tx.objectStore(RECS).put({ ...row, durationMs, updatedAt: Date.now() });
-    await done(tx);
-    return row ? { ...row, durationMs } : null;
-  }
-  async function list() {
-    const db = await open();
-    return result(db.transaction(RECS).objectStore(RECS).getAll()) || [];
-  }
-  async function blob(key) {
-    const db = await open();
-    const tx = db.transaction([RECS, CHUNKS]);
-    const row = await result(tx.objectStore(RECS).get(key));
-    if (!row) return null;
-    const rows = await result(tx.objectStore(CHUNKS).getAll(range(key)));
-    rows.sort((a, b) => a.i - b.i);
-    return new Blob(rows.map((r) => r.blob), { type: row.mimeType });
-  }
-  async function remove(key) {
-    if (!available2()) return;
-    const db = await open();
-    const tx = db.transaction([RECS, CHUNKS], "readwrite");
-    tx.objectStore(RECS).delete(key);
-    tx.objectStore(CHUNKS).delete(range(key));
-    await done(tx);
-  }
-  async function orphans(referenced) {
-    const keep = new Set(referenced);
-    return (await list()).filter((r) => !keep.has(r.key));
-  }
-  var persisted = null;
-  async function persist() {
-    if (persisted !== null) return persisted;
+  async function stopRecording() {
+    if (!session || session.stopping) return;
+    session.stopping = true;
+    session.durationMs = Date.now() - session.startedAt;
     try {
-      persisted = navigator.storage?.persist ? await navigator.storage.persist() : false;
+      session.rec.stop();
     } catch {
-      persisted = false;
-    }
-    return persisted;
-  }
-  async function estimate() {
-    try {
-      const e = await navigator.storage?.estimate?.();
-      if (!e || typeof e.quota !== "number") return null;
-      return { usage: e.usage || 0, quota: e.quota, free: Math.max(0, e.quota - (e.usage || 0)) };
-    } catch {
-      return null;
+      finish2();
     }
   }
-  var fmtBytes = (n) => n >= 1024 * 1024 ? `${Math.round(n / 1024 / 1024 * 10) / 10} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+  async function finish2() {
+    const s = session;
+    if (!s) return;
+    s.stream.getTracks().forEach((t) => t.stop());
+    try {
+      await s.ctx.close();
+    } catch {
+    }
+    cancelAnimationFrame(s.raf);
+    clearInterval(s.tick);
+    nativeService()?.stop?.().catch?.(() => {
+    });
+    await s.chunkQueue;
+    const durationMs = s.durationMs || Date.now() - s.startedAt;
+    const row = await finish(s.key, durationMs);
+    session = null;
+    UI.recorder = null;
+    const m = meetingById(s.meetingId);
+    if (m && row && row.sizeBytes > 0) {
+      const rec = { key: s.key, mimeType: row.mimeType, durationMs, sizeBytes: row.sizeBytes, recordedAt: s.startedAt };
+      if (m.recording) replaceRecording(m.id, rec);
+      else setRecording(m.id, rec);
+    } else {
+      await remove(s.key).catch(() => {
+      });
+      toast("Nothing was recorded");
+      rerender();
+    }
+  }
+  var reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  function level() {
+    const a = session.analyser;
+    const buf = new Uint8Array(a.fftSize);
+    a.getByteTimeDomainData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) {
+      const v = (buf[i] - 128) / 128;
+      sum += v * v;
+    }
+    return Math.min(1, Math.sqrt(sum / buf.length) * 4);
+  }
+  function draw(canvas) {
+    const s = session;
+    if (!s) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== Math.round(w * dpr)) {
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+    }
+    const g = canvas.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const accent = getComputedStyle(canvas).color;
+    const gap = 3, bw = Math.max(2, (w - gap * (BARS - 1)) / BARS);
+    s.levels.forEach((v, i) => {
+      const bh = Math.max(3, v * (h - 4));
+      g.fillStyle = accent;
+      g.globalAlpha = 0.35 + 0.65 * (i / BARS);
+      const x = i * (bw + gap), y = (h - bh) / 2;
+      g.beginPath();
+      g.roundRect?.(x, y, bw, bh, bw / 2);
+      if (!g.roundRect) g.rect(x, y, bw, bh);
+      g.fill();
+    });
+    g.globalAlpha = 1;
+  }
+  function sourceHTML(m) {
+    const denied = UI.recorderDenied;
+    return `
+  <div class="card source-block" data-source>
+    ${canRecord() ? `
+    <button type="button" class="mic-btn" data-record aria-label="Record">${icon("mic", 30)}</button>
+    <span class="source-label">Record</span>
+    <span class="hint" data-space></span>
+    ${denied ? `<div class="notice"><span>Microphone access was refused. ${globalThis.Capacitor?.isNativePlatform?.() ? "Allow the microphone for Stack’d in the phone’s Settings, then try again." : "Allow the microphone for this site in the browser’s address bar, then try again."}</span></div>` : ""}` : '<span class="hint">Recording is not available here; paste or attach a transcript instead.</span>'}
+    <div class="source-alt">
+      <button type="button" class="btn btn-secondary" data-paste>${icon("clipboard", 18)}Paste transcript</button>
+      <button type="button" class="btn btn-secondary" data-attach>${icon("attach", 18)}Attach file</button>
+    </div>
+  </div>`;
+  }
+  function recordingHTML() {
+    return `
+  <div class="card rec-block is-recording" data-recording role="group" aria-label="Recording">
+    <canvas class="rec-level" data-level aria-hidden="true"></canvas>
+    <div class="rec-row">
+      <span class="rec-clock num" data-clock aria-live="off">00:00 <span class="hint">/ ${fmtDuration(MAX_RECORDING_MS)}</span></span>
+      <button type="button" class="stop-btn" data-stop aria-label="Stop recording" aria-pressed="true">${icon("stop", 26)}</button>
+    </div>
+    <span class="hint">Recording keeps going if the screen locks</span>
+  </div>`;
+  }
+  function transcribeHTML(m) {
+    const job = m.jobs?.transcribe;
+    const err = m.lastError?.step === "transcribe" ? m.lastError : null;
+    const offline = !isOnline();
+    if (job?.phase === "upload") {
+      const pct = uploadProgress(m.id) ?? 0;
+      return `
+    <div class="cta cta-running" role="status" aria-live="polite">
+      <span class="upload-bar" aria-hidden="true"><span class="upload-fill" data-upload-fill style="width:${pct}%"></span></span>
+      <span data-upload-text>Uploading ${pct} %</span>
+      <button type="button" class="btn btn-ghost btn-sm" data-cancel-upload>Cancel</button>
+    </div>`;
+    }
+    if (job) {
+      const mins2 = Math.max(1, Math.round(m.recording.durationMs / 6e4 / 6));
+      return `
+    <div class="cta cta-running" role="status" aria-live="polite">
+      <span class="spin" aria-hidden="true"></span>
+      <span>Transcribing… about ${mins2} min</span>
+      <span class="hint">keeps going if you leave this screen</span>
+    </div>`;
+    }
+    const state = aiButtonState("transcribe");
+    const planErr = err && (err.code === "plan_required" || err.code === "allowance_exhausted");
+    const mins = Math.ceil(m.recording.durationMs / 6e4);
+    const hint = state.locked ? state.hint : state.hint ? `uses ${mins} min of ${state.hint.replace(" of audio left", " left")}` : "";
+    return `
+  <div class="cta" data-cta="transcribe">
+    ${err && !planErr ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
+    ${err?.code === "allowance_exhausted" ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
+    <span class="cta-row">
+      <button type="button" class="btn ${m.transcript ? "btn-secondary" : "btn-primary"} ${state.locked ? "is-locked" : ""}" data-transcribe ${offline ? "disabled" : ""} ${state.locked ? 'data-locked="1"' : ""}>
+        ${icon(state.locked ? "lock" : "document", 18)}${err && !planErr ? "Retry" : m.transcript ? "Transcribe again" : "Transcribe"}
+      </button>
+      ${hint ? `<span class="hint cta-hint">${esc(hint)}</span>` : ""}
+    </span>
+    ${offline ? '<span class="hint">Needs a connection</span>' : ""}
+  </div>`;
+  }
+  function savedHTML(m) {
+    const r = m.recording;
+    return `
+  <div class="card rec-block" data-saved role="group" aria-label="Recording">
+    <div class="player">
+      <button type="button" class="play-btn" data-play aria-label="Play">${icon("play", 22)}</button>
+      <input type="range" class="scrub" data-scrub min="0" max="${Math.max(1, Math.round(r.durationMs / 1e3))}" value="0" step="1" aria-label="Position">
+      <span class="num rec-times"><span data-pos>00:00</span> / ${fmtDuration(r.durationMs)}</span>
+    </div>
+    ${transcribeHTML(m)}
+    <div class="rec-actions">
+      <button type="button" class="btn btn-ghost btn-sm" data-rerecord>${icon("mic", 16)}Record again</button>
+      <button type="button" class="btn btn-ghost btn-sm danger" data-delete-rec>${icon("trash", 16)}Delete recording · ${esc(fmtBytes(r.sizeBytes))}</button>
+    </div>
+  </div>`;
+  }
+  function recorderHTML(m) {
+    if (session && session.meetingId === m.id) return recordingHTML();
+    if (m.recording) return savedHTML(m);
+    if (m.transcript) return "";
+    return sourceHTML(m);
+  }
+  function bindRecorder(root, m, { bindSource: bindSource2 } = {}) {
+    const src = root.querySelector("[data-source]");
+    if (src) {
+      bindSource2?.(src);
+      src.querySelector("[data-record]")?.addEventListener("click", () => record(m));
+      showSpace(src.querySelector("[data-space]"), src.querySelector("[data-record]"));
+    }
+    const live = root.querySelector("[data-recording]");
+    if (live && session && session.meetingId === m.id) attach(live);
+    const saved = root.querySelector("[data-saved]");
+    if (saved) bindSaved(saved, m);
+  }
+  async function record(m) {
+    if (!S.ai.consented) {
+      const ok = await confirmDialog("Recording a meeting", "Make sure everyone present knows and agrees to be recorded.", { confirmLabel: "Record" });
+      if (!ok) return;
+      markConsented();
+    }
+    const e = await estimate();
+    if (e && e.free < MIN_SPACE) {
+      toast("Not enough space on this device to record");
+      return;
+    }
+    if (m.recording && !await confirmDialog("Record again?", "The current recording, its transcript, minutes and the actions not yet added to a board are replaced.", { confirmLabel: "Record" })) return;
+    UI.recorderDenied = false;
+    await startRecording(m);
+  }
+  async function showSpace(el, btn) {
+    if (!el) return;
+    const e = await estimate();
+    if (!e) return;
+    if (e.free < MIN_SPACE) {
+      el.textContent = `Not enough space to record (${fmtBytes(e.free)} left)`;
+      if (btn) btn.disabled = true;
+    } else if (e.free < LOW_SPACE) el.textContent = `Low space: about ${fmtBytes(e.free)} left`;
+  }
+  function attach(live) {
+    const s = session;
+    const canvas = live.querySelector("[data-level]");
+    const clock = live.querySelector("[data-clock]");
+    live.querySelector("[data-stop]").addEventListener("click", () => {
+      buzz("MEDIUM");
+      stopRecording();
+    });
+    cancelAnimationFrame(s.raf);
+    clearInterval(s.tick);
+    const frame = () => {
+      if (!session || session.stopping) return;
+      s.levels.push(level());
+      s.levels.shift();
+      draw(canvas);
+      s.raf = reduced() ? setTimeout(frame, 500) : requestAnimationFrame(frame);
+    };
+    if (reduced()) {
+      frame();
+    } else s.raf = requestAnimationFrame(frame);
+    const tick = () => {
+      if (!session) return;
+      const ms = Date.now() - s.startedAt;
+      if (clock) clock.firstChild.textContent = `${fmtDuration(ms)} `;
+      if (ms % 3e4 < 1e3) clock?.setAttribute("aria-label", `Recording, ${fmtDuration(ms)}`);
+      if (ms >= MAX_RECORDING_MS && !s.stopping) {
+        buzz("MEDIUM");
+        toast(`Stopped at ${fmtDuration(MAX_RECORDING_MS)}`);
+        stopRecording();
+      }
+    };
+    s.tick = setInterval(tick, 500);
+    tick();
+  }
+  var player = null;
+  function stopPlayback() {
+    if (!player) return;
+    player.audio.pause();
+    URL.revokeObjectURL(player.url);
+    player = null;
+  }
+  async function bindSaved(root, m) {
+    const r = m.recording;
+    const playBtn = root.querySelector("[data-play]"), scrub = root.querySelector("[data-scrub]"), pos = root.querySelector("[data-pos]");
+    let audio = null;
+    const ensure = async () => {
+      if (player && player.key === r.key) {
+        audio = player.audio;
+        return audio;
+      }
+      stopPlayback();
+      const b = await blob(r.key);
+      if (!b) {
+        toast("The recording is missing from this device");
+        return null;
+      }
+      const url = URL.createObjectURL(b);
+      audio = new Audio(url);
+      player = { audio, url, key: r.key };
+      audio.addEventListener("timeupdate", () => {
+        if (!scrub.matches(":active")) scrub.value = String(Math.floor(audio.currentTime));
+        pos.textContent = fmtDuration(audio.currentTime * 1e3);
+        timeListeners.forEach((fn) => fn(audio.currentTime * 1e3, !audio.paused));
+      });
+      audio.addEventListener("pause", () => timeListeners.forEach((fn) => fn(audio.currentTime * 1e3, false)));
+      audio.addEventListener("ended", () => {
+        playBtn.innerHTML = icon("play", 22);
+        playBtn.setAttribute("aria-label", "Play");
+      });
+      audio.addEventListener("pause", () => {
+        playBtn.innerHTML = icon("play", 22);
+        playBtn.setAttribute("aria-label", "Play");
+      });
+      audio.addEventListener("play", () => {
+        playBtn.innerHTML = icon("pause", 22);
+        playBtn.setAttribute("aria-label", "Pause");
+      });
+      return audio;
+    };
+    loader = ensure;
+    playBtn.addEventListener("click", async () => {
+      const a = await ensure();
+      if (!a) return;
+      if (a.paused) a.play().catch(() => toast("Couldn't play the recording"));
+      else a.pause();
+    });
+    scrub.addEventListener("input", async () => {
+      const a = await ensure();
+      if (!a) return;
+      a.currentTime = +scrub.value;
+      pos.textContent = fmtDuration(a.currentTime * 1e3);
+    });
+    root.querySelector("[data-transcribe]")?.addEventListener("click", async (e) => {
+      if (e.currentTarget.dataset.locked) {
+        openPlanRequired({ step: "transcribe" });
+        return;
+      }
+      if (!S.ai.disclosed) {
+        const ok = await confirmDialog("Before the first transcript", "The recording is sent to our server and to a speech-to-text provider to make the transcript. Nothing is kept there after the result comes back, and nothing is sent until you press this button.", { confirmLabel: "Continue" });
+        if (!ok) return;
+        markDisclosed();
+      }
+      if (m.transcript && !await confirmDialog("Transcribe again?", "The transcript, the minutes and the actions not yet added to a board are replaced.", { confirmLabel: "Transcribe" })) return;
+      stopPlayback();
+      transcribe(m.id, { onProgress: (pct) => {
+        const fill = root.querySelector("[data-upload-fill]"), text = root.querySelector("[data-upload-text]");
+        if (fill) fill.style.width = `${pct}%`;
+        if (text) text.textContent = `Uploading ${pct} %`;
+      } });
+    });
+    root.querySelector("[data-cancel-upload]")?.addEventListener("click", () => {
+      if (cancelUpload(m.id)) toast("Upload cancelled");
+    });
+    root.querySelector("[data-rerecord]").addEventListener("click", () => {
+      if (m.jobs?.transcribe) {
+        toast("Wait for the transcription to finish");
+        return;
+      }
+      record(m);
+    });
+    root.querySelector("[data-delete-rec]").addEventListener("click", async () => {
+      const ok = await confirmDialog("Delete the recording?", `Frees ${fmtBytes(r.sizeBytes)}. ${m.transcript ? "The transcript and minutes stay." : ""}`, { confirmLabel: "Delete", danger: true });
+      if (!ok) return;
+      stopPlayback();
+      setRecording(m.id, null);
+      toast("Recording deleted");
+    });
+  }
+  var timeListeners = /* @__PURE__ */ new Set();
+  function onPlayerTime(fn) {
+    timeListeners.add(fn);
+    return () => timeListeners.delete(fn);
+  }
+  var loader = null;
+  async function seekTo(ms) {
+    if (!player && loader) await loader();
+    if (!player) return false;
+    player.audio.currentTime = ms / 1e3;
+    await player.audio.play().catch(() => {
+    });
+    return true;
+  }
 
   // src/transcript.js
   var uid2 = () => Math.random().toString(36).slice(2, 10);
@@ -4389,20 +4964,58 @@
         ${single ? "" : `
         <div class="tseg-head">
           ${readOnly ? `<span class="tseg-who">${esc(speakerName(t, s.speaker))}</span>` : `<button type="button" class="tseg-who" data-speaker="${esc(s.speaker)}" title="Rename this speaker" aria-label="Rename ${esc(speakerName(t, s.speaker))}">${esc(speakerName(t, s.speaker))}</button>`}
-          ${s.startMs === null || s.startMs === void 0 ? "" : `<span class="tseg-time num">${fmtDuration(s.startMs)}</span>`}
+          ${s.startMs === null || s.startMs === void 0 ? "" : m.recording && !readOnly ? `<button type="button" class="tseg-time num" data-seek="${s.startMs}" aria-label="Play from ${fmtDuration(s.startMs)}">${icon("play", 10)}${fmtDuration(s.startMs)}</button>` : `<span class="tseg-time num">${fmtDuration(s.startMs)}</span>`}
         </div>`}
-        <p class="tseg-text">${esc(s.text)}</p>
+        ${readOnly ? `<p class="tseg-text">${esc(s.text)}</p>` : `<p class="tseg-text" contenteditable="plaintext-only" data-edit="${s.id}" spellcheck="false" aria-label="Transcript text, editable">${esc(s.text)}</p>`}
       </div>`).join("")}
     </div>
     ${collapsed ? `<button type="button" class="btn btn-ghost btn-sm showall" data-showall>Show all (${merged.length})</button>` : ""}
   </section>`;
   }
+  var unlisten = null;
   function bindTranscript(root, m, { readOnly = false } = {}) {
     root.querySelector("[data-showall]")?.addEventListener("click", () => {
       UI.transcriptAll = true;
       rerender();
     });
     if (readOnly) return;
+    root.querySelectorAll("[data-seek]").forEach((b) => b.addEventListener("click", () => seekTo(+b.dataset.seek)));
+    unlisten?.();
+    const merged = mergeAdjacent(m.transcript.segments).filter((s) => s.startMs !== null && s.startMs !== void 0);
+    unlisten = onPlayerTime((ms, playing) => {
+      let current = null;
+      merged.forEach((s) => {
+        if (s.startMs <= ms + 50) current = s.id;
+      });
+      root.querySelectorAll(".tseg.playing").forEach((el) => {
+        if (!playing || el.dataset.seg !== current) el.classList.remove("playing");
+      });
+      if (playing && current) root.querySelector(`.tseg[data-seg="${current}"]`)?.classList.add("playing");
+    });
+    root.querySelectorAll("[data-edit]").forEach((p) => {
+      const original = p.textContent;
+      p.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          p.textContent = original;
+          p.blur();
+        }
+      });
+      p.addEventListener("blur", () => {
+        const text = p.textContent.trim();
+        if (text === original.trim()) return;
+        if (!text) {
+          p.textContent = original;
+          return;
+        }
+        const segs = m.transcript.segments;
+        const first = segs.findIndex((s) => s.id === p.dataset.edit);
+        if (first === -1) return;
+        let last = first;
+        while (last + 1 < segs.length && segs[last + 1].speaker === segs[first].speaker) last += 1;
+        if (last > first) m.transcript.segments.splice(first + 1, last - first);
+        editSegment(m.id, p.dataset.edit, text);
+      });
+    });
     root.querySelectorAll("[data-speaker]").forEach((b) => b.addEventListener("click", async () => {
       const label = b.dataset.speaker;
       const current = m.transcript.speakers[label] || "";
@@ -4633,344 +5246,6 @@
       reader.readAsText(file);
     });
     input.click();
-  }
-
-  // src/ui/recorder.js
-  var TIMESLICE_MS = 5e3;
-  var BITRATE = 48e3;
-  var EXPECTED_BYTES = 15 * 1024 * 1024;
-  var LOW_SPACE = 2 * EXPECTED_BYTES;
-  var MIN_SPACE = 512 * 1024;
-  var BARS = 48;
-  var nativeService = () => globalThis.Capacitor?.Plugins?.RecordingService;
-  function pickMimeType() {
-    if (typeof MediaRecorder === "undefined") return null;
-    for (const t of ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]) {
-      if (MediaRecorder.isTypeSupported?.(t)) return t;
-    }
-    return "";
-  }
-  var canRecord = () => typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia && available2();
-  var session = null;
-  var isRecording = () => !!session;
-  var recordingMeetingId = () => session?.meetingId || null;
-  async function startRecording(m) {
-    if (session || !canRecord()) return;
-    const key = keyFor(m.id);
-    const svc = nativeService();
-    let stream;
-    try {
-      if (svc?.start) await svc.start();
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, channelCount: 1 } });
-    } catch (e) {
-      UI.recorderDenied = true;
-      rerender();
-      return;
-    }
-    const mimeType = pickMimeType();
-    let rec;
-    try {
-      rec = new MediaRecorder(stream, { ...mimeType ? { mimeType } : {}, audioBitsPerSecond: BITRATE });
-    } catch (e) {
-      stream.getTracks().forEach((t) => t.stop());
-      toast("This browser can't record audio.");
-      return;
-    }
-    await persist();
-    await begin(key, { meetingId: m.id, mimeType: rec.mimeType || mimeType || "audio/webm" });
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 1024;
-    ctx.createMediaStreamSource(stream).connect(analyser);
-    session = {
-      meetingId: m.id,
-      key,
-      stream,
-      rec,
-      ctx,
-      analyser,
-      mimeType: rec.mimeType || mimeType,
-      startedAt: Date.now(),
-      durationMs: 0,
-      levels: new Array(BARS).fill(0),
-      stopping: false,
-      tick: null,
-      raf: null,
-      chunkQueue: Promise.resolve()
-    };
-    UI.recorder = { meetingId: m.id };
-    rec.addEventListener("dataavailable", (e) => {
-      if (!e.data || !e.data.size) return;
-      const at = Date.now() - session.startedAt;
-      session.chunkQueue = session.chunkQueue.then(() => append(key, e.data, at)).catch((err) => console.error("recording: write failed", err));
-    });
-    rec.addEventListener("stop", () => finish2());
-    rec.addEventListener("error", (e) => {
-      console.error("recording", e.error || e);
-      stopRecording();
-    });
-    rec.start(TIMESLICE_MS);
-    rerender();
-  }
-  async function stopRecording() {
-    if (!session || session.stopping) return;
-    session.stopping = true;
-    session.durationMs = Date.now() - session.startedAt;
-    try {
-      session.rec.stop();
-    } catch {
-      finish2();
-    }
-  }
-  async function finish2() {
-    const s = session;
-    if (!s) return;
-    s.stream.getTracks().forEach((t) => t.stop());
-    try {
-      await s.ctx.close();
-    } catch {
-    }
-    cancelAnimationFrame(s.raf);
-    clearInterval(s.tick);
-    nativeService()?.stop?.().catch?.(() => {
-    });
-    await s.chunkQueue;
-    const durationMs = s.durationMs || Date.now() - s.startedAt;
-    const row = await finish(s.key, durationMs);
-    session = null;
-    UI.recorder = null;
-    const m = meetingById(s.meetingId);
-    if (m && row && row.sizeBytes > 0) {
-      const rec = { key: s.key, mimeType: row.mimeType, durationMs, sizeBytes: row.sizeBytes, recordedAt: s.startedAt };
-      if (m.recording) replaceRecording(m.id, rec);
-      else setRecording(m.id, rec);
-    } else {
-      await remove(s.key).catch(() => {
-      });
-      toast("Nothing was recorded");
-      rerender();
-    }
-  }
-  var reduced = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  function level() {
-    const a = session.analyser;
-    const buf = new Uint8Array(a.fftSize);
-    a.getByteTimeDomainData(buf);
-    let sum = 0;
-    for (let i = 0; i < buf.length; i++) {
-      const v = (buf[i] - 128) / 128;
-      sum += v * v;
-    }
-    return Math.min(1, Math.sqrt(sum / buf.length) * 4);
-  }
-  function draw(canvas) {
-    const s = session;
-    if (!s) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    if (canvas.width !== Math.round(w * dpr)) {
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
-    }
-    const g = canvas.getContext("2d");
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, w, h);
-    const accent = getComputedStyle(canvas).color;
-    const gap = 3, bw = Math.max(2, (w - gap * (BARS - 1)) / BARS);
-    s.levels.forEach((v, i) => {
-      const bh = Math.max(3, v * (h - 4));
-      g.fillStyle = accent;
-      g.globalAlpha = 0.35 + 0.65 * (i / BARS);
-      const x = i * (bw + gap), y = (h - bh) / 2;
-      g.beginPath();
-      g.roundRect?.(x, y, bw, bh, bw / 2);
-      if (!g.roundRect) g.rect(x, y, bw, bh);
-      g.fill();
-    });
-    g.globalAlpha = 1;
-  }
-  function sourceHTML(m) {
-    const denied = UI.recorderDenied;
-    return `
-  <div class="card source-block" data-source>
-    ${canRecord() ? `
-    <button type="button" class="mic-btn" data-record aria-label="Record">${icon("mic", 30)}</button>
-    <span class="source-label">Record</span>
-    <span class="hint" data-space></span>
-    ${denied ? `<div class="notice"><span>Microphone access was refused. ${globalThis.Capacitor?.isNativePlatform?.() ? "Allow the microphone for Stack’d in the phone’s Settings, then try again." : "Allow the microphone for this site in the browser’s address bar, then try again."}</span></div>` : ""}` : '<span class="hint">Recording is not available here; paste or attach a transcript instead.</span>'}
-    <div class="source-alt">
-      <button type="button" class="btn btn-secondary" data-paste>${icon("clipboard", 18)}Paste transcript</button>
-      <button type="button" class="btn btn-secondary" data-attach>${icon("attach", 18)}Attach file</button>
-    </div>
-  </div>`;
-  }
-  function recordingHTML() {
-    return `
-  <div class="card rec-block is-recording" data-recording role="group" aria-label="Recording">
-    <canvas class="rec-level" data-level aria-hidden="true"></canvas>
-    <div class="rec-row">
-      <span class="rec-clock num" data-clock aria-live="off">00:00 <span class="hint">/ ${fmtDuration(MAX_RECORDING_MS)}</span></span>
-      <button type="button" class="stop-btn" data-stop aria-label="Stop recording" aria-pressed="true">${icon("stop", 26)}</button>
-    </div>
-    <span class="hint">Recording keeps going if the screen locks</span>
-  </div>`;
-  }
-  function savedHTML(m) {
-    const r = m.recording;
-    return `
-  <div class="card rec-block" data-saved role="group" aria-label="Recording">
-    <div class="player">
-      <button type="button" class="play-btn" data-play aria-label="Play">${icon("play", 22)}</button>
-      <input type="range" class="scrub" data-scrub min="0" max="${Math.max(1, Math.round(r.durationMs / 1e3))}" value="0" step="1" aria-label="Position">
-      <span class="num rec-times"><span data-pos>00:00</span> / ${fmtDuration(r.durationMs)}</span>
-    </div>
-    <div class="rec-actions">
-      <button type="button" class="btn btn-primary" data-transcribe>${icon("document", 18)}Transcribe</button>
-      <button type="button" class="btn btn-ghost btn-sm" data-rerecord>${icon("mic", 16)}Record again</button>
-      <button type="button" class="btn btn-ghost btn-sm danger" data-delete-rec>${icon("trash", 16)}Delete recording · ${esc(fmtBytes(r.sizeBytes))}</button>
-    </div>
-  </div>`;
-  }
-  function recorderHTML(m) {
-    if (session && session.meetingId === m.id) return recordingHTML();
-    if (m.recording) return savedHTML(m);
-    if (m.transcript) return "";
-    return sourceHTML(m);
-  }
-  function bindRecorder(root, m, { bindSource: bindSource2 } = {}) {
-    const src = root.querySelector("[data-source]");
-    if (src) {
-      bindSource2?.(src);
-      src.querySelector("[data-record]")?.addEventListener("click", () => record(m));
-      showSpace(src.querySelector("[data-space]"), src.querySelector("[data-record]"));
-    }
-    const live = root.querySelector("[data-recording]");
-    if (live && session && session.meetingId === m.id) attach(live);
-    const saved = root.querySelector("[data-saved]");
-    if (saved) bindSaved(saved, m);
-  }
-  async function record(m) {
-    if (!S.ai.consented) {
-      const ok = await confirmDialog("Recording a meeting", "Make sure everyone present knows and agrees to be recorded.", { confirmLabel: "Record" });
-      if (!ok) return;
-      markConsented();
-    }
-    const e = await estimate();
-    if (e && e.free < MIN_SPACE) {
-      toast("Not enough space on this device to record");
-      return;
-    }
-    if (m.recording && !await confirmDialog("Record again?", "The current recording, its transcript, minutes and the actions not yet added to a board are replaced.", { confirmLabel: "Record" })) return;
-    UI.recorderDenied = false;
-    await startRecording(m);
-  }
-  async function showSpace(el, btn) {
-    if (!el) return;
-    const e = await estimate();
-    if (!e) return;
-    if (e.free < MIN_SPACE) {
-      el.textContent = `Not enough space to record (${fmtBytes(e.free)} left)`;
-      if (btn) btn.disabled = true;
-    } else if (e.free < LOW_SPACE) el.textContent = `Low space: about ${fmtBytes(e.free)} left`;
-  }
-  function attach(live) {
-    const s = session;
-    const canvas = live.querySelector("[data-level]");
-    const clock = live.querySelector("[data-clock]");
-    live.querySelector("[data-stop]").addEventListener("click", () => {
-      buzz("MEDIUM");
-      stopRecording();
-    });
-    cancelAnimationFrame(s.raf);
-    clearInterval(s.tick);
-    const frame = () => {
-      if (!session || session.stopping) return;
-      s.levels.push(level());
-      s.levels.shift();
-      draw(canvas);
-      s.raf = reduced() ? setTimeout(frame, 500) : requestAnimationFrame(frame);
-    };
-    if (reduced()) {
-      frame();
-    } else s.raf = requestAnimationFrame(frame);
-    const tick = () => {
-      if (!session) return;
-      const ms = Date.now() - s.startedAt;
-      if (clock) clock.firstChild.textContent = `${fmtDuration(ms)} `;
-      if (ms % 3e4 < 1e3) clock?.setAttribute("aria-label", `Recording, ${fmtDuration(ms)}`);
-      if (ms >= MAX_RECORDING_MS && !s.stopping) {
-        buzz("MEDIUM");
-        toast(`Stopped at ${fmtDuration(MAX_RECORDING_MS)}`);
-        stopRecording();
-      }
-    };
-    s.tick = setInterval(tick, 500);
-    tick();
-  }
-  var player = null;
-  function stopPlayback() {
-    if (!player) return;
-    player.audio.pause();
-    URL.revokeObjectURL(player.url);
-    player = null;
-  }
-  async function bindSaved(root, m) {
-    const r = m.recording;
-    const playBtn = root.querySelector("[data-play]"), scrub = root.querySelector("[data-scrub]"), pos = root.querySelector("[data-pos]");
-    let audio = null;
-    const ensure = async () => {
-      if (player && player.key === r.key) {
-        audio = player.audio;
-        return audio;
-      }
-      stopPlayback();
-      const b = await blob(r.key);
-      if (!b) {
-        toast("The recording is missing from this device");
-        return null;
-      }
-      const url = URL.createObjectURL(b);
-      audio = new Audio(url);
-      player = { audio, url, key: r.key };
-      audio.addEventListener("timeupdate", () => {
-        if (!scrub.matches(":active")) scrub.value = String(Math.floor(audio.currentTime));
-        pos.textContent = fmtDuration(audio.currentTime * 1e3);
-      });
-      audio.addEventListener("ended", () => {
-        playBtn.innerHTML = icon("play", 22);
-        playBtn.setAttribute("aria-label", "Play");
-      });
-      audio.addEventListener("pause", () => {
-        playBtn.innerHTML = icon("play", 22);
-        playBtn.setAttribute("aria-label", "Play");
-      });
-      audio.addEventListener("play", () => {
-        playBtn.innerHTML = icon("pause", 22);
-        playBtn.setAttribute("aria-label", "Pause");
-      });
-      return audio;
-    };
-    playBtn.addEventListener("click", async () => {
-      const a = await ensure();
-      if (!a) return;
-      if (a.paused) a.play().catch(() => toast("Couldn't play the recording"));
-      else a.pause();
-    });
-    scrub.addEventListener("input", async () => {
-      const a = await ensure();
-      if (!a) return;
-      a.currentTime = +scrub.value;
-      pos.textContent = fmtDuration(a.currentTime * 1e3);
-    });
-    root.querySelector("[data-transcribe]").addEventListener("click", () => toast("Transcription arrives in the next build"));
-    root.querySelector("[data-rerecord]").addEventListener("click", () => record(m));
-    root.querySelector("[data-delete-rec]").addEventListener("click", async () => {
-      const ok = await confirmDialog("Delete the recording?", `Frees ${fmtBytes(r.sizeBytes)}. ${m.transcript ? "The transcript and minutes stay." : ""}`, { confirmLabel: "Delete", danger: true });
-      if (!ok) return;
-      stopPlayback();
-      setRecording(m.id, null);
-      toast("Recording deleted");
-    });
   }
 
   // src/ui/meeting.js
@@ -6629,7 +6904,7 @@
   setMediaRemover((keys) => keys.forEach((k) => remove(k).catch(() => {
   })));
   purgeDeleted();
-  if (available2()) {
+  if (available()) {
     orphans(S.meetings.map((m) => m.recording?.key).filter(Boolean)).then((rows) => rows.forEach((row) => {
       const m = meetingById(row.meetingId);
       if (m && m.status === "active" && !m.recording && row.sizeBytes > 0 && row.durationMs > 0) {
@@ -6641,6 +6916,11 @@
   }
   resumeJobs();
   configure(S.plan.subscriberId);
+  setTranscribedHandler((id) => {
+    const m = meetingById(id);
+    if (!m?.recording) return;
+    toast(`Transcript ready. Delete the recording to free ${fmtBytes(m.recording.sizeBytes)}?`, { ms: 8e3, action: { label: "Delete", onClick: () => setRecording(id, null) } });
+  });
   setPlanErrorHandler((code, { step, resetsAt }) => {
     if (code === "plan_required") openPlanRequired({ step });
     else if (code === "allowance_exhausted") openAllowanceUsed({ step, resetsAt });

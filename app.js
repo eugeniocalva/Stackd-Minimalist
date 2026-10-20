@@ -22,7 +22,8 @@ import { notesHTML, bindNotes } from './src/ui/notes.js';
 import { noteDetailHTML, bindNoteDetail } from './src/ui/notedetail.js';
 import { meetingsHTML, bindMeetings } from './src/ui/meetings.js';
 import { meetingHTML, bindMeeting } from './src/ui/meeting.js';
-import { resumeJobs, setPlanErrorHandler } from './src/ai.js';
+import { resumeJobs, setPlanErrorHandler, setTranscribedHandler } from './src/ai.js';
+import { fmtBytes } from './src/media.js';
 import { configure as configurePurchases } from './src/purchases.js';
 import * as media from './src/media.js';
 import { isRecording, recordingMeetingId } from './src/ui/recorder.js';
@@ -91,6 +92,11 @@ if (media.available()) {
 }
 resumeJobs();                                   // an AI job persisted before a reload was lost with the page
 configurePurchases(S.plan.subscriberId);        // native shells only; a no-op on the web
+setTranscribedHandler((id) => {           // AC-04.8: offer to free the space once
+  const m = meetingById(id);
+  if (!m?.recording) return;
+  toast(`Transcript ready. Delete the recording to free ${fmtBytes(m.recording.sizeBytes)}?`, { ms: 8000, action: { label: 'Delete', onClick: () => setRecording(id, null) } });
+});
 setPlanErrorHandler((code, { step, resetsAt }) => {
   if (code === 'plan_required') openPlanRequired({ step });
   else if (code === 'allowance_exhausted') openAllowanceUsed({ step, resetsAt });

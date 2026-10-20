@@ -4,7 +4,8 @@
    speaker everywhere in the meeting. Tap-to-seek and inline text edits come
    with the recording and transcription phases (19–20). */
 
-import { UI, renameSpeaker, rerender } from '../store.js';
+import { UI, renameSpeaker, editSegment, rerender } from '../store.js';
+import { seekTo, onPlayerTime } from './recorder.js';
 import { fmtDuration } from '../dates.js';
 import { mergeAdjacent, speakerName } from '../transcript.js';
 import { esc } from '../util.js';
@@ -43,18 +44,52 @@ export function transcriptHTML(m, { readOnly = false } = {}) {
           ${readOnly
             ? `<span class="tseg-who">${esc(speakerName(t, s.speaker))}</span>`
             : `<button type="button" class="tseg-who" data-speaker="${esc(s.speaker)}" title="Rename this speaker" aria-label="Rename ${esc(speakerName(t, s.speaker))}">${esc(speakerName(t, s.speaker))}</button>`}
-          ${s.startMs === null || s.startMs === undefined ? '' : `<span class="tseg-time num">${fmtDuration(s.startMs)}</span>`}
+          ${s.startMs === null || s.startMs === undefined ? '' : (m.recording && !readOnly
+            ? `<button type="button" class="tseg-time num" data-seek="${s.startMs}" aria-label="Play from ${fmtDuration(s.startMs)}">${icon('play', 10)}${fmtDuration(s.startMs)}</button>`
+            : `<span class="tseg-time num">${fmtDuration(s.startMs)}</span>`)}
         </div>`}
-        <p class="tseg-text">${esc(s.text)}</p>
+        ${readOnly
+          ? `<p class="tseg-text">${esc(s.text)}</p>`
+          : `<p class="tseg-text" contenteditable="plaintext-only" data-edit="${s.id}" spellcheck="false" aria-label="Transcript text, editable">${esc(s.text)}</p>`}
       </div>`).join('')}
     </div>
     ${collapsed ? `<button type="button" class="btn btn-ghost btn-sm showall" data-showall>Show all (${merged.length})</button>` : ''}
   </section>`;
 }
 
+let unlisten = null;
+
 export function bindTranscript(root, m, { readOnly = false } = {}) {
   root.querySelector('[data-showall]')?.addEventListener('click', () => { UI.transcriptAll = true; rerender(); });
   if (readOnly) return;
+  /* tap a time → play from there; the playing segment highlights (AC-06.3) */
+  root.querySelectorAll('[data-seek]').forEach((b) => b.addEventListener('click', () => seekTo(+b.dataset.seek)));
+  unlisten?.();
+  const merged = mergeAdjacent(m.transcript.segments).filter((s) => s.startMs !== null && s.startMs !== undefined);
+  unlisten = onPlayerTime((ms, playing) => {
+    let current = null;
+    merged.forEach((s) => { if (s.startMs <= ms + 50) current = s.id; });
+    root.querySelectorAll('.tseg.playing').forEach((el) => { if (!playing || el.dataset.seg !== current) el.classList.remove('playing'); });
+    if (playing && current) root.querySelector(`.tseg[data-seg="${current}"]`)?.classList.add('playing');
+  });
+  /* inline text edits (AC-06.4): a merged segment edits its first stored segment's
+     text; the merged ones after it are folded into it */
+  root.querySelectorAll('[data-edit]').forEach((p) => {
+    const original = p.textContent;
+    p.addEventListener('keydown', (e) => { if (e.key === 'Escape') { p.textContent = original; p.blur(); } });
+    p.addEventListener('blur', () => {
+      const text = p.textContent.trim();
+      if (text === original.trim()) return;
+      if (!text) { p.textContent = original; return; }
+      const segs = m.transcript.segments;
+      const first = segs.findIndex((s) => s.id === p.dataset.edit);
+      if (first === -1) return;
+      let last = first;
+      while (last + 1 < segs.length && segs[last + 1].speaker === segs[first].speaker) last += 1;
+      if (last > first) m.transcript.segments.splice(first + 1, last - first);
+      editSegment(m.id, p.dataset.edit, text);
+    });
+  });
   root.querySelectorAll('[data-speaker]').forEach((b) =>
     b.addEventListener('click', async () => {
       const label = b.dataset.speaker;

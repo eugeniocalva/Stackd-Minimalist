@@ -9,7 +9,7 @@
    audio background mode does (AC-04.3). */
 
 import {
-  S, UI, MAX_RECORDING_MS, meetingById, setRecording, replaceRecording, markConsented, rerender,
+  S, UI, MAX_RECORDING_MS, meetingById, setRecording, replaceRecording, markConsented, markDisclosed, rerender,
 } from '../store.js';
 import { fmtDuration } from '../dates.js';
 import * as media from '../media.js';
@@ -17,6 +17,8 @@ import { esc } from '../util.js';
 import { icon } from './icons.js';
 import { confirmDialog, toast } from './primitives.js';
 import { buzz } from '../haptics.js';
+import { transcribe, cancelUpload, uploadProgress, isOnline } from '../ai.js';
+import { aiButtonState, openPlanRequired } from './paywall.js';
 
 const TIMESLICE_MS = 5000;
 const BITRATE = 48_000;                      // mono speech: 30 min ≈ 11 MB
@@ -173,6 +175,47 @@ function recordingHTML() {
   </div>`;
 }
 
+/** The Transcribe control in its states (AC-05.1, AC-05.4, AC-05.5, AC-12.5). */
+function transcribeHTML(m) {
+  const job = m.jobs?.transcribe;
+  const err = m.lastError?.step === 'transcribe' ? m.lastError : null;
+  const offline = !isOnline();
+  if (job?.phase === 'upload') {
+    const pct = uploadProgress(m.id) ?? 0;
+    return `
+    <div class="cta cta-running" role="status" aria-live="polite">
+      <span class="upload-bar" aria-hidden="true"><span class="upload-fill" data-upload-fill style="width:${pct}%"></span></span>
+      <span data-upload-text>Uploading ${pct} %</span>
+      <button type="button" class="btn btn-ghost btn-sm" data-cancel-upload>Cancel</button>
+    </div>`;
+  }
+  if (job) {
+    const mins = Math.max(1, Math.round(m.recording.durationMs / 60000 / 6));
+    return `
+    <div class="cta cta-running" role="status" aria-live="polite">
+      <span class="spin" aria-hidden="true"></span>
+      <span>Transcribing… about ${mins} min</span>
+      <span class="hint">keeps going if you leave this screen</span>
+    </div>`;
+  }
+  const state = aiButtonState('transcribe');
+  const planErr = err && (err.code === 'plan_required' || err.code === 'allowance_exhausted');
+  const mins = Math.ceil(m.recording.durationMs / 60000);
+  const hint = state.locked ? state.hint : state.hint ? `uses ${mins} min of ${state.hint.replace(' of audio left', ' left')}` : '';
+  return `
+  <div class="cta" data-cta="transcribe">
+    ${err && !planErr ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ''}
+    ${err?.code === 'allowance_exhausted' ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ''}
+    <span class="cta-row">
+      <button type="button" class="btn ${m.transcript ? 'btn-secondary' : 'btn-primary'} ${state.locked ? 'is-locked' : ''}" data-transcribe ${offline ? 'disabled' : ''} ${state.locked ? 'data-locked="1"' : ''}>
+        ${icon(state.locked ? 'lock' : 'document', 18)}${err && !planErr ? 'Retry' : m.transcript ? 'Transcribe again' : 'Transcribe'}
+      </button>
+      ${hint ? `<span class="hint cta-hint">${esc(hint)}</span>` : ''}
+    </span>
+    ${offline ? '<span class="hint">Needs a connection</span>' : ''}
+  </div>`;
+}
+
 function savedHTML(m) {
   const r = m.recording;
   return `
@@ -182,8 +225,8 @@ function savedHTML(m) {
       <input type="range" class="scrub" data-scrub min="0" max="${Math.max(1, Math.round(r.durationMs / 1000))}" value="0" step="1" aria-label="Position">
       <span class="num rec-times"><span data-pos>00:00</span> / ${fmtDuration(r.durationMs)}</span>
     </div>
+    ${transcribeHTML(m)}
     <div class="rec-actions">
-      <button type="button" class="btn btn-primary" data-transcribe>${icon('document', 18)}Transcribe</button>
       <button type="button" class="btn btn-ghost btn-sm" data-rerecord>${icon('mic', 16)}Record again</button>
       <button type="button" class="btn btn-ghost btn-sm danger" data-delete-rec>${icon('trash', 16)}Delete recording · ${esc(media.fmtBytes(r.sizeBytes))}</button>
     </div>
@@ -285,12 +328,15 @@ async function bindSaved(root, m) {
     audio.addEventListener('timeupdate', () => {
       if (!scrub.matches(':active')) scrub.value = String(Math.floor(audio.currentTime));
       pos.textContent = fmtDuration(audio.currentTime * 1000);
+      timeListeners.forEach((fn) => fn(audio.currentTime * 1000, !audio.paused));
     });
+    audio.addEventListener('pause', () => timeListeners.forEach((fn) => fn(audio.currentTime * 1000, false)));
     audio.addEventListener('ended', () => { playBtn.innerHTML = icon('play', 22); playBtn.setAttribute('aria-label', 'Play'); });
     audio.addEventListener('pause', () => { playBtn.innerHTML = icon('play', 22); playBtn.setAttribute('aria-label', 'Play'); });
     audio.addEventListener('play', () => { playBtn.innerHTML = icon('pause', 22); playBtn.setAttribute('aria-label', 'Pause'); });
     return audio;
   };
+  loader = ensure;
   playBtn.addEventListener('click', async () => {
     const a = await ensure(); if (!a) return;
     if (a.paused) a.play().catch(() => toast("Couldn't play the recording")); else a.pause();
@@ -299,8 +345,23 @@ async function bindSaved(root, m) {
     const a = await ensure(); if (!a) return;
     a.currentTime = +scrub.value; pos.textContent = fmtDuration(a.currentTime * 1000);
   });
-  root.querySelector('[data-transcribe]').addEventListener('click', () => toast('Transcription arrives in the next build'));
-  root.querySelector('[data-rerecord]').addEventListener('click', () => record(m));
+  root.querySelector('[data-transcribe]')?.addEventListener('click', async (e) => {
+    if (e.currentTarget.dataset.locked) { openPlanRequired({ step: 'transcribe' }); return; }
+    if (!S.ai.disclosed) {
+      const ok = await confirmDialog('Before the first transcript', 'The recording is sent to our server and to a speech-to-text provider to make the transcript. Nothing is kept there after the result comes back, and nothing is sent until you press this button.', { confirmLabel: 'Continue' });
+      if (!ok) return;
+      markDisclosed();
+    }
+    if (m.transcript && !await confirmDialog('Transcribe again?', 'The transcript, the minutes and the actions not yet added to a board are replaced.', { confirmLabel: 'Transcribe' })) return;
+    stopPlayback();
+    transcribe(m.id, { onProgress: (pct) => {
+      const fill = root.querySelector('[data-upload-fill]'), text = root.querySelector('[data-upload-text]');
+      if (fill) fill.style.width = `${pct}%`;
+      if (text) text.textContent = `Uploading ${pct} %`;
+    } });
+  });
+  root.querySelector('[data-cancel-upload]')?.addEventListener('click', () => { if (cancelUpload(m.id)) toast('Upload cancelled'); });
+  root.querySelector('[data-rerecord]').addEventListener('click', () => { if (m.jobs?.transcribe) { toast('Wait for the transcription to finish'); return; } record(m); });
   root.querySelector('[data-delete-rec]').addEventListener('click', async () => {
     const ok = await confirmDialog('Delete the recording?', `Frees ${media.fmtBytes(r.sizeBytes)}. ${m.transcript ? 'The transcript and minutes stay.' : ''}`, { confirmLabel: 'Delete', danger: true });
     if (!ok) return;
@@ -310,8 +371,13 @@ async function bindSaved(root, m) {
   });
 }
 
-/** Seek the player to a transcript segment (Phase 20 wires the taps). */
+/* Tap-to-seek (AC-06.3): the transcript asks the player to start at a
+   segment; the player reports its position so the segment can highlight. */
+let timeListeners = new Set();
+export function onPlayerTime(fn) { timeListeners.add(fn); return () => timeListeners.delete(fn); }
+let loader = null;   // set by bindSaved: loads the current recording into the player
 export async function seekTo(ms) {
+  if (!player && loader) await loader();
   if (!player) return false;
   player.audio.currentTime = ms / 1000;
   await player.audio.play().catch(() => {});
