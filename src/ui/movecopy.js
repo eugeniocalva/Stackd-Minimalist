@@ -1,20 +1,25 @@
-/* Board + Lane picker sheet shared by Move and Copy. */
+/* Board + Lane picker sheet shared by Move, Copy and "Add to board" (action
+   cards, PRD-meetings AC-08.4). */
 
-import { S, lanesOf, validLane } from '../store.js';
+import { S, lanesOf, validLane, firstLane } from '../store.js';
 import { esc } from '../util.js';
 import { icon } from './icons.js';
 
-/** openMoveCopy({ mode: 'move'|'copy', task, onConfirm(listId, lane) }) */
-export function openMoveCopy({ mode, task, onConfirm }) {
-  const pick = { listId: task.listId, lane: task.lane };
+/** openMoveCopy({ mode: 'move'|'copy'|'add', task?, listId?, lane?, title?, onConfirm(listId, lane) })
+    'move' / 'copy' start from the task's place; 'add' from listId / lane
+    (default: the current board's first lane) and never disables Confirm. */
+export function openMoveCopy({ mode, task = null, listId = null, lane = null, title = null, onConfirm }) {
+  const pick = task ? { listId: task.listId, lane: task.lane } : { listId: listId || S.currentList, lane: lane || firstLane(listId || S.currentList) };
   const isMove = mode === 'move';
+  const label = title || (isMove ? 'Move to' : mode === 'copy' ? 'Copy to' : 'Add to board');
+  const confirmLabel = isMove ? 'Move' : mode === 'copy' ? 'Copy' : 'Choose';
   const ov = document.createElement('div');
   ov.className = 'overlay';
   ov.innerHTML = `
-  <div class="sheet" role="dialog" aria-label="${isMove ? 'Move to' : 'Copy to'}">
+  <div class="sheet" role="dialog" aria-label="${esc(label)}">
     <div class="sheet-handle"></div>
     <div class="sheet-head">
-      <span class="section-title">${isMove ? 'Move to' : 'Copy to'}</span>
+      <span class="section-title">${esc(label)}</span>
       <button class="icon-btn" data-close aria-label="Close">${icon('x')}</button>
     </div>
     <div class="chip-group">
@@ -27,7 +32,7 @@ export function openMoveCopy({ mode, task, onConfirm }) {
       <span class="microlabel">Lane</span>
       <div class="chip-row" data-lane></div>
     </div>
-    <button class="btn btn-primary btn-block" data-confirm>${isMove ? 'Move' : 'Copy'}</button>
+    <button class="btn btn-primary btn-block" data-confirm>${confirmLabel}</button>
   </div>`;
   document.body.appendChild(ov);
   const q = (s) => ov.querySelector(s);
@@ -39,7 +44,7 @@ export function openMoveCopy({ mode, task, onConfirm }) {
 
   const confirmBtn = q('[data-confirm]');
   const refresh = () => {
-    if (isMove) confirmBtn.disabled = pick.listId === task.listId && pick.lane === task.lane;
+    if (isMove && task) confirmBtn.disabled = pick.listId === task.listId && pick.lane === task.lane;
   };
   /* the lanes are the picked board's; a lane the new board lacks falls back to its first */
   const renderLanes = () => {

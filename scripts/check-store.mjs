@@ -397,4 +397,54 @@ store.emptyDeleted();
 assert.equal(store.meetingById(m2.id), undefined, 'empty folder removes meetings too');
 assert.equal(S.meetings.length, 0);
 
+// action cards (Phase 17, PRD-meetings US-08): edit, dismiss / restore, add to a board, task.from
+{
+  const mA = store.newMeeting();
+  store.setTranscript(mA.id, { source: 'pasted', segments: [{ speaker: 'S1', text: 'x' }], speakers: { S1: null } });
+  store.setMinutes(mA.id, { summary: 's', decisions: [], openQuestions: [] }, [
+    { title: 'Send the deck', due: '2030-01-10', priority: 'High', excerpt: 'e1' },
+    { title: 'Call Luca', due: null, priority: null, excerpt: 'e2' },
+  ]);
+  const [a1, a2] = mA.actions;
+  assert.deepEqual(store.actionCounts(mA), { proposed: 2, added: 0 });
+  store.editAction(mA.id, a1.id, { title: 'Send the deck to finance', priority: 'bogus' });
+  assert.equal(a1.title, 'Send the deck to finance');
+  assert.equal(a1.priority, 'none', 'an unknown priority id falls back to none');
+  store.editAction(mA.id, a1.id, { priority: 'medium', due: '' });
+  assert.equal(a1.priority, 'medium'); assert.equal(a1.due, null);
+  // dismiss and undo
+  assert.equal(store.dismissAction(mA.id, a2.id), 'proposed');
+  assert.equal(a2.status, 'dismissed');
+  assert.equal(store.dismissAction(mA.id, a2.id), null, 'already dismissed');
+  assert.deepEqual(store.actionCounts(mA), { proposed: 1, added: 0 });
+  store.restoreAction(mA.id, a2.id, 'proposed');
+  assert.equal(a2.status, 'proposed');
+  // add to a board: a task with a pointer back, the card becomes added
+  const t = store.addActionToBoard(mA.id, a1.id, { listId: 'personal', lane: 'inprogress', title: ' Send the deck to finance ', due: '2030-01-10', priority: 'high', tags: ['deck'] });
+  assert.ok(t && store.taskById(t.id));
+  assert.deepEqual([t.listId, t.lane, t.priority, t.due, t.tags], ['personal', 'inprogress', 'high', '2030-01-10', ['deck']]);
+  assert.deepEqual(t.from, { meetingId: mA.id, actionId: a1.id });
+  assert.equal(a1.status, 'added'); assert.equal(a1.taskId, t.id);
+  assert.equal(a1.priority, 'high', 'the card mirrors what was saved');
+  assert.deepEqual(store.actionCounts(mA), { proposed: 1, added: 1 });
+  assert.equal(store.addActionToBoard(mA.id, a1.id, { listId: 'work', lane: 'backlog', title: 'again' }), null, 'an added card cannot be added twice');
+  assert.equal(store.addActionToBoard(mA.id, a2.id, { listId: 'nope', lane: 'backlog', title: 'x' }), null, 'unknown board');
+  store.editAction(mA.id, a1.id, { title: 'changed' });
+  assert.equal(a1.title, 'Send the deck to finance', 'added cards are not editable');
+  // the ✕ on an added card dismisses the card, the task stays; Undo brings it back as added
+  assert.equal(store.dismissAction(mA.id, a1.id), 'added');
+  assert.ok(store.taskById(t.id));
+  store.restoreAction(mA.id, a1.id, 'added');
+  assert.equal(a1.status, 'added');
+  // regeneration keeps the added card, replaces the proposed one
+  store.setMinutes(mA.id, { summary: 's2', decisions: [], openQuestions: [] }, [{ title: 'New', due: null, priority: null, excerpt: '' }]);
+  assert.deepEqual(mA.actions.map((a) => [a.title, a.status]), [['Send the deck to finance', 'added'], ['New', 'proposed']]);
+  // deleting the task forever leaves the card as added without a task
+  store.deleteForever(t.id);
+  assert.equal(a1.status, 'added'); assert.equal(store.taskById(t.id), undefined);
+  // a 1.4.x task has no `from`; new ones default to null
+  assert.equal(store.addTask({ listId: 'work', title: 'plain', priority: 'none', tags: [] }).from, null);
+  store.softDeleteMeeting(mA.id); store.emptyDeleted();
+}
+
 console.log('check-store: all assertions passed');

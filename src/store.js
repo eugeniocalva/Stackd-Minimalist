@@ -191,6 +191,7 @@ export function blankTask(listId, title, extra = {}) {
     start: null, due: null, dueTime: null, recur: 'none', reminder: null, reminderFiredAt: null,
     completedCount: 0, lastCompletedAt: null,
     status: 'active', archivedAt: null, deletedAt: null, origin: null,
+    from: null,                              // { meetingId, actionId } when made from an action card (1.5.0)
     createdAt: now, updatedAt: now,
     ...extra,
   };
@@ -453,11 +454,13 @@ export function addTask(draft) {
     start: draft.start || null, due: draft.due || null, dueTime: draft.dueTime || null,
     recur: draft.recur || 'none', reminder: draft.reminder ?? null,
     lane: validLane(draft.listId, draft.lane || firstLane(draft.listId)), order: nextOrder(),
+    from: draft.from || null,
   });
   t.done = t.lane === DONE_LANE;
   armReminder(t);
   S.tasks.push(t);
   commit();
+  return t;
 }
 
 export function setPriority(id, priority) {
@@ -720,6 +723,51 @@ export function setProxyUrl(url) {
 export function markDisclosed() { S.ai.disclosed = true; persistQuiet(); }
 export function markConsented() { S.ai.consented = true; persistQuiet(); }
 export function resetNotices() { S.ai.disclosed = false; S.ai.consented = false; commit(); }
+
+/* — action cards (PRD-meetings US-08) — */
+
+const actionOf = (m, actionId) => m?.actions.find((a) => a.id === actionId);
+
+/** Inline edits on a proposed card (title, due, priority); quiet. */
+export function editAction(id, actionId, patch) {
+  const m = meetingById(id); const a = actionOf(m, actionId);
+  if (!a || a.status !== 'proposed') return;
+  if (patch.title !== undefined) a.title = String(patch.title);
+  if (patch.due !== undefined) a.due = patch.due || null;
+  if (patch.priority !== undefined) a.priority = priorityById(patch.priority) ? patch.priority : 'none';
+  touchMeeting(m); persistQuiet();
+}
+
+/** Swipe-left Delete, or ✕ on an added card (its task stays). Returns the
+    status it had, so Undo can put it back, or null. */
+export function dismissAction(id, actionId) {
+  const m = meetingById(id); const a = actionOf(m, actionId);
+  if (!a || a.status === 'dismissed') return null;
+  const prev = a.status;
+  a.status = 'dismissed';
+  touchMeeting(m); commit();
+  return prev;
+}
+
+export function restoreAction(id, actionId, status = 'proposed') {
+  const m = meetingById(id); const a = actionOf(m, actionId);
+  if (!a || a.status !== 'dismissed') return;
+  a.status = status === 'added' && a.taskId ? 'added' : 'proposed';
+  touchMeeting(m); commit();
+}
+
+/** Save from the prefilled task sheet (AC-08.5): the task is created on the
+    chosen board and lane with a pointer back here; the card becomes added. */
+export function addActionToBoard(id, actionId, draft) {
+  const m = meetingById(id); const a = actionOf(m, actionId);
+  if (!a || a.status !== 'proposed' || !listById(draft.listId)) return null;
+  a.title = String(draft.title ?? a.title).trim() || a.title;
+  const t = addTask({ ...draft, title: a.title, from: { meetingId: id, actionId } });
+  a.status = 'added'; a.taskId = t.id;
+  a.due = t.due; a.priority = t.priority;
+  touchMeeting(m); commit();
+  return t;
+}
 
 export function setMeetingsSort(sort) {
   if (!MEETINGS_SORTS.some(([v]) => v === sort) || S.meetingsSort === sort) return;

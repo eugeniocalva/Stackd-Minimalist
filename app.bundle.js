@@ -601,6 +601,8 @@
       archivedAt: null,
       deletedAt: null,
       origin: null,
+      from: null,
+      // { meetingId, actionId } when made from an action card (1.5.0)
       createdAt: now,
       updatedAt: now,
       ...extra
@@ -861,12 +863,14 @@
       recur: draft2.recur || "none",
       reminder: draft2.reminder ?? null,
       lane: validLane(draft2.listId, draft2.lane || firstLane(draft2.listId)),
-      order: nextOrder()
+      order: nextOrder(),
+      from: draft2.from || null
     });
     t.done = t.lane === DONE_LANE;
     armReminder(t);
     S.tasks.push(t);
     commit();
+    return t;
   }
   function setPriority(id, priority) {
     const t = taskById(id);
@@ -1145,6 +1149,49 @@
     S.ai.disclosed = false;
     S.ai.consented = false;
     commit();
+  }
+  var actionOf = (m, actionId) => m?.actions.find((a) => a.id === actionId);
+  function editAction(id, actionId, patch) {
+    const m = meetingById(id);
+    const a = actionOf(m, actionId);
+    if (!a || a.status !== "proposed") return;
+    if (patch.title !== void 0) a.title = String(patch.title);
+    if (patch.due !== void 0) a.due = patch.due || null;
+    if (patch.priority !== void 0) a.priority = priorityById(patch.priority) ? patch.priority : "none";
+    touchMeeting(m);
+    persistQuiet();
+  }
+  function dismissAction(id, actionId) {
+    const m = meetingById(id);
+    const a = actionOf(m, actionId);
+    if (!a || a.status === "dismissed") return null;
+    const prev = a.status;
+    a.status = "dismissed";
+    touchMeeting(m);
+    commit();
+    return prev;
+  }
+  function restoreAction(id, actionId, status = "proposed") {
+    const m = meetingById(id);
+    const a = actionOf(m, actionId);
+    if (!a || a.status !== "dismissed") return;
+    a.status = status === "added" && a.taskId ? "added" : "proposed";
+    touchMeeting(m);
+    commit();
+  }
+  function addActionToBoard(id, actionId, draft2) {
+    const m = meetingById(id);
+    const a = actionOf(m, actionId);
+    if (!a || a.status !== "proposed" || !listById(draft2.listId)) return null;
+    a.title = String(draft2.title ?? a.title).trim() || a.title;
+    const t = addTask({ ...draft2, title: a.title, from: { meetingId: id, actionId } });
+    a.status = "added";
+    a.taskId = t.id;
+    a.due = t.due;
+    a.priority = t.priority;
+    touchMeeting(m);
+    commit();
+    return t;
   }
   function setMeetingsSort(sort) {
     if (!MEETINGS_SORTS.some(([v]) => v === sort) || S.meetingsSort === sort) return;
@@ -2187,9 +2234,9 @@
   }
 
   // src/ui/addsheet.js
-  function openSheet({ lane } = {}) {
+  function openSheet({ lane, initial = null, fixedList = null, submitLabel = "Add task", onSaved = null } = {}) {
     const draft2 = {
-      listId: S.currentList,
+      listId: fixedList || S.currentList,
       title: "",
       due: null,
       priority: "none",
@@ -2198,8 +2245,10 @@
       start: null,
       dueTime: null,
       recur: "none",
-      reminder: null
+      reminder: null,
+      ...initial ? { title: initial.title || "", due: initial.due || null, priority: initial.priority || "none", tags: [...initial.tags || []] } : {}
     };
+    if (!S.priorities.some((p) => p.id === draft2.priority)) draft2.priority = "none";
     const allTags2 = allTags();
     const dueOpts = [
       { label: "Today", value: daysFrom(0) },
@@ -2215,12 +2264,12 @@
       <span class="section-title">New task</span>
       <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
     </div>
-    <input class="input sheet-title" placeholder="What needs doing?" autofocus>
+    <input class="input sheet-title" placeholder="What needs doing?" value="${esc(draft2.title)}" autofocus>
     <div class="chip-group">
       <span class="microlabel">Due</span>
       <div class="chip-row" data-due>
-        ${dueOpts.map((o) => `<button class="chip" data-val="${o.value}">${o.label}</button>`).join("")}
-        <button class="chip" data-pick>Other date…</button>
+        ${dueOpts.map((o) => `<button class="chip ${draft2.due === o.value ? "on" : ""}" data-val="${o.value}">${o.label}</button>`).join("")}
+        <button class="chip ${draft2.due && !dueOpts.some((o) => o.value === draft2.due) ? "on" : ""}" data-pick>${draft2.due && !dueOpts.some((o) => o.value === draft2.due) ? esc(fmtDue(draft2.due).label) : "Other date…"}</button>
       </div>
     </div>
     <div class="chip-group">
@@ -2232,23 +2281,23 @@
     <div class="chip-group">
       <span class="microlabel">Priority</span>
       <div class="chip-row" data-priority>
-        ${[...S.priorities, { id: "none", name: "None" }].map((p) => `<button class="chip ${p.id === "none" ? "on" : ""}" data-val="${p.id}">${esc(p.name)}</button>`).join("")}
+        ${[...S.priorities, { id: "none", name: "None" }].map((p) => `<button class="chip ${p.id === draft2.priority ? "on" : ""}" data-val="${p.id}">${esc(p.name)}</button>`).join("")}
       </div>
     </div>
     <div class="chip-group">
       <span class="microlabel">Tags</span>
       <div class="chip-row" data-tags>
-        ${allTags2.map((t) => `<button class="chip" data-val="${esc(t)}">#${esc(t)}</button>`).join("")}
+        ${allTags2.map((t) => `<button class="chip ${draft2.tags.includes(t) ? "on" : ""}" data-val="${esc(t)}">#${esc(t)}</button>`).join("")}
         <button class="chip" data-addtag>+ Add tag</button>
       </div>
     </div>
     <div class="chip-group">
       <span class="microlabel">Board</span>
       <div class="chip-row" data-list>
-        ${S.lists.map((l) => `<button class="chip ${l.id === draft2.listId ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("")}
+        ${(fixedList ? S.lists.filter((l) => l.id === fixedList) : S.lists).map((l) => `<button class="chip ${l.id === draft2.listId ? "on" : ""}" data-val="${l.id}" ${fixedList ? 'disabled aria-disabled="true"' : ""}>${esc(l.name)}${fixedList && lane ? ` · ${esc(laneName(l.id, lane))}` : ""}</button>`).join("")}
       </div>
     </div>
-    <button class="btn btn-primary btn-block" data-submit>Add task</button>
+    <button class="btn btn-primary btn-block" data-submit>${esc(submitLabel)}</button>
   </div>`;
     document.body.appendChild(ov);
     const unpin = pinToViewport(ov);
@@ -2341,7 +2390,7 @@
     });
     q("[data-list]").addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
-      if (!chip) return;
+      if (!chip || fixedList) return;
       draft2.listId = chip.dataset.val;
       selectOne("[data-list]", chip);
     });
@@ -2352,6 +2401,10 @@
         return;
       }
       close();
+      if (onSaved) {
+        onSaved(draft2);
+        return;
+      }
       S.currentList = draft2.listId;
       addTask(draft2);
     };
@@ -2648,7 +2701,6 @@
   function minutesHTML(m, { readOnly = false } = {}) {
     const mm = m.minutes;
     if (!mm) return "";
-    const { proposed, added } = actionCounts(m);
     return `
   <section class="mblock" data-block="minutes" aria-label="Minutes">
     <div class="mblock-head">
@@ -2660,7 +2712,6 @@
       ${sectionHTML("decisions", "Decisions", mm.decisions, { readOnly, list: true })}
       ${sectionHTML("openQuestions", "Open questions", mm.openQuestions, { readOnly, list: true })}
     </div>
-    <p class="hint min-actions-note">${proposed + added ? `${proposed + added} action${proposed + added === 1 ? "" : "s"} proposed${added ? ` · ${added} added` : ""} · action cards arrive in the next build` : "No actions found."}</p>
   </section>`;
   }
   var grow = (ta) => {
@@ -3355,6 +3406,7 @@
     openMenu(anchor, items);
   }
   var openRow = null;
+  var openSide = null;
   var slideRow = (row, x) => {
     row.style.transform = x ? `translateX(${x}px)` : "";
   };
@@ -3363,17 +3415,21 @@
     openRow.classList.remove("open");
     slideRow(openRow, 0);
     openRow = null;
+    openSide = null;
   }
   document.addEventListener("pointerdown", (e) => {
     if (openRow && !openRow.contains(e.target)) closeOpenRow();
   });
-  function bindRowGestures(el, task) {
+  var CONTROLS = '.check,.grip,.swipe-del,.swipe-add,input,textarea,select,.ac-hover,[contenteditable="true"]';
+  function bindSwipe(el, { left = null, right = null, onTap = null, onDoubleTap = null, onLongPress = null } = {}) {
+    const leftEl = left ? el.querySelector(left.sel) : null;
+    const rightEl = right ? el.querySelector(right.sel) : null;
+    const wl = () => leftEl?.offsetWidth || 0, wr = () => rightEl?.offsetWidth || 0;
+    const clamp = (x) => Math.max(-wl(), Math.min(wr(), x));
     let clickTimer = null, lpTimer = null, lpFired = false, sx = 0, sy = 0;
-    const del = el.querySelector(".swipe-del");
-    const openWidth = () => del?.offsetWidth || 0;
     let pressed = false, swiping = false, startX = 0;
     el.addEventListener("click", (e) => {
-      if (e.target.closest(".check,.grip,.swipe-del") || el.dataset.dragged) {
+      if (e.target.closest(CONTROLS) || el.dataset.dragged) {
         delete el.dataset.dragged;
         return;
       }
@@ -3385,36 +3441,45 @@
         closeOpenRow();
         return;
       }
+      if (!onDoubleTap) {
+        onTap?.(e);
+        return;
+      }
       if (clickTimer) {
         clearTimeout(clickTimer);
         clickTimer = null;
-        completeTask(task.id, el);
+        onDoubleTap();
       } else {
         clickTimer = setTimeout(() => {
           clickTimer = null;
-          openDetail(task.id);
+          onTap?.(e);
         }, 260);
       }
     });
-    del?.addEventListener("click", (e) => {
+    leftEl?.addEventListener("click", (e) => {
       e.stopPropagation();
-      buzz("MEDIUM");
       closeOpenRow();
-      deleteWithUndo(task.id);
+      left.onAct();
+    });
+    rightEl?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeOpenRow();
+      right.onAct();
     });
     el.addEventListener("pointerdown", (e) => {
-      if (e.target.closest(".check,.grip,.swipe-del")) return;
+      if (e.target.closest(CONTROLS)) return;
       sx = e.clientX;
       sy = e.clientY;
       pressed = true;
       swiping = false;
-      startX = openRow === el ? -openWidth() : 0;
-      lpTimer = setTimeout(() => {
-        lpTimer = null;
-        lpFired = true;
-        buzz("MEDIUM");
-        deleteWithUndo(task.id);
-      }, 550);
+      startX = openRow === el ? openSide === "left" ? -wl() : wr() : 0;
+      if (onLongPress) {
+        lpTimer = setTimeout(() => {
+          lpTimer = null;
+          lpFired = true;
+          onLongPress();
+        }, 550);
+      }
     });
     const cancelLp = () => {
       if (lpTimer) {
@@ -3429,13 +3494,14 @@
       swiping = false;
       el.classList.remove("swiping");
       el.dataset.dragged = "1";
-      const w = openWidth();
-      const x = Math.max(-w, Math.min(0, startX + e.clientX - sx));
-      if (w && x < -w / 2) {
+      const x = clamp(startX + e.clientX - sx);
+      const side = x < -wl() / 2 && wl() ? "left" : x > wr() / 2 && wr() ? "right" : null;
+      if (side) {
         if (openRow && openRow !== el) closeOpenRow();
         openRow = el;
+        openSide = side;
         el.classList.add("open");
-        slideRow(el, -w);
+        slideRow(el, side === "left" ? -wl() : wr());
       } else if (openRow === el) closeOpenRow();
       else slideRow(el, 0);
     };
@@ -3446,7 +3512,8 @@
       const dx = e.clientX - sx, dy = e.clientY - sy;
       if (!swiping) {
         if (lpTimer && Math.hypot(dx, dy) > 10) cancelLp();
-        if (del && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        const towards = dx < 0 ? leftEl : rightEl;
+        if ((towards || openRow === el) && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) {
           swiping = true;
           cancelLp();
           try {
@@ -3457,8 +3524,21 @@
         }
         if (!swiping) return;
       }
-      const w = openWidth();
-      slideRow(el, Math.max(-w, Math.min(0, startX + dx)));
+      slideRow(el, clamp(startX + dx));
+    });
+  }
+  function bindRowGestures(el, task) {
+    bindSwipe(el, {
+      left: { sel: ".swipe-del", onAct: () => {
+        buzz("MEDIUM");
+        deleteWithUndo(task.id);
+      } },
+      onTap: () => openDetail(task.id),
+      onDoubleTap: () => completeTask(task.id, el),
+      onLongPress: () => {
+        buzz("MEDIUM");
+        deleteWithUndo(task.id);
+      }
     });
   }
   function openDetail(id) {
@@ -3606,16 +3686,18 @@
   }
 
   // src/ui/movecopy.js
-  function openMoveCopy({ mode, task, onConfirm }) {
-    const pick = { listId: task.listId, lane: task.lane };
+  function openMoveCopy({ mode, task = null, listId = null, lane = null, title = null, onConfirm }) {
+    const pick = task ? { listId: task.listId, lane: task.lane } : { listId: listId || S.currentList, lane: lane || firstLane(listId || S.currentList) };
     const isMove = mode === "move";
+    const label = title || (isMove ? "Move to" : mode === "copy" ? "Copy to" : "Add to board");
+    const confirmLabel = isMove ? "Move" : mode === "copy" ? "Copy" : "Choose";
     const ov = document.createElement("div");
     ov.className = "overlay";
     ov.innerHTML = `
-  <div class="sheet" role="dialog" aria-label="${isMove ? "Move to" : "Copy to"}">
+  <div class="sheet" role="dialog" aria-label="${esc(label)}">
     <div class="sheet-handle"></div>
     <div class="sheet-head">
-      <span class="section-title">${isMove ? "Move to" : "Copy to"}</span>
+      <span class="section-title">${esc(label)}</span>
       <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
     </div>
     <div class="chip-group">
@@ -3628,7 +3710,7 @@
       <span class="microlabel">Lane</span>
       <div class="chip-row" data-lane></div>
     </div>
-    <button class="btn btn-primary btn-block" data-confirm>${isMove ? "Move" : "Copy"}</button>
+    <button class="btn btn-primary btn-block" data-confirm>${confirmLabel}</button>
   </div>`;
     document.body.appendChild(ov);
     const q = (s) => ov.querySelector(s);
@@ -3646,7 +3728,7 @@
     q("[data-close]").addEventListener("click", close);
     const confirmBtn = q("[data-confirm]");
     const refresh = () => {
-      if (isMove) confirmBtn.disabled = pick.listId === task.listId && pick.lane === task.lane;
+      if (isMove && task) confirmBtn.disabled = pick.listId === task.listId && pick.lane === task.lane;
     };
     const renderLanes = () => {
       pick.lane = validLane(pick.listId, pick.lane);
@@ -3744,6 +3826,605 @@
   }
   var chipHTML = (name, on) => `<button class="chip ${on ? "on" : ""}" data-val="${esc(name)}">#${esc(name)}</button>`;
 
+  // src/transcript.js
+  var uid2 = () => Math.random().toString(36).slice(2, 10);
+  function parseTime(s) {
+    const m = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?$/.exec(String(s ?? "").trim());
+    if (!m) return null;
+    const [, h, min, sec, frac] = m;
+    return ((+(h || 0) * 60 + +min) * 60 + +sec) * 1e3 + (frac ? +frac.padEnd(3, "0") : 0);
+  }
+  function assemble(items) {
+    const labels = /* @__PURE__ */ new Map();
+    const speakers = {};
+    const segments = [];
+    items.forEach((it) => {
+      const text = String(it.text ?? "").replace(/[ \t]+\n/g, "\n").trim();
+      if (!text) return;
+      const key = (it.who || "").trim();
+      if (!labels.has(key)) {
+        const label = `S${labels.size + 1}`;
+        labels.set(key, label);
+        speakers[label] = key || null;
+      }
+      segments.push({ id: uid2(), speaker: labels.get(key), startMs: it.startMs ?? null, text });
+    });
+    if (segments.length && Object.keys(speakers).length === 1 && speakers.S1 === null) speakers.S1 = "Transcript";
+    return { segments, speakers };
+  }
+  var stripTags = (s) => s.replace(/<\/?[^>]+>/g, "");
+  function parseVTT(text) {
+    const blocks = String(text ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+    const items = [];
+    blocks.forEach((block) => {
+      const lines = block.split("\n").filter((l) => l.trim() !== "");
+      if (!lines.length || /^(WEBVTT|NOTE|STYLE|REGION)\b/.test(lines[0]) && !lines.some((l) => l.includes("-->"))) return;
+      const ti = lines.findIndex((l) => l.includes("-->"));
+      if (ti === -1) return;
+      const startMs = parseTime(lines[ti].split("-->")[0].trim().split(/\s+/)[0]);
+      const body = lines.slice(ti + 1).join("\n");
+      const voice = /<v(?:\.[^\s>]*)?\s+([^>]*)>/.exec(body);
+      const who = voice ? voice[1].trim() : null;
+      const plain = stripTags(body);
+      const named = !who && /^([^:\n]{1,40}):\s+(.+)/s.exec(plain);
+      if (named) items.push({ who: named[1].trim(), startMs, text: named[2] });
+      else items.push({ who, startMs, text: plain });
+    });
+    return assemble(items);
+  }
+  function parseSRT(text) {
+    const blocks = String(text ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+    const items = [];
+    blocks.forEach((block) => {
+      const lines = block.split("\n").filter((l) => l.trim() !== "");
+      const ti = lines.findIndex((l) => l.includes("-->"));
+      if (ti === -1) return;
+      const startMs = parseTime(lines[ti].split("-->")[0].trim());
+      const plain = stripTags(lines.slice(ti + 1).join("\n"));
+      const named = /^([^:\n]{1,40}):\s+(.+)/s.exec(plain);
+      if (named) items.push({ who: named[1].trim(), startMs, text: named[2] });
+      else items.push({ who: null, startMs, text: plain });
+    });
+    return assemble(items);
+  }
+  var NAME = "([^:\\n\\d][^:\\n]{0,39}?)";
+  var TIMED = new RegExp(`^[\\[(]\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s*[\\])]\\s*${NAME}:\\s*(.*)$`);
+  var NAMED = new RegExp(`^${NAME}:\\s+(.*)$`);
+  var HEADER = new RegExp(`^${NAME}\\s{2,}(\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[AP]M)?)\\s*$`, "i");
+  var isName = (s) => s && !/^(https?|mailto|tel|note|nb|ps|todo|re)$/i.test(s.trim());
+  function parsePasted(text) {
+    const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+    const items = [];
+    let cur = null;
+    const start = (who, startMs, first) => {
+      cur = { who, startMs, text: first };
+      items.push(cur);
+    };
+    lines.forEach((raw) => {
+      const line = raw.trim();
+      if (!line) {
+        if (cur) cur.text += "\n";
+        return;
+      }
+      let m;
+      if ((m = TIMED.exec(line)) && isName(m[2])) {
+        start(m[2], parseTime(m[1]), m[3]);
+        return;
+      }
+      if ((m = HEADER.exec(line)) && isName(m[1])) {
+        start(m[1], parseTime(m[2]), "");
+        return;
+      }
+      if ((m = NAMED.exec(line)) && isName(m[1])) {
+        start(m[1], null, m[2]);
+        return;
+      }
+      if (cur) cur.text += (cur.text && !cur.text.endsWith("\n") ? " " : "") + line;
+      else start(null, null, line);
+    });
+    const anyNamed = items.some((it) => it.who);
+    if (!anyNamed) return assemble([{ who: null, startMs: null, text: lines.join("\n") }]);
+    return assemble(items);
+  }
+  function parseByName(fileName, text) {
+    const ext = String(fileName ?? "").toLowerCase().split(".").pop();
+    if (ext === "vtt") return parseVTT(text);
+    if (ext === "srt") return parseSRT(text);
+    return parsePasted(text);
+  }
+  function speakerName(t, label) {
+    const name = t?.speakers?.[label];
+    if (name) return name;
+    const n = /^S(\d+)$/.exec(label || "");
+    return n ? `Speaker ${n[1]}` : String(label ?? "");
+  }
+  function mergeAdjacent(segments) {
+    const out = [];
+    (segments || []).forEach((s) => {
+      const last = out[out.length - 1];
+      if (last && last.speaker === s.speaker) {
+        last.text += "\n" + s.text;
+        return;
+      }
+      out.push({ ...s });
+    });
+    return out;
+  }
+
+  // src/ui/transcriptview.js
+  var COLLAPSED = 12;
+  var sourceLine = (t) => {
+    const n = t.segments.length;
+    const from = t.source === "file" ? `from ${t.fileName || "a file"}` : t.source === "pasted" ? "pasted" : "from the recording";
+    return `${from} · ${n} segment${n === 1 ? "" : "s"}`;
+  };
+  function transcriptHTML(m, { readOnly = false } = {}) {
+    const t = m.transcript;
+    const merged = mergeAdjacent(t.segments);
+    const collapsed = merged.length > COLLAPSED && !UI.transcriptAll;
+    const single = Object.keys(t.speakers).length === 1 && t.speakers.S1 === "Transcript";
+    return `
+  <section class="mblock" data-block="transcript" aria-label="Transcript">
+    <div class="mblock-head">
+      <span class="section-title">Transcript</span>
+      <span class="hint">${esc(sourceLine(t))}</span>
+      ${readOnly ? "" : `
+      <span class="mblock-actions">
+        <button type="button" class="btn btn-ghost btn-sm" data-paste>${icon("clipboard", 16)}Paste</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-attach>${icon("attach", 16)}Attach</button>
+      </span>`}
+    </div>
+    <div class="card tsegs ${collapsed ? "collapsed" : ""}" role="list" data-segs>
+      ${merged.map((s) => `
+      <div class="tseg" role="listitem" data-seg="${s.id}">
+        ${single ? "" : `
+        <div class="tseg-head">
+          ${readOnly ? `<span class="tseg-who">${esc(speakerName(t, s.speaker))}</span>` : `<button type="button" class="tseg-who" data-speaker="${esc(s.speaker)}" title="Rename this speaker" aria-label="Rename ${esc(speakerName(t, s.speaker))}">${esc(speakerName(t, s.speaker))}</button>`}
+          ${s.startMs === null || s.startMs === void 0 ? "" : `<span class="tseg-time num">${fmtDuration(s.startMs)}</span>`}
+        </div>`}
+        <p class="tseg-text">${esc(s.text)}</p>
+      </div>`).join("")}
+    </div>
+    ${collapsed ? `<button type="button" class="btn btn-ghost btn-sm showall" data-showall>Show all (${merged.length})</button>` : ""}
+  </section>`;
+  }
+  function bindTranscript(root, m, { readOnly = false } = {}) {
+    root.querySelector("[data-showall]")?.addEventListener("click", () => {
+      UI.transcriptAll = true;
+      rerender();
+    });
+    if (readOnly) return;
+    root.querySelectorAll("[data-speaker]").forEach((b) => b.addEventListener("click", async () => {
+      const label = b.dataset.speaker;
+      const current = m.transcript.speakers[label] || "";
+      const name = await promptDialog(`Name for ${speakerName(m.transcript, label)}`, {
+        value: current,
+        placeholder: speakerName({ speakers: {} }, label),
+        confirmLabel: "Rename",
+        allowEmpty: true
+      });
+      if (name === null) return;
+      renameSpeaker(m.id, label, name);
+    }));
+  }
+
+  // src/ui/actioncards.js
+  var where2 = (t) => `${listById(t.listId)?.name || "Deleted board"} · ${laneName(t.listId, t.lane)}`;
+  function cardHTML(a) {
+    if (a.status === "added") {
+      const t = taskById(a.taskId);
+      return `
+    <div class="row acard is-added" data-action="${a.id}" role="listitem">
+      <span class="ac-check" aria-hidden="true">${icon("check", 16)}</span>
+      <div class="t-main">
+        <span class="t-title">${esc(a.title)}</span>
+        ${t ? `<button type="button" class="ac-where" data-open-task="${t.id}">Added to ${esc(where2(t))}${icon("chevronRight", 14)}</button>` : '<span class="ac-where muted">Task removed</span>'}
+      </div>
+      <button type="button" class="icon-btn ac-x" data-remove aria-label="Remove this card (the task stays)">${icon("x", 18)}</button>
+    </div>`;
+    }
+    const chips = [
+      a.due ? dueChipHTML({ due: a.due, dueTime: null, recur: "none" }, { prefix: true }) : "",
+      a.priority !== "none" ? priorityTagHTML({ priority: a.priority }) : ""
+    ].filter(Boolean).join("");
+    return `
+  <div class="row acard" data-action="${a.id}" role="listitem">
+    <button type="button" class="swipe-add" data-add aria-label="Add to a board">${icon("board", 22)}</button>
+    <div class="t-main">
+      <input class="ac-title" data-title value="${esc(a.title)}" aria-label="Action" maxlength="200" autocomplete="off">
+      ${chips ? `<div class="t-meta">${chips}</div>` : ""}
+      ${a.excerpt ? `<p class="ac-excerpt">“${esc(a.excerpt)}”</p>` : ""}
+    </div>
+    <div class="ac-hover">
+      <button type="button" class="icon-btn" data-add-btn aria-label="Add to a board" title="Add to a board">${icon("board", 18)}</button>
+      <button type="button" class="icon-btn danger" data-del-btn aria-label="Delete this action" title="Delete">${icon("x", 18)}</button>
+    </div>
+    <button type="button" class="swipe-del" data-del aria-label="Delete" tabindex="-1">${icon("trash", 20)}</button>
+  </div>`;
+  }
+  function actionsHTML(m) {
+    if (!m.minutes) return "";
+    const shown = m.actions.filter((a) => a.status !== "dismissed");
+    const { proposed, added } = actionCounts(m);
+    const head = proposed + added ? `${proposed + added} action${proposed + added === 1 ? "" : "s"}${added ? ` · ${added} added` : ""}` : "No actions found";
+    return `
+  <section class="mblock" data-block="actions" aria-label="Actions">
+    <div class="mblock-head">
+      <span class="section-title">Actions</span>
+      <span class="hint">${head}</span>
+    </div>
+    ${shown.length ? `<div class="card list-card acards" role="list">${shown.map(cardHTML).join("")}</div>
+         <span class="hint acards-hint">Swipe right to add to a board · swipe left to delete</span>` : '<p class="empty">No actions found.</p>'}
+  </section>`;
+  }
+  function del(m, a) {
+    const prev = dismissAction(m.id, a.id);
+    if (!prev) return;
+    toast("Action removed", { action: { label: "Undo", onClick: () => restoreAction(m.id, a.id, prev) } });
+  }
+  function toBoard(m, a) {
+    openMoveCopy({
+      mode: "add",
+      title: "Add to board",
+      listId: S.currentList,
+      lane: firstLane(S.currentList),
+      onConfirm: (listId, lane) => openSheet({
+        initial: { title: a.title, due: a.due, priority: a.priority },
+        fixedList: listId,
+        lane,
+        submitLabel: "Save",
+        onSaved: (draft2) => {
+          const t = addActionToBoard(m.id, a.id, draft2);
+          if (t) toast(`Added to ${where2(t)}`, { action: { label: "Open", onClick: () => {
+            S.currentList = t.listId;
+            commit();
+            openDetail(t.id);
+          } } });
+        }
+      })
+    });
+  }
+  function bindActions(root, meetingId) {
+    const m = meetingById(meetingId);
+    if (!m) return;
+    root.querySelectorAll(".acard").forEach((el) => {
+      const a = m.actions.find((x) => x.id === el.dataset.action);
+      if (!a) return;
+      if (a.status === "added") {
+        el.querySelector("[data-open-task]")?.addEventListener("click", () => {
+          const t = taskById(a.taskId);
+          if (!t) return;
+          if (t.status === "active") S.currentList = t.listId;
+          commit();
+          openDetail(t.id);
+        });
+        el.querySelector("[data-remove]").addEventListener("click", () => del(m, a));
+        return;
+      }
+      const title = el.querySelector("[data-title]");
+      let timer = null;
+      const flush = () => {
+        if (!timer) return;
+        clearTimeout(timer);
+        timer = null;
+        editAction(m.id, a.id, { title: title.value });
+      };
+      title.addEventListener("input", () => {
+        clearTimeout(timer);
+        timer = setTimeout(flush, 500);
+      });
+      title.addEventListener("blur", flush);
+      title.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          title.blur();
+        }
+      });
+      el.querySelector("[data-del-btn]").addEventListener("click", () => {
+        flush();
+        del(m, a);
+      });
+      el.querySelector("[data-add-btn]").addEventListener("click", () => {
+        flush();
+        toBoard(m, a);
+      });
+      bindSwipe(el, {
+        left: { sel: ".swipe-del", onAct: () => {
+          buzz("MEDIUM");
+          flush();
+          del(m, a);
+        } },
+        right: { sel: ".swipe-add", onAct: () => {
+          flush();
+          toBoard(m, a);
+        } },
+        onTap: () => title.focus()
+      });
+    });
+  }
+
+  // src/ui/sourcesheet.js
+  function openPasteSheet({ onUse }) {
+    const ov = document.createElement("div");
+    ov.className = "overlay";
+    ov.innerHTML = `
+  <div class="sheet" role="dialog" aria-label="Paste transcript">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="section-title">Paste transcript</span>
+      <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
+    </div>
+    <textarea class="input paste-area" data-text placeholder="Paste the transcript here" aria-label="Transcript text" autocapitalize="off" spellcheck="false"></textarea>
+    <span class="hint">Lines like “Marco: …” or “[00:12] Marco: …” become speakers.</span>
+    <button class="btn btn-primary btn-block" data-use disabled>Use</button>
+  </div>`;
+    document.body.appendChild(ov);
+    const unpin = pinToViewport(ov);
+    const q = (s) => ov.querySelector(s);
+    const close = () => {
+      unpin();
+      ov.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", onKey);
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov) close();
+    });
+    q("[data-close]").addEventListener("click", close);
+    const area = q("[data-text]"), use = q("[data-use]");
+    area.addEventListener("input", () => {
+      use.disabled = !area.value.trim();
+    });
+    use.addEventListener("click", () => {
+      const parsed = parsePasted(area.value);
+      if (!parsed.segments.length) return;
+      close();
+      onUse(parsed);
+    });
+    area.focus();
+  }
+  var ACCEPT = ".txt,.vtt,.srt,.docx,text/plain,text/vtt,application/x-subrip";
+  var MAX_BYTES = 5 * 1024 * 1024;
+  function pickTranscriptFile({ onParsed, onError }) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ACCEPT;
+    input.style.display = "none";
+    document.body.appendChild(input);
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (!file) return;
+      const ext = file.name.toLowerCase().split(".").pop();
+      if (ext === "docx") {
+        onError("Word files are not supported yet; paste the text instead.");
+        return;
+      }
+      if (!["txt", "vtt", "srt"].includes(ext)) {
+        onError("Choose a .txt, .vtt or .srt file.");
+        return;
+      }
+      if (file.size > MAX_BYTES) {
+        onError("That file is too large to be a transcript.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onerror = () => onError("Couldn't read this file.");
+      reader.onload = () => {
+        const parsed = parseByName(file.name, String(reader.result || ""));
+        if (!parsed.segments.length) {
+          onError("Couldn't read this file: it has no text.");
+          return;
+        }
+        onParsed(file.name, parsed);
+      };
+      reader.readAsText(file);
+    });
+    input.click();
+  }
+
+  // src/ui/meeting.js
+  function openMeeting(id) {
+    if (!meetingById(id)) return;
+    UI.detailId = id;
+    UI.screen = "meeting";
+    UI.transcriptAll = false;
+    rerender();
+  }
+  var dateLine = (m) => `${m.recording ? "Recorded" : "Created"} ${fmtDate(m.recording?.recordedAt || m.createdAt, S.dateFormat)} · ${fmtClock(m.recording?.recordedAt || m.createdAt)}`;
+  function sourceHTML() {
+    return `
+  <div class="card source-block" data-source>
+    <button type="button" class="mic-btn" data-record aria-label="Record">${icon("mic", 30)}</button>
+    <span class="source-label">Record</span>
+    <div class="source-alt">
+      <button type="button" class="btn btn-secondary" data-paste>${icon("clipboard", 18)}Paste transcript</button>
+      <button type="button" class="btn btn-secondary" data-attach>${icon("attach", 18)}Attach file</button>
+    </div>
+  </div>`;
+  }
+  function bindSource(root, m) {
+    const confirmReplace = async () => !m.transcript || confirmDialog("Replace the transcript?", "The minutes and the actions not yet added to a board are removed with it.", { confirmLabel: "Replace" });
+    root.querySelector("[data-record]")?.addEventListener("click", () => toast("Recording arrives in the next build"));
+    root.querySelector("[data-paste]")?.addEventListener("click", async () => {
+      if (!await confirmReplace()) return;
+      openPasteSheet({ onUse: (parsed) => {
+        setTranscript(m.id, { source: "pasted", ...parsed });
+        toast("Transcript added");
+      } });
+    });
+    root.querySelector("[data-attach]")?.addEventListener("click", async () => {
+      if (!await confirmReplace()) return;
+      pickTranscriptFile({
+        onParsed: (fileName, parsed) => {
+          setTranscript(m.id, { source: "file", fileName, ...parsed });
+          toast(`Transcript added from ${fileName}`);
+        },
+        onError: (message) => toast(message)
+      });
+    });
+  }
+  var flushCurrent = null;
+  window.addEventListener("pagehide", () => flushCurrent?.());
+  function meetingHTML() {
+    const m = meetingById(UI.detailId);
+    if (!m) {
+      UI.screen = "meetings";
+      return '<div class="screen"></div>';
+    }
+    if (m.status !== "active") return readOnlyHTML(m);
+    return `
+  <div class="screen detail-screen meeting-screen">
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-back aria-label="Back to Meetings">${icon("chevronLeft")}</button>
+      <span class="kicker">Meeting</span>
+      <button class="icon-btn" data-more aria-label="More actions" aria-haspopup="menu">${icon("more")}</button>
+    </header>
+    <div class="scroll-area">
+      <input class="mtitle" data-title value="${esc(m.title)}" placeholder="${esc(defaultMeetingTitle(m.createdAt))}" aria-label="Meeting title" autocomplete="off" maxlength="120">
+      <span class="hint mdate" data-dates>${esc(dateLine(m))}</span>
+      ${m.transcript ? "" : sourceHTML()}
+      ${m.transcript ? transcriptHTML(m, { readOnly: false }) : ""}
+      ${summariseCtaHTML(m)}
+      ${minutesHTML(m)}
+      ${actionsHTML(m)}
+    </div>
+  </div>`;
+  }
+  function bindMeeting() {
+    const m = meetingById(UI.detailId);
+    if (!m) {
+      rerender();
+      return;
+    }
+    if (m.status !== "active") {
+      bindReadOnly(m);
+      return;
+    }
+    bindScrollShadow();
+    const input = app.querySelector("[data-title]");
+    let timer = null;
+    const flush = () => {
+      if (!timer) return;
+      clearTimeout(timer);
+      timer = null;
+      updateMeeting(m.id, { title: input.value });
+    };
+    flushCurrent = flush;
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(flush, 500);
+    });
+    input.addEventListener("blur", flush);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        input.blur();
+      }
+    });
+    const leaving = () => {
+      flush();
+      flushCurrent = null;
+    };
+    app.querySelector("[data-back]").addEventListener("click", () => {
+      leaving();
+      UI.detailId = null;
+      UI.screen = "meetings";
+      finalizeMeeting(m.id);
+    });
+    app.querySelector("[data-more]").addEventListener("click", (e) => openMenu(e.currentTarget, [
+      { label: "Rename", icon: "text", onClick: async () => {
+        const name = await promptDialog("Meeting title", { value: m.title, placeholder: defaultMeetingTitle(m.createdAt), allowEmpty: true });
+        if (name === null) return;
+        updateMeeting(m.id, { title: name });
+        rerender();
+      } },
+      { label: "Archive", icon: "archive", onClick: () => {
+        leaving();
+        archiveMeetingWithUndo(m.id);
+      } },
+      { divider: true },
+      { label: "Delete", icon: "trash", danger: true, onClick: () => {
+        leaving();
+        deleteMeetingWithUndo(m.id);
+      } }
+    ]));
+    const source = app.querySelector("[data-source]");
+    if (source) bindSource(source, m);
+    const transcript = app.querySelector('[data-block="transcript"]');
+    if (transcript) {
+      bindTranscript(transcript, m);
+      bindSource(transcript, m);
+    }
+    const cta = app.querySelector('[data-cta="summarise"]');
+    if (cta) bindSummariseCta(cta, m);
+    const minutes = app.querySelector('[data-block="minutes"]');
+    if (minutes) bindMinutes(minutes, m);
+    const actions = app.querySelector('[data-block="actions"]');
+    if (actions) bindActions(actions, m.id);
+  }
+  function readOnlyHTML(m) {
+    const archived = m.status === "archived";
+    const left = archived ? 0 : daysLeft(m.deletedAt, RETENTION_DAYS);
+    const status = archived ? `Archived ${fmtRelative(m.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
+    return `
+  <div class="screen detail-screen is-readonly meeting-screen">
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-back aria-label="Back to ${archived ? "Archived" : "Deleted"}">${icon("chevronLeft")}</button>
+      <span class="kicker">${archived ? "Archived" : "Deleted"} meeting</span>
+      <span class="icon-btn-spacer" aria-hidden="true"></span>
+    </header>
+    <div class="scroll-area">
+      <div class="notice ${archived ? "notice-neutral" : ""}">
+        ${icon(archived ? "archive" : "trash", 18)}
+        <span>${status}. Restore it to edit.</span>
+      </div>
+      <h1 class="note-ro-title ${m.title.trim() ? "" : "untitled"}">${esc(meetingTitle(m))}</h1>
+      <span class="hint mdate">${esc(dateLine(m))}</span>
+      ${m.transcript ? transcriptHTML(m, { readOnly: true }) : '<p class="empty">No transcript.</p>'}
+      ${minutesHTML(m, { readOnly: true })}
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" data-ro-restore>${icon("undo", 18)}Restore</button>
+        <button class="btn btn-ghost danger" data-ro-delete>${archived ? "Delete" : "Delete forever"}</button>
+      </div>
+    </div>
+  </div>`;
+  }
+  function bindReadOnly(m) {
+    bindScrollShadow();
+    const archived = m.status === "archived";
+    const toFolder = () => {
+      UI.detailId = null;
+      UI.screen = "folders";
+      UI.folder = archived ? "archived" : "deleted";
+      UI.folderKind = "meetings";
+    };
+    app.querySelector("[data-back]").addEventListener("click", () => {
+      toFolder();
+      rerender();
+    });
+    app.querySelector("[data-ro-restore]").addEventListener("click", () => {
+      toFolder();
+      restoreMeetingWithToast(m.id);
+    });
+    app.querySelector("[data-ro-delete]").addEventListener("click", async () => {
+      if (archived) {
+        toFolder();
+        deleteMeetingWithUndo(m.id);
+        return;
+      }
+      if (await confirmDialog("Delete forever?", "This meeting cannot be recovered afterwards.", { confirmLabel: "Delete forever", danger: true })) {
+        toFolder();
+        deleteMeetingForever(m.id);
+      }
+    });
+    const transcript = app.querySelector('[data-block="transcript"]');
+    if (transcript) bindTranscript(transcript, m, { readOnly: true });
+  }
+
   // src/ui/detail.js
   function scheduleNote(t) {
     return [
@@ -3782,7 +4463,7 @@
       UI.screen = "list";
       return mobileListHTML();
     }
-    if (t.status !== "active") return readOnlyHTML(t);
+    if (t.status !== "active") return readOnlyHTML2(t);
     const list = listById(t.listId);
     const dueTone = t.due ? fmtDue(t.due, { dueTime: t.dueTime }).cls : "";
     const note = scheduleNote(t);
@@ -3799,6 +4480,7 @@
           <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
           <h1 class="detail-title" data-title tabindex="0" title="Tap to edit">${esc(t.title)}</h1>
         </div>
+        ${fromMeetingHTML(t)}
       </div>
 
       <div class="card">
@@ -3840,6 +4522,11 @@
     </div>
   </div>`;
   }
+  function fromMeetingHTML(t) {
+    const m = t.from ? meetingById(t.from.meetingId) : null;
+    if (!m) return "";
+    return `<button type="button" class="from-meeting" data-from-meeting="${m.id}">${icon("meeting", 14)}From meeting ${esc(meetingTitle(m))}${icon("chevronRight", 14)}</button>`;
+  }
   function bindDetail() {
     const t = taskById(UI.detailId);
     if (!t) {
@@ -3847,20 +4534,21 @@
       return;
     }
     if (t.status !== "active") {
-      bindReadOnly(t);
+      bindReadOnly2(t);
       return;
     }
     bindScrollShadow();
+    app.querySelector("[data-from-meeting]")?.addEventListener("click", (e) => openMeeting(e.currentTarget.dataset.fromMeeting));
     app.querySelector("[data-back]").addEventListener("click", () => {
       UI.screen = "list";
       rerender();
     });
     app.querySelector(".detail-title-row .check").addEventListener("change", () => completeTask(t.id, app.querySelector(".detail-title-row")));
-    const where2 = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
+    const where3 = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
     const move = () => openMoveCopy({ mode: "move", task: t, onConfirm: (listId, lane) => moveWithFeedback(t.id, listId, lane) });
     const copy = () => openMoveCopy({ mode: "copy", task: t, onConfirm: (listId, lane) => {
       const c = copyTask(t.id, listId, lane);
-      toast(`Copied to ${where2(listId, lane)}`, { action: { label: "Open", onClick: () => {
+      toast(`Copied to ${where3(listId, lane)}`, { action: { label: "Open", onClick: () => {
         S.currentList = c.listId;
         commit();
         openDetail(c.id);
@@ -3948,7 +4636,7 @@
       }
     });
   }
-  function readOnlyHTML(t) {
+  function readOnlyHTML2(t) {
     const archived = t.status === "archived";
     const o = t.origin || t;
     const from = `${listById(o.listId)?.name || "Deleted board"} · ${laneName(o.listId, o.lane)}`;
@@ -3995,7 +4683,7 @@
     </div>
   </div>`;
   }
-  function bindReadOnly(t) {
+  function bindReadOnly2(t) {
     bindScrollShadow();
     const toFolder = () => {
       UI.detailId = null;
@@ -4297,15 +4985,15 @@
     });
     return kept;
   }
-  var flushCurrent = null;
-  window.addEventListener("pagehide", () => flushCurrent?.());
+  var flushCurrent2 = null;
+  window.addEventListener("pagehide", () => flushCurrent2?.());
   function noteDetailHTML() {
     const n = noteById(UI.detailId);
     if (!n) {
       UI.screen = "notes";
       return '<div class="screen"></div>';
     }
-    if (n.status !== "active") return readOnlyHTML2(n);
+    if (n.status !== "active") return readOnlyHTML3(n);
     return `
   <div class="screen detail-screen note-screen">
     <header class="page-head detail-top">
@@ -4326,7 +5014,7 @@
       return;
     }
     if (n.status !== "active") {
-      bindReadOnly2(n);
+      bindReadOnly3(n);
       return;
     }
     bindScrollShadow();
@@ -4339,7 +5027,7 @@
       const d = app.querySelector("[data-dates]");
       if (d) d.textContent = datesLine(n);
     };
-    flushCurrent = flush;
+    flushCurrent2 = flush;
     const set = (patch) => {
       if (patch.checklist !== void 0 && patch.checklist !== null) patch = { ...patch, checklist: authoringOrder(n.checklist, patch.checklist) };
       Object.assign(n, patch);
@@ -4354,14 +5042,14 @@
     });
     app.querySelector("[data-back]").addEventListener("click", () => {
       flush();
-      flushCurrent = null;
+      flushCurrent2 = null;
       UI.detailId = null;
       UI.screen = "notes";
       finalizeNote(n.id);
     });
     const leaving = () => {
       flush();
-      flushCurrent = null;
+      flushCurrent2 = null;
     };
     app.querySelector("[data-more]").addEventListener("click", (e) => openMenu(e.currentTarget, [
       { label: "Copy", icon: "copy", onClick: () => {
@@ -4381,7 +5069,7 @@
       } }
     ]));
   }
-  function readOnlyHTML2(n) {
+  function readOnlyHTML3(n) {
     const archived = n.status === "archived";
     const left = archived ? 0 : daysLeft(n.deletedAt, RETENTION_DAYS);
     const status = archived ? `Archived ${fmtRelative(n.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
@@ -4425,7 +5113,7 @@
     </div>
   </div>`;
   }
-  function bindReadOnly2(n) {
+  function bindReadOnly3(n) {
     bindScrollShadow();
     const archived = n.status === "archived";
     const toFolder = () => {
@@ -4664,467 +5352,6 @@
     });
   }
 
-  // src/transcript.js
-  var uid2 = () => Math.random().toString(36).slice(2, 10);
-  function parseTime(s) {
-    const m = /^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?$/.exec(String(s ?? "").trim());
-    if (!m) return null;
-    const [, h, min, sec, frac] = m;
-    return ((+(h || 0) * 60 + +min) * 60 + +sec) * 1e3 + (frac ? +frac.padEnd(3, "0") : 0);
-  }
-  function assemble(items) {
-    const labels = /* @__PURE__ */ new Map();
-    const speakers = {};
-    const segments = [];
-    items.forEach((it) => {
-      const text = String(it.text ?? "").replace(/[ \t]+\n/g, "\n").trim();
-      if (!text) return;
-      const key = (it.who || "").trim();
-      if (!labels.has(key)) {
-        const label = `S${labels.size + 1}`;
-        labels.set(key, label);
-        speakers[label] = key || null;
-      }
-      segments.push({ id: uid2(), speaker: labels.get(key), startMs: it.startMs ?? null, text });
-    });
-    if (segments.length && Object.keys(speakers).length === 1 && speakers.S1 === null) speakers.S1 = "Transcript";
-    return { segments, speakers };
-  }
-  var stripTags = (s) => s.replace(/<\/?[^>]+>/g, "");
-  function parseVTT(text) {
-    const blocks = String(text ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
-    const items = [];
-    blocks.forEach((block) => {
-      const lines = block.split("\n").filter((l) => l.trim() !== "");
-      if (!lines.length || /^(WEBVTT|NOTE|STYLE|REGION)\b/.test(lines[0]) && !lines.some((l) => l.includes("-->"))) return;
-      const ti = lines.findIndex((l) => l.includes("-->"));
-      if (ti === -1) return;
-      const startMs = parseTime(lines[ti].split("-->")[0].trim().split(/\s+/)[0]);
-      const body = lines.slice(ti + 1).join("\n");
-      const voice = /<v(?:\.[^\s>]*)?\s+([^>]*)>/.exec(body);
-      const who = voice ? voice[1].trim() : null;
-      const plain = stripTags(body);
-      const named = !who && /^([^:\n]{1,40}):\s+(.+)/s.exec(plain);
-      if (named) items.push({ who: named[1].trim(), startMs, text: named[2] });
-      else items.push({ who, startMs, text: plain });
-    });
-    return assemble(items);
-  }
-  function parseSRT(text) {
-    const blocks = String(text ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
-    const items = [];
-    blocks.forEach((block) => {
-      const lines = block.split("\n").filter((l) => l.trim() !== "");
-      const ti = lines.findIndex((l) => l.includes("-->"));
-      if (ti === -1) return;
-      const startMs = parseTime(lines[ti].split("-->")[0].trim());
-      const plain = stripTags(lines.slice(ti + 1).join("\n"));
-      const named = /^([^:\n]{1,40}):\s+(.+)/s.exec(plain);
-      if (named) items.push({ who: named[1].trim(), startMs, text: named[2] });
-      else items.push({ who: null, startMs, text: plain });
-    });
-    return assemble(items);
-  }
-  var NAME = "([^:\\n\\d][^:\\n]{0,39}?)";
-  var TIMED = new RegExp(`^[\\[(]\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s*[\\])]\\s*${NAME}:\\s*(.*)$`);
-  var NAMED = new RegExp(`^${NAME}:\\s+(.*)$`);
-  var HEADER = new RegExp(`^${NAME}\\s{2,}(\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[AP]M)?)\\s*$`, "i");
-  var isName = (s) => s && !/^(https?|mailto|tel|note|nb|ps|todo|re)$/i.test(s.trim());
-  function parsePasted(text) {
-    const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
-    const items = [];
-    let cur = null;
-    const start = (who, startMs, first) => {
-      cur = { who, startMs, text: first };
-      items.push(cur);
-    };
-    lines.forEach((raw) => {
-      const line = raw.trim();
-      if (!line) {
-        if (cur) cur.text += "\n";
-        return;
-      }
-      let m;
-      if ((m = TIMED.exec(line)) && isName(m[2])) {
-        start(m[2], parseTime(m[1]), m[3]);
-        return;
-      }
-      if ((m = HEADER.exec(line)) && isName(m[1])) {
-        start(m[1], parseTime(m[2]), "");
-        return;
-      }
-      if ((m = NAMED.exec(line)) && isName(m[1])) {
-        start(m[1], null, m[2]);
-        return;
-      }
-      if (cur) cur.text += (cur.text && !cur.text.endsWith("\n") ? " " : "") + line;
-      else start(null, null, line);
-    });
-    const anyNamed = items.some((it) => it.who);
-    if (!anyNamed) return assemble([{ who: null, startMs: null, text: lines.join("\n") }]);
-    return assemble(items);
-  }
-  function parseByName(fileName, text) {
-    const ext = String(fileName ?? "").toLowerCase().split(".").pop();
-    if (ext === "vtt") return parseVTT(text);
-    if (ext === "srt") return parseSRT(text);
-    return parsePasted(text);
-  }
-  function speakerName(t, label) {
-    const name = t?.speakers?.[label];
-    if (name) return name;
-    const n = /^S(\d+)$/.exec(label || "");
-    return n ? `Speaker ${n[1]}` : String(label ?? "");
-  }
-  function mergeAdjacent(segments) {
-    const out = [];
-    (segments || []).forEach((s) => {
-      const last = out[out.length - 1];
-      if (last && last.speaker === s.speaker) {
-        last.text += "\n" + s.text;
-        return;
-      }
-      out.push({ ...s });
-    });
-    return out;
-  }
-
-  // src/ui/transcriptview.js
-  var COLLAPSED = 12;
-  var sourceLine = (t) => {
-    const n = t.segments.length;
-    const from = t.source === "file" ? `from ${t.fileName || "a file"}` : t.source === "pasted" ? "pasted" : "from the recording";
-    return `${from} · ${n} segment${n === 1 ? "" : "s"}`;
-  };
-  function transcriptHTML(m, { readOnly = false } = {}) {
-    const t = m.transcript;
-    const merged = mergeAdjacent(t.segments);
-    const collapsed = merged.length > COLLAPSED && !UI.transcriptAll;
-    const single = Object.keys(t.speakers).length === 1 && t.speakers.S1 === "Transcript";
-    return `
-  <section class="mblock" data-block="transcript" aria-label="Transcript">
-    <div class="mblock-head">
-      <span class="section-title">Transcript</span>
-      <span class="hint">${esc(sourceLine(t))}</span>
-      ${readOnly ? "" : `
-      <span class="mblock-actions">
-        <button type="button" class="btn btn-ghost btn-sm" data-paste>${icon("clipboard", 16)}Paste</button>
-        <button type="button" class="btn btn-ghost btn-sm" data-attach>${icon("attach", 16)}Attach</button>
-      </span>`}
-    </div>
-    <div class="card tsegs ${collapsed ? "collapsed" : ""}" role="list" data-segs>
-      ${merged.map((s) => `
-      <div class="tseg" role="listitem" data-seg="${s.id}">
-        ${single ? "" : `
-        <div class="tseg-head">
-          ${readOnly ? `<span class="tseg-who">${esc(speakerName(t, s.speaker))}</span>` : `<button type="button" class="tseg-who" data-speaker="${esc(s.speaker)}" title="Rename this speaker" aria-label="Rename ${esc(speakerName(t, s.speaker))}">${esc(speakerName(t, s.speaker))}</button>`}
-          ${s.startMs === null || s.startMs === void 0 ? "" : `<span class="tseg-time num">${fmtDuration(s.startMs)}</span>`}
-        </div>`}
-        <p class="tseg-text">${esc(s.text)}</p>
-      </div>`).join("")}
-    </div>
-    ${collapsed ? `<button type="button" class="btn btn-ghost btn-sm showall" data-showall>Show all (${merged.length})</button>` : ""}
-  </section>`;
-  }
-  function bindTranscript(root, m, { readOnly = false } = {}) {
-    root.querySelector("[data-showall]")?.addEventListener("click", () => {
-      UI.transcriptAll = true;
-      rerender();
-    });
-    if (readOnly) return;
-    root.querySelectorAll("[data-speaker]").forEach((b) => b.addEventListener("click", async () => {
-      const label = b.dataset.speaker;
-      const current = m.transcript.speakers[label] || "";
-      const name = await promptDialog(`Name for ${speakerName(m.transcript, label)}`, {
-        value: current,
-        placeholder: speakerName({ speakers: {} }, label),
-        confirmLabel: "Rename",
-        allowEmpty: true
-      });
-      if (name === null) return;
-      renameSpeaker(m.id, label, name);
-    }));
-  }
-
-  // src/ui/sourcesheet.js
-  function openPasteSheet({ onUse }) {
-    const ov = document.createElement("div");
-    ov.className = "overlay";
-    ov.innerHTML = `
-  <div class="sheet" role="dialog" aria-label="Paste transcript">
-    <div class="sheet-handle"></div>
-    <div class="sheet-head">
-      <span class="section-title">Paste transcript</span>
-      <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
-    </div>
-    <textarea class="input paste-area" data-text placeholder="Paste the transcript here" aria-label="Transcript text" autocapitalize="off" spellcheck="false"></textarea>
-    <span class="hint">Lines like “Marco: …” or “[00:12] Marco: …” become speakers.</span>
-    <button class="btn btn-primary btn-block" data-use disabled>Use</button>
-  </div>`;
-    document.body.appendChild(ov);
-    const unpin = pinToViewport(ov);
-    const q = (s) => ov.querySelector(s);
-    const close = () => {
-      unpin();
-      ov.remove();
-      document.removeEventListener("keydown", onKey);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    ov.addEventListener("click", (e) => {
-      if (e.target === ov) close();
-    });
-    q("[data-close]").addEventListener("click", close);
-    const area = q("[data-text]"), use = q("[data-use]");
-    area.addEventListener("input", () => {
-      use.disabled = !area.value.trim();
-    });
-    use.addEventListener("click", () => {
-      const parsed = parsePasted(area.value);
-      if (!parsed.segments.length) return;
-      close();
-      onUse(parsed);
-    });
-    area.focus();
-  }
-  var ACCEPT = ".txt,.vtt,.srt,.docx,text/plain,text/vtt,application/x-subrip";
-  var MAX_BYTES = 5 * 1024 * 1024;
-  function pickTranscriptFile({ onParsed, onError }) {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ACCEPT;
-    input.style.display = "none";
-    document.body.appendChild(input);
-    input.addEventListener("change", () => {
-      const file = input.files?.[0];
-      input.remove();
-      if (!file) return;
-      const ext = file.name.toLowerCase().split(".").pop();
-      if (ext === "docx") {
-        onError("Word files are not supported yet; paste the text instead.");
-        return;
-      }
-      if (!["txt", "vtt", "srt"].includes(ext)) {
-        onError("Choose a .txt, .vtt or .srt file.");
-        return;
-      }
-      if (file.size > MAX_BYTES) {
-        onError("That file is too large to be a transcript.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onerror = () => onError("Couldn't read this file.");
-      reader.onload = () => {
-        const parsed = parseByName(file.name, String(reader.result || ""));
-        if (!parsed.segments.length) {
-          onError("Couldn't read this file: it has no text.");
-          return;
-        }
-        onParsed(file.name, parsed);
-      };
-      reader.readAsText(file);
-    });
-    input.click();
-  }
-
-  // src/ui/meeting.js
-  function openMeeting(id) {
-    if (!meetingById(id)) return;
-    UI.detailId = id;
-    UI.screen = "meeting";
-    UI.transcriptAll = false;
-    rerender();
-  }
-  var dateLine = (m) => `${m.recording ? "Recorded" : "Created"} ${fmtDate(m.recording?.recordedAt || m.createdAt, S.dateFormat)} · ${fmtClock(m.recording?.recordedAt || m.createdAt)}`;
-  function sourceHTML() {
-    return `
-  <div class="card source-block" data-source>
-    <button type="button" class="mic-btn" data-record aria-label="Record">${icon("mic", 30)}</button>
-    <span class="source-label">Record</span>
-    <div class="source-alt">
-      <button type="button" class="btn btn-secondary" data-paste>${icon("clipboard", 18)}Paste transcript</button>
-      <button type="button" class="btn btn-secondary" data-attach>${icon("attach", 18)}Attach file</button>
-    </div>
-  </div>`;
-  }
-  function bindSource(root, m) {
-    const confirmReplace = async () => !m.transcript || confirmDialog("Replace the transcript?", "The minutes and the actions not yet added to a board are removed with it.", { confirmLabel: "Replace" });
-    root.querySelector("[data-record]")?.addEventListener("click", () => toast("Recording arrives in the next build"));
-    root.querySelector("[data-paste]")?.addEventListener("click", async () => {
-      if (!await confirmReplace()) return;
-      openPasteSheet({ onUse: (parsed) => {
-        setTranscript(m.id, { source: "pasted", ...parsed });
-        toast("Transcript added");
-      } });
-    });
-    root.querySelector("[data-attach]")?.addEventListener("click", async () => {
-      if (!await confirmReplace()) return;
-      pickTranscriptFile({
-        onParsed: (fileName, parsed) => {
-          setTranscript(m.id, { source: "file", fileName, ...parsed });
-          toast(`Transcript added from ${fileName}`);
-        },
-        onError: (message) => toast(message)
-      });
-    });
-  }
-  var flushCurrent2 = null;
-  window.addEventListener("pagehide", () => flushCurrent2?.());
-  function meetingHTML() {
-    const m = meetingById(UI.detailId);
-    if (!m) {
-      UI.screen = "meetings";
-      return '<div class="screen"></div>';
-    }
-    if (m.status !== "active") return readOnlyHTML3(m);
-    return `
-  <div class="screen detail-screen meeting-screen">
-    <header class="page-head detail-top">
-      <button class="icon-btn" data-back aria-label="Back to Meetings">${icon("chevronLeft")}</button>
-      <span class="kicker">Meeting</span>
-      <button class="icon-btn" data-more aria-label="More actions" aria-haspopup="menu">${icon("more")}</button>
-    </header>
-    <div class="scroll-area">
-      <input class="mtitle" data-title value="${esc(m.title)}" placeholder="${esc(defaultMeetingTitle(m.createdAt))}" aria-label="Meeting title" autocomplete="off" maxlength="120">
-      <span class="hint mdate" data-dates>${esc(dateLine(m))}</span>
-      ${m.transcript ? "" : sourceHTML()}
-      ${m.transcript ? transcriptHTML(m, { readOnly: false }) : ""}
-      ${summariseCtaHTML(m)}
-      ${minutesHTML(m)}
-    </div>
-  </div>`;
-  }
-  function bindMeeting() {
-    const m = meetingById(UI.detailId);
-    if (!m) {
-      rerender();
-      return;
-    }
-    if (m.status !== "active") {
-      bindReadOnly3(m);
-      return;
-    }
-    bindScrollShadow();
-    const input = app.querySelector("[data-title]");
-    let timer = null;
-    const flush = () => {
-      if (!timer) return;
-      clearTimeout(timer);
-      timer = null;
-      updateMeeting(m.id, { title: input.value });
-    };
-    flushCurrent2 = flush;
-    input.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(flush, 500);
-    });
-    input.addEventListener("blur", flush);
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        input.blur();
-      }
-    });
-    const leaving = () => {
-      flush();
-      flushCurrent2 = null;
-    };
-    app.querySelector("[data-back]").addEventListener("click", () => {
-      leaving();
-      UI.detailId = null;
-      UI.screen = "meetings";
-      finalizeMeeting(m.id);
-    });
-    app.querySelector("[data-more]").addEventListener("click", (e) => openMenu(e.currentTarget, [
-      { label: "Rename", icon: "text", onClick: async () => {
-        const name = await promptDialog("Meeting title", { value: m.title, placeholder: defaultMeetingTitle(m.createdAt), allowEmpty: true });
-        if (name === null) return;
-        updateMeeting(m.id, { title: name });
-        rerender();
-      } },
-      { label: "Archive", icon: "archive", onClick: () => {
-        leaving();
-        archiveMeetingWithUndo(m.id);
-      } },
-      { divider: true },
-      { label: "Delete", icon: "trash", danger: true, onClick: () => {
-        leaving();
-        deleteMeetingWithUndo(m.id);
-      } }
-    ]));
-    const source = app.querySelector("[data-source]");
-    if (source) bindSource(source, m);
-    const transcript = app.querySelector('[data-block="transcript"]');
-    if (transcript) {
-      bindTranscript(transcript, m);
-      bindSource(transcript, m);
-    }
-    const cta = app.querySelector('[data-cta="summarise"]');
-    if (cta) bindSummariseCta(cta, m);
-    const minutes = app.querySelector('[data-block="minutes"]');
-    if (minutes) bindMinutes(minutes, m);
-  }
-  function readOnlyHTML3(m) {
-    const archived = m.status === "archived";
-    const left = archived ? 0 : daysLeft(m.deletedAt, RETENTION_DAYS);
-    const status = archived ? `Archived ${fmtRelative(m.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
-    return `
-  <div class="screen detail-screen is-readonly meeting-screen">
-    <header class="page-head detail-top">
-      <button class="icon-btn" data-back aria-label="Back to ${archived ? "Archived" : "Deleted"}">${icon("chevronLeft")}</button>
-      <span class="kicker">${archived ? "Archived" : "Deleted"} meeting</span>
-      <span class="icon-btn-spacer" aria-hidden="true"></span>
-    </header>
-    <div class="scroll-area">
-      <div class="notice ${archived ? "notice-neutral" : ""}">
-        ${icon(archived ? "archive" : "trash", 18)}
-        <span>${status}. Restore it to edit.</span>
-      </div>
-      <h1 class="note-ro-title ${m.title.trim() ? "" : "untitled"}">${esc(meetingTitle(m))}</h1>
-      <span class="hint mdate">${esc(dateLine(m))}</span>
-      ${m.transcript ? transcriptHTML(m, { readOnly: true }) : '<p class="empty">No transcript.</p>'}
-      ${minutesHTML(m, { readOnly: true })}
-      <div class="dialog-actions">
-        <button class="btn btn-secondary" data-ro-restore>${icon("undo", 18)}Restore</button>
-        <button class="btn btn-ghost danger" data-ro-delete>${archived ? "Delete" : "Delete forever"}</button>
-      </div>
-    </div>
-  </div>`;
-  }
-  function bindReadOnly3(m) {
-    bindScrollShadow();
-    const archived = m.status === "archived";
-    const toFolder = () => {
-      UI.detailId = null;
-      UI.screen = "folders";
-      UI.folder = archived ? "archived" : "deleted";
-      UI.folderKind = "meetings";
-    };
-    app.querySelector("[data-back]").addEventListener("click", () => {
-      toFolder();
-      rerender();
-    });
-    app.querySelector("[data-ro-restore]").addEventListener("click", () => {
-      toFolder();
-      restoreMeetingWithToast(m.id);
-    });
-    app.querySelector("[data-ro-delete]").addEventListener("click", async () => {
-      if (archived) {
-        toFolder();
-        deleteMeetingWithUndo(m.id);
-        return;
-      }
-      if (await confirmDialog("Delete forever?", "This meeting cannot be recovered afterwards.", { confirmLabel: "Delete forever", danger: true })) {
-        toFolder();
-        deleteMeetingForever(m.id);
-      }
-    });
-    const transcript = app.querySelector('[data-block="transcript"]');
-    if (transcript) bindTranscript(transcript, m, { readOnly: true });
-  }
-
   // src/ui/meetings.js
   function openMeetings() {
     UI.screen = "meetings";
@@ -5245,7 +5472,7 @@
     const left = daysLeft(x.deletedAt, RETENTION_DAYS);
     return left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
   }
-  var actionsHTML = (attr, id, tab) => `
+  var actionsHTML2 = (attr, id, tab) => `
       <div class="frow-actions">
         <button class="btn btn-sm btn-secondary" data-restore-${attr}="${id}">${icon("undo", 16)}Restore</button>
         <button class="btn btn-sm btn-ghost danger" data-delete-${attr}="${id}">${tab === "archived" ? "Delete" : "Delete forever"}</button>
@@ -5257,7 +5484,7 @@
       <button class="t-title frow-open" data-open="${t.id}">${esc(t.title)}</button>
       ${taskMetaHTML(t)}
       <span class="frow-origin">${esc(originLabel(t))} · ${whenLabel(t, tab)}</span>
-      ${actionsHTML("task", t.id, tab)}
+      ${actionsHTML2("task", t.id, tab)}
     </div>
   </div>`;
   }
@@ -5269,7 +5496,7 @@
       <button class="t-title frow-open" data-open-note="${n.id}">${esc(noteTitle(n))}</button>
       ${noteMetaHTML(n)}
       <span class="frow-origin">Note · ${whenLabel(n, tab)}</span>
-      ${actionsHTML("note", n.id, tab)}
+      ${actionsHTML2("note", n.id, tab)}
     </div>
   </div>`;
   }
@@ -5280,7 +5507,7 @@
       <button class="t-title frow-open" data-open-meeting="${m.id}">${esc(meetingTitle(m))}</button>
       ${meetingChipsHTML(m)}
       <span class="frow-origin">Meeting · ${whenLabel(m, tab)}</span>
-      ${actionsHTML("meeting", m.id, tab)}
+      ${actionsHTML2("meeting", m.id, tab)}
     </div>
   </div>`;
   }

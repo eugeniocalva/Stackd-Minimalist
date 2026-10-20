@@ -7,7 +7,7 @@ turns it into a transcript with speaker labels, turns the transcript into
 cards**, and sends the actions they keep to a board as tasks. Notes stay
 exactly as shipped in 1.4.0.
 
-Status: **approved 2026-10-20; in build** — Phases 14 (Android shell), 15 (Meetings area, text path) and 16 (proxy and minutes) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
+Status: **approved 2026-10-20; in build** — Phases 14 (Android shell), 15 (Meetings area, text path), 16 (proxy and minutes) and 17 (action cards) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
 are in §07; the few calls the analyst made alone are in §08; the remaining
 open questions are in §09; the unit economics of the paid plans are in
 §11. Companion documents: `docs/prd.md` (tasks, v2), `docs/prd-notes.md`
@@ -326,7 +326,7 @@ what.*
 *As a user, I want the actions as cards I can fix, drop, or send to the
 right board without retyping.*
 
-- [ ] AC-08.1 The Actions block lists the proposed actions as **cards**
+- [x] AC-08.1 The Actions block lists the proposed actions as **cards**
       (surface, one per action), in the order the model found them. Each
       card shows: the **title** (editable in place, single line, plain
       text); a **due chip** when a date was suggested ("Fri 24/10", from
@@ -336,31 +336,31 @@ right board without retyping.*
       transcript sentence the action came from, so the user can judge it.
       No owner field (§07 Q6); the title may name the person when the
       transcript did.
-- [ ] AC-08.2 The model proposes only actions the transcript states as
+- [x] AC-08.2 The model proposes only actions the transcript states as
       commitments or requests; vague future tense is not an action. At
       most 12 per meeting; an empty result shows "No actions found."
-- [ ] AC-08.3 **Swipe left** on a card reveals the red **Delete** control
+- [x] AC-08.3 **Swipe left** on a card reveals the red **Delete** control
       (the task-row gesture and visuals); tapping it removes the card with
       a toast and **Undo** (5 s). On desktop the card's hover reveals an
       ✕ with the same effect.
-- [ ] AC-08.4 **Swipe right** reveals a **board** icon control (accent
+- [x] AC-08.4 **Swipe right** reveals a **board** icon control (accent
       colour); tapping it opens the **board + lane picker** (the Move /
       Copy sheet, titled "Add to board"). On desktop the card's hover
       reveals the same icon.
-- [ ] AC-08.5 Choosing a board and lane and confirming opens the **task
+- [x] AC-08.5 Choosing a board and lane and confirming opens the **task
       sheet** pre-filled with the card's title, due date and priority, the
       chosen board shown as a fixed chip (not changeable here; the lane is
       carried silently), tags empty; the primary button reads **Save**.
       Saving creates the task on that board and lane with those values and
       a pointer to the meeting and action; closing the sheet without
       saving leaves the card as it was.
-- [ ] AC-08.6 **Added state**: the card becomes muted with a check and
+- [x] AC-08.6 **Added state**: the card becomes muted with a check and
       "Added to Work · In Progress"; tapping it opens the task. Swipe
       actions are disabled on an added card; it can still be removed from
       the list via the ✕ (the task stays).
-- [ ] AC-08.7 The meeting row's chip (AC-02.2) and the Actions heading
+- [x] AC-08.7 The meeting row's chip (AC-02.2) and the Actions heading
       ("3 actions · 1 added") stay in step with the cards.
-- [ ] AC-08.8 A task created from an action shows, in its detail, a muted
+- [x] AC-08.8 A task created from an action shows, in its detail, a muted
       line "From meeting ‹title›" that opens the meeting (Should).
 
 ### US-09 — Proxy, entitlements and allowances

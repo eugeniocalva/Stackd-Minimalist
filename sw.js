@@ -28,6 +28,7 @@ const SHELL = [
   'src/ui/transcriptview.js',
   'src/ui/sourcesheet.js',
   'src/ui/minutesview.js',
+  'src/ui/actioncards.js',
   'src/ui/board.js',
   'src/ui/detail.js',
   'src/ui/addsheet.js',

@@ -1,17 +1,23 @@
 /* Add-task sheet. Rendered outside #app so re-renders never remove it. */
 
-import { S, addTask, allTags as tagPool } from '../store.js';
+import { S, addTask, allTags as tagPool, laneName } from '../store.js';
 import { daysFrom, fmtDue, RECUR_OPTIONS } from '../dates.js';
 import { openSchedule } from './schedule.js';
 import { esc } from '../util.js';
 import { icon } from './icons.js';
 import { pinToViewport } from './primitives.js';
 
-export function openSheet({ lane } = {}) {
+/** openSheet({ lane, initial, fixedList, submitLabel, onSaved })
+    initial: title / due / priority / tags to start from (action cards,
+    PRD-meetings AC-08.5); fixedList: the board is shown but not changeable;
+    onSaved(draft): called instead of addTask when given. */
+export function openSheet({ lane, initial = null, fixedList = null, submitLabel = 'Add task', onSaved = null } = {}) {
   const draft = {
-    listId: S.currentList, title: '', due: null, priority: 'none', tags: [], lane,
+    listId: fixedList || S.currentList, title: '', due: null, priority: 'none', tags: [], lane,
     start: null, dueTime: null, recur: 'none', reminder: null,
+    ...(initial ? { title: initial.title || '', due: initial.due || null, priority: initial.priority || 'none', tags: [...(initial.tags || [])] } : {}),
   };
+  if (!S.priorities.some((p) => p.id === draft.priority)) draft.priority = 'none';
   const allTags = tagPool();
   const dueOpts = [
     { label: 'Today', value: daysFrom(0) },
@@ -27,12 +33,12 @@ export function openSheet({ lane } = {}) {
       <span class="section-title">New task</span>
       <button class="icon-btn" data-close aria-label="Close">${icon('x')}</button>
     </div>
-    <input class="input sheet-title" placeholder="What needs doing?" autofocus>
+    <input class="input sheet-title" placeholder="What needs doing?" value="${esc(draft.title)}" autofocus>
     <div class="chip-group">
       <span class="microlabel">Due</span>
       <div class="chip-row" data-due>
-        ${dueOpts.map((o) => `<button class="chip" data-val="${o.value}">${o.label}</button>`).join('')}
-        <button class="chip" data-pick>Other date…</button>
+        ${dueOpts.map((o) => `<button class="chip ${draft.due === o.value ? 'on' : ''}" data-val="${o.value}">${o.label}</button>`).join('')}
+        <button class="chip ${draft.due && !dueOpts.some((o) => o.value === draft.due) ? 'on' : ''}" data-pick>${draft.due && !dueOpts.some((o) => o.value === draft.due) ? esc(fmtDue(draft.due).label) : 'Other date…'}</button>
       </div>
     </div>
     <div class="chip-group">
@@ -44,23 +50,23 @@ export function openSheet({ lane } = {}) {
     <div class="chip-group">
       <span class="microlabel">Priority</span>
       <div class="chip-row" data-priority>
-        ${[...S.priorities, { id: 'none', name: 'None' }].map((p) => `<button class="chip ${p.id === 'none' ? 'on' : ''}" data-val="${p.id}">${esc(p.name)}</button>`).join('')}
+        ${[...S.priorities, { id: 'none', name: 'None' }].map((p) => `<button class="chip ${p.id === draft.priority ? 'on' : ''}" data-val="${p.id}">${esc(p.name)}</button>`).join('')}
       </div>
     </div>
     <div class="chip-group">
       <span class="microlabel">Tags</span>
       <div class="chip-row" data-tags>
-        ${allTags.map((t) => `<button class="chip" data-val="${esc(t)}">#${esc(t)}</button>`).join('')}
+        ${allTags.map((t) => `<button class="chip ${draft.tags.includes(t) ? 'on' : ''}" data-val="${esc(t)}">#${esc(t)}</button>`).join('')}
         <button class="chip" data-addtag>+ Add tag</button>
       </div>
     </div>
     <div class="chip-group">
       <span class="microlabel">Board</span>
       <div class="chip-row" data-list>
-        ${S.lists.map((l) => `<button class="chip ${l.id === draft.listId ? 'on' : ''}" data-val="${l.id}">${esc(l.name)}</button>`).join('')}
+        ${(fixedList ? S.lists.filter((l) => l.id === fixedList) : S.lists).map((l) => `<button class="chip ${l.id === draft.listId ? 'on' : ''}" data-val="${l.id}" ${fixedList ? 'disabled aria-disabled="true"' : ''}>${esc(l.name)}${fixedList && lane ? ` · ${esc(laneName(l.id, lane))}` : ''}</button>`).join('')}
       </div>
     </div>
-    <button class="btn btn-primary btn-block" data-submit>Add task</button>
+    <button class="btn btn-primary btn-block" data-submit>${esc(submitLabel)}</button>
   </div>`;
   document.body.appendChild(ov);
   const unpin = pinToViewport(ov);
@@ -134,7 +140,7 @@ export function openSheet({ lane } = {}) {
       ? [...draft.tags, v] : draft.tags.filter((t) => t !== v);
   });
   q('[data-list]').addEventListener('click', (e) => {
-    const chip = e.target.closest('.chip'); if (!chip) return;
+    const chip = e.target.closest('.chip'); if (!chip || fixedList) return;
     draft.listId = chip.dataset.val;
     selectOne('[data-list]', chip);
   });
@@ -142,6 +148,7 @@ export function openSheet({ lane } = {}) {
     draft.title = q('.sheet-title').value.trim();
     if (!draft.title) { q('.sheet-title').focus(); return; }
     close();
+    if (onSaved) { onSaved(draft); return; }
     S.currentList = draft.listId;
     addTask(draft);
   };

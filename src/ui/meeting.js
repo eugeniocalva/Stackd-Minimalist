@@ -18,6 +18,7 @@ import { openMenu, toast, confirmDialog, promptDialog } from './primitives.js';
 import { archiveMeetingWithUndo, deleteMeetingWithUndo, restoreMeetingWithToast } from './actions.js';
 import { transcriptHTML, bindTranscript } from './transcriptview.js';
 import { summariseCtaHTML, bindSummariseCta, minutesHTML, bindMinutes } from './minutesview.js';
+import { actionsHTML, bindActions } from './actioncards.js';
 import { openPasteSheet, pickTranscriptFile } from './sourcesheet.js';
 
 export function openMeeting(id) {
@@ -84,6 +85,7 @@ export function meetingHTML() {
       ${m.transcript ? transcriptHTML(m, { readOnly: false }) : ''}
       ${summariseCtaHTML(m)}
       ${minutesHTML(m)}
+      ${actionsHTML(m)}
     </div>
   </div>`;
 }
@@ -133,6 +135,8 @@ export function bindMeeting() {
   if (cta) bindSummariseCta(cta, m);
   const minutes = app.querySelector('[data-block="minutes"]');
   if (minutes) bindMinutes(minutes, m);
+  const actions = app.querySelector('[data-block="actions"]');
+  if (actions) bindActions(actions, m.id);
 }
 
 /* ── Read-only view for archived / deleted meetings (AC-10.3) ─────────── */

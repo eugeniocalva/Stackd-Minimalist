@@ -299,53 +299,57 @@ function openLaneMenu(anchor, laneId) {
 
 /* ── Gestures ────────────────────────────────────────────────────────── */
 
-/* The one list row currently slid open to show its Delete button. */
-let openRow = null;
+/* The one row currently slid open to show a side button, and which side. */
+let openRow = null, openSide = null;
 const slideRow = (row, x) => { row.style.transform = x ? `translateX(${x}px)` : ''; };
 function closeOpenRow() {
   if (!openRow) return;
   openRow.classList.remove('open');
   slideRow(openRow, 0);
-  openRow = null;
+  openRow = null; openSide = null;
 }
 document.addEventListener('pointerdown', (e) => {
   if (openRow && !openRow.contains(e.target)) closeOpenRow();
 });
 
-/* single tap → detail, double tap → complete, long-press → delete (soft, with
-   Undo, with a haptic tick), swipe left → reveal a Delete button */
-export function bindRowGestures(el, task) {
+/* Where a pointer-down must not start a gesture: the row's own controls. */
+const CONTROLS = '.check,.grip,.swipe-del,.swipe-add,input,textarea,select,.ac-hover,[contenteditable="true"]';
+
+/** One swipe implementation for task rows and action cards (architecture
+    §22). left / right: { sel, onAct } — the side button revealed by a swipe
+    that way (its width sets the slide); tap / double tap / long-press are
+    optional. A horizontal pull of more than 12 px starts the slide; past
+    half the button it stays open; a tap on the open row closes it. */
+export function bindSwipe(el, { left = null, right = null, onTap = null, onDoubleTap = null, onLongPress = null } = {}) {
+  const leftEl = left ? el.querySelector(left.sel) : null;
+  const rightEl = right ? el.querySelector(right.sel) : null;
+  const wl = () => leftEl?.offsetWidth || 0, wr = () => rightEl?.offsetWidth || 0;
+  const clamp = (x) => Math.max(-wl(), Math.min(wr(), x));
   let clickTimer = null, lpTimer = null, lpFired = false, sx = 0, sy = 0;
-  const del = el.querySelector('.swipe-del');
-  const openWidth = () => del?.offsetWidth || 0; // the button starts at the card's edge; slide it fully in
   let pressed = false, swiping = false, startX = 0; // pressed: the pointer went down on the row itself
 
   el.addEventListener('click', (e) => {
-    if (e.target.closest('.check,.grip,.swipe-del') || el.dataset.dragged) { delete el.dataset.dragged; return; }
+    if (e.target.closest(CONTROLS) || el.dataset.dragged) { delete el.dataset.dragged; return; }
     if (lpFired) { lpFired = false; return; }
     if (openRow === el) { closeOpenRow(); return; }
+    if (!onDoubleTap) { onTap?.(e); return; }
     if (clickTimer) {
       clearTimeout(clickTimer); clickTimer = null;
-      completeTask(task.id, el);
+      onDoubleTap();
     } else {
-      clickTimer = setTimeout(() => { clickTimer = null; openDetail(task.id); }, 260);
+      clickTimer = setTimeout(() => { clickTimer = null; onTap?.(e); }, 260);
     }
   });
-  del?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    buzz('MEDIUM');
-    closeOpenRow();
-    deleteWithUndo(task.id);
-  });
+  leftEl?.addEventListener('click', (e) => { e.stopPropagation(); closeOpenRow(); left.onAct(); });
+  rightEl?.addEventListener('click', (e) => { e.stopPropagation(); closeOpenRow(); right.onAct(); });
   el.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.check,.grip,.swipe-del')) return;
+    if (e.target.closest(CONTROLS)) return;
     sx = e.clientX; sy = e.clientY;
-    pressed = true; swiping = false; startX = openRow === el ? -openWidth() : 0;
-    lpTimer = setTimeout(() => {
-      lpTimer = null; lpFired = true;
-      buzz('MEDIUM');
-      deleteWithUndo(task.id);
-    }, 550);
+    pressed = true; swiping = false;
+    startX = openRow === el ? (openSide === 'left' ? -wl() : wr()) : 0;
+    if (onLongPress) {
+      lpTimer = setTimeout(() => { lpTimer = null; lpFired = true; onLongPress(); }, 550);
+    }
   });
   const cancelLp = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
   const endSwipe = (e) => {
@@ -355,11 +359,12 @@ export function bindRowGestures(el, task) {
     swiping = false;
     el.classList.remove('swiping');
     el.dataset.dragged = '1'; // the click that follows is not a tap
-    const w = openWidth();
-    const x = Math.max(-w, Math.min(0, startX + e.clientX - sx));
-    if (w && x < -w / 2) {
+    const x = clamp(startX + e.clientX - sx);
+    const side = x < -wl() / 2 && wl() ? 'left' : x > wr() / 2 && wr() ? 'right' : null;
+    if (side) {
       if (openRow && openRow !== el) closeOpenRow();
-      openRow = el; el.classList.add('open'); slideRow(el, -w);
+      openRow = el; openSide = side; el.classList.add('open');
+      slideRow(el, side === 'left' ? -wl() : wr());
     } else if (openRow === el) closeOpenRow();
     else slideRow(el, 0);
   };
@@ -370,8 +375,9 @@ export function bindRowGestures(el, task) {
     const dx = e.clientX - sx, dy = e.clientY - sy;
     if (!swiping) {
       if (lpTimer && Math.hypot(dx, dy) > 10) cancelLp();
-      /* a clearly horizontal pull on a row that can be deleted starts the swipe */
-      if (del && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      /* a clearly horizontal pull towards a side that has a button (or back from an open one) starts the swipe */
+      const towards = dx < 0 ? leftEl : rightEl;
+      if ((towards || openRow === el) && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) {
         swiping = true;
         cancelLp();
         try { el.setPointerCapture(e.pointerId); } catch {}
@@ -379,8 +385,18 @@ export function bindRowGestures(el, task) {
       }
       if (!swiping) return;
     }
-    const w = openWidth();
-    slideRow(el, Math.max(-w, Math.min(0, startX + dx)));
+    slideRow(el, clamp(startX + dx));
+  });
+}
+
+/* Task rows: single tap → detail, double tap → complete, long-press → delete
+   (soft, with Undo, with a haptic tick), swipe left → reveal a Delete button */
+export function bindRowGestures(el, task) {
+  bindSwipe(el, {
+    left: { sel: '.swipe-del', onAct: () => { buzz('MEDIUM'); deleteWithUndo(task.id); } },
+    onTap: () => openDetail(task.id),
+    onDoubleTap: () => completeTask(task.id, el),
+    onLongPress: () => { buzz('MEDIUM'); deleteWithUndo(task.id); },
   });
 }
 

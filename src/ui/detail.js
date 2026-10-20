@@ -6,6 +6,7 @@ import {
   S, UI, RETENTION_DAYS, priorityName, reminderLabel, laneName,
   taskById, listById, setPriority, setTags, setTitle, setSchedule, clearSchedule,
   copyTask, deleteForever, commit, rerender,
+  meetingById, meetingTitle,
 } from '../store.js';
 import { fmtDue, fmtDateLong, fmtRelative, daysLeft, recurLabel, RECUR_OPTIONS, todayISO } from '../dates.js';
 import { esc, app, uid } from '../util.js';
@@ -16,6 +17,7 @@ import { archiveWithUndo, deleteWithUndo, restoreWithToast, moveWithFeedback, co
 import { openSchedule } from './schedule.js';
 import { openMoveCopy } from './movecopy.js';
 import { openTagPicker } from './tagpicker.js';
+import { openMeeting } from './meeting.js';
 
 
 function scheduleNote(t) {
@@ -71,6 +73,7 @@ export function detailHTML() {
           <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
           <h1 class="detail-title" data-title tabindex="0" title="Tap to edit">${esc(t.title)}</h1>
         </div>
+        ${fromMeetingHTML(t)}
       </div>
 
       <div class="card">
@@ -113,11 +116,19 @@ export function detailHTML() {
   </div>`;
 }
 
+/** "From meeting ‹title›" under the title of a task made from an action card. */
+function fromMeetingHTML(t) {
+  const m = t.from ? meetingById(t.from.meetingId) : null;
+  if (!m) return '';
+  return `<button type="button" class="from-meeting" data-from-meeting="${m.id}">${icon('meeting', 14)}From meeting ${esc(meetingTitle(m))}${icon('chevronRight', 14)}</button>`;
+}
+
 export function bindDetail() {
   const t = taskById(UI.detailId);
   if (!t) { rerender(); return; }
   if (t.status !== 'active') { bindReadOnly(t); return; }
   bindScrollShadow();
+  app.querySelector('[data-from-meeting]')?.addEventListener('click', (e) => openMeeting(e.currentTarget.dataset.fromMeeting));
   app.querySelector('[data-back]').addEventListener('click', () => { UI.screen = 'list'; rerender(); });
   app.querySelector('.detail-title-row .check').addEventListener('change', () => completeTask(t.id, app.querySelector('.detail-title-row')));
 

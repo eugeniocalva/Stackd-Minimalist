@@ -5,7 +5,7 @@
    stale chip and Regenerate. Action cards are Phase 17; until then the
    block ends with a count. */
 
-import { S, minutesStale, actionCounts, editMinutes, markDisclosed } from '../store.js';
+import { S, minutesStale, editMinutes, markDisclosed } from '../store.js';
 import { fmtDate, fmtClock } from '../dates.js';
 import { esc } from '../util.js';
 import { icon } from './icons.js';
@@ -78,7 +78,6 @@ function sectionHTML(key, title, value, { readOnly, list }) {
 export function minutesHTML(m, { readOnly = false } = {}) {
   const mm = m.minutes;
   if (!mm) return '';
-  const { proposed, added } = actionCounts(m);
   return `
   <section class="mblock" data-block="minutes" aria-label="Minutes">
     <div class="mblock-head">
@@ -90,9 +89,6 @@ export function minutesHTML(m, { readOnly = false } = {}) {
       ${sectionHTML('decisions', 'Decisions', mm.decisions, { readOnly, list: true })}
       ${sectionHTML('openQuestions', 'Open questions', mm.openQuestions, { readOnly, list: true })}
     </div>
-    <p class="hint min-actions-note">${proposed + added
-      ? `${proposed + added} action${proposed + added === 1 ? '' : 's'} proposed${added ? ` · ${added} added` : ''} · action cards arrive in the next build`
-      : 'No actions found.'}</p>
   </section>`;
 }
 
