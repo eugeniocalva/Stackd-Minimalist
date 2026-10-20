@@ -7,7 +7,7 @@ turns it into a transcript with speaker labels, turns the transcript into
 cards**, and sends the actions they keep to a board as tasks. Notes stay
 exactly as shipped in 1.4.0.
 
-Status: **approved 2026-10-20; in build** — Phases 14 (Android shell), 15 (Meetings area, text path), 16 (proxy and minutes) and 17 (action cards) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
+Status: **approved 2026-10-20; in build** — Phases 14 (Android shell), 15 (Meetings area, text path), 16 (proxy and minutes), 17 (action cards) and 18 (plans and purchases) shipped; ticked criteria are verified in Chrome at 639 px and 1280 px, device checks come with Phase 22. Decisions taken so far
 are in §07; the few calls the analyst made alone are in §08; the remaining
 open questions are in §09; the unit economics of the paid plans are in
 §11. Companion documents: `docs/prd.md` (tasks, v2), `docs/prd-notes.md`
@@ -372,7 +372,7 @@ each plan can cost me.*
       the proxy over HTTPS with the user's **subscriber id** (the id the
       purchase service assigns on first launch, the same on every device
       after Restore); the proxy holds the provider keys as secrets.
-- [ ] AC-09.2 Before spending anything the proxy checks the subscriber's
+- [x] AC-09.2 Before spending anything the proxy checks the subscriber's
       **entitlement** with the purchase service (cached for a few minutes)
       and the subscriber's **allowance** for the current month (US-12):
       audio minutes for Transcribe, summaries for Summarise. A Free user,
@@ -386,7 +386,7 @@ each plan can cost me.*
       are not charged. The pool resets on the plan's renewal date; the
       remaining amounts come back in every response so the app can show
       them (AC-12.5).
-- [ ] AC-09.4 *(stub: tester allow-list in Phase 16; RevenueCat in Phase 18)* **TestFlight and internal testing**: a tester allow-list in
+- [x] AC-09.4 **TestFlight and internal testing**: a tester allow-list in
       the proxy config gives listed subscriber ids a daily allowance of
       60 audio minutes and 10 summaries without a purchase, so testers
       exercise everything; the plans are still visible and buyable through
@@ -444,7 +444,7 @@ each plan can cost me.*
 when I want the AI steps; as the owner, I want the store to handle the
 money and the proxy to handle the limits.*
 
-- [ ] AC-12.1 Four plans, the paid ones monthly and auto-renewing, bought
+- [x] AC-12.1 Four plans, the paid ones monthly and auto-renewing, bought
       through the App Store on iPhone and Google Play on Android (the
       stores require it for digital subscriptions and handle tax, refunds
       and cancellation):
@@ -460,7 +460,7 @@ money and the proxy to handle the limits.*
       sizes live in the proxy config. §11 shows what each tier can cost at
       full use: every tier is profitable at every provider price in the
       range and with every model tier.
-- [ ] AC-12.2 **Where**: Settings gets a **Plan** section at the top of
+- [x] AC-12.2 **Where**: Settings gets a **Plan** section at the top of
       the Meetings & AI area showing the current plan, the renewal date,
       and the two counters as bars ("Audio 2 h 10 min of 8 h · Summaries
       14 of 20 · resets 12/11/2026"). Below it, for a Free user, the three
@@ -468,33 +468,33 @@ money and the proxy to handle the limits.*
       for a subscriber, the other plans as upgrade / downgrade cards, and
       **Manage subscription** (opens the store's management page) and
       **Restore purchases**.
-- [ ] AC-12.3 **Buying** uses the platform's native purchase sheet. On
+- [ ] AC-12.3 *(built in Phase 18; store sandbox run in Phase 22)* **Buying** uses the platform's native purchase sheet. On
       success the plan is active immediately (the proxy sees the
       entitlement within one call); on cancel nothing changes; on failure
       the store's message is shown. The app never asks for card details.
-- [ ] AC-12.4 **Restore purchases** reattaches the plan on a new device or
+- [ ] AC-12.4 *(built in Phase 18; store sandbox run in Phase 22)* **Restore purchases** reattaches the plan on a new device or
       after a reinstall through the store account; the subscriber id stays
       the same so the allowance follows the user.
-- [ ] AC-12.5 **Visibility of limits**: the Transcribe and Summarise
+- [x] AC-12.5 **Visibility of limits**: the Transcribe and Summarise
       buttons show the cost of the press next to them ("uses 13 min of 7 h
       50 min left", "1 of 16 summaries left") so nobody is surprised; a
       Free user sees the button with a small lock and the plan price
       instead.
-- [ ] AC-12.6 **Hitting the wall**: a Free user pressing an AI button
+- [x] AC-12.6 **Hitting the wall**: a Free user pressing an AI button
       gets a short sheet that explains what the step does and offers the
       two plans (one tap to the native purchase); a subscriber whose pool
       is used up gets "You've used this month's audio minutes. Resets
       12/11/2026." with an **Upgrade** option to the next tier. Neither
       is shown unprompted, and neither interrupts recording or any
       non-AI feature.
-- [ ] AC-12.7 **Lapsed plan**: when a subscription expires or is refunded
+- [x] AC-12.7 **Lapsed plan**: when a subscription expires or is refunded
       the AI steps lock again; meetings, transcripts and minutes already
       made stay readable and editable forever.
-- [ ] AC-12.8 **Web**: the browser version shows the Plan section with the
+- [x] AC-12.8 **Web**: the browser version shows the Plan section with the
       plans described and "Subscribe in the Stack'd app on iPhone or
       Android" instead of a button; AI buttons on the web are shown locked
       with the same note.
-- [ ] AC-12.9 Store compliance: the plan cards state the price, the period,
+- [x] AC-12.9 Store compliance: the plan cards state the price, the period,
       that it renews until cancelled, and link to the terms and privacy
       pages; the restore control is present wherever purchases are offered
       (both stores require all of this for review).

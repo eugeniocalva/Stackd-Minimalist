@@ -446,6 +446,9 @@
   ];
   var MAX_RECORDING_MS = 30 * 60 * 1e3;
   var PLAN_TIERS = ["free", "plus", "pro", "max"];
+  var PLAN_POOLS = { plus: { hours: 8, summaries: 20 }, pro: { hours: 16, summaries: 50 }, max: { hours: 24, summaries: 100 } };
+  var PLAN_PRICES = { plus: "€9.99", pro: "€19.99", max: "€29.99" };
+  var planName = (tier) => ({ free: "Free", plus: "Plus", pro: "Pro", max: "Max", tester: "Tester" })[tier] || "Free";
   var PROXY_URL = "https://stackd-proxy.eugeniocalva.workers.dev";
   var APP_TOKEN = "stackd-app-2026-10";
   var proxyUrl = () => S.ai.proxyUrl || PROXY_URL;
@@ -2068,8 +2071,8 @@
     </div>
   </div>`;
     document.body.appendChild(ov);
-    const sheet = ov.firstElementChild;
-    const q = (s) => sheet.querySelector(s);
+    const sheet2 = ov.firstElementChild;
+    const q = (s) => sheet2.querySelector(s);
     const invalid = () => !!(d.start && d.due && d.start > d.due);
     function renderGrid() {
       const view2 = monthOf(cursor);
@@ -2105,7 +2108,7 @@
       set('[data-f="reminder"]', "value", d.reminder === null ? "" : String(d.reminder));
       set('[data-f="start"]', "disabled", !d.start);
       for (const f of ["due", "dueTime", "recur", "reminder"]) set(`[data-f="${f}"]`, "disabled", !d.due);
-      sheet.querySelectorAll("[data-row]").forEach((r) => r.classList.toggle("armed", r.dataset.row === armed));
+      sheet2.querySelectorAll("[data-row]").forEach((r) => r.classList.toggle("armed", r.dataset.row === armed));
       if (invalid()) q("[data-hint]").innerHTML = '<span class="error">Start must be on or before the due date</span>';
       else q("[data-hint]").textContent = reminderHint(d, done);
       q("[data-sched-save]").disabled = invalid();
@@ -2127,9 +2130,9 @@
         return;
       }
       if (e.key !== "Tab") return;
-      const items = [...sheet.querySelectorAll(TABBABLE)];
+      const items = [...sheet2.querySelectorAll(TABBABLE)];
       const first = items[0], last = items[items.length - 1];
-      if (!sheet.contains(document.activeElement)) {
+      if (!sheet2.contains(document.activeElement)) {
         e.preventDefault();
         first.focus();
       } else if (e.shiftKey && document.activeElement === first) {
@@ -2144,7 +2147,7 @@
     ov.addEventListener("click", (e) => {
       if (e.target === ov) close();
     });
-    sheet.addEventListener("click", (e) => {
+    sheet2.addEventListener("click", (e) => {
       const el = e.target.closest("[data-close],[data-nav],[data-day],[data-sched-remove],[data-sched-save]");
       if (!el) return;
       if (el.dataset.close !== void 0) {
@@ -2195,7 +2198,7 @@
       renderGrid();
       focusDay();
     });
-    sheet.addEventListener("change", (e) => {
+    sheet2.addEventListener("change", (e) => {
       const el = e.target;
       if (el.dataset.on) {
         const key = el.dataset.on;
@@ -2222,7 +2225,7 @@
       }
       paint();
     });
-    sheet.addEventListener("focusin", (e) => {
+    sheet2.addEventListener("focusin", (e) => {
       const f = e.target.dataset?.f;
       if ((f === "start" || f === "due") && armed !== f) {
         armed = f;
@@ -2516,7 +2519,7 @@
   var MESSAGES = {
     offline: "No connection. Try again when you are back online.",
     unauthorized: "This build cannot reach the service. Update the app.",
-    plan_required: "Summarising needs a plan. Plans arrive in a later build; testers are allow-listed by their subscriber id (Settings › Meetings & AI).",
+    plan_required: "This needs a plan.",
     allowance_exhausted: "You've used this period's summaries.",
     too_large: "This transcript is too long to summarise.",
     refused: "The service declined to summarise this transcript.",
@@ -2567,7 +2570,7 @@
       case "done":
         return { jobs: { ...jobs, [ev.step]: null }, lastError: null };
       case "error":
-        return { jobs: { ...jobs, [ev.step]: null }, lastError: { step: ev.step, code: ev.code, message: ev.message, at: ev.at } };
+        return { jobs: { ...jobs, [ev.step]: null }, lastError: { step: ev.step, code: ev.code, message: ev.message, at: ev.at, ...ev.resetsAt ? { resetsAt: ev.resetsAt } : {} } };
       case "resume": {
         const lost = STEPS.filter((s) => jobs[s] && !ev.inflight.includes(s));
         if (!lost.length) return null;
@@ -2584,6 +2587,10 @@
     }
   }
   var inflight = /* @__PURE__ */ new Map();
+  var onPlanError = null;
+  function setPlanErrorHandler(fn) {
+    onPlanError = fn;
+  }
   var isRunning = (meetingId, step) => inflight.has(`${meetingId}:${step}`);
   function apply(meetingId, patch) {
     if (patch) setJobState(meetingId, patch);
@@ -2621,8 +2628,9 @@
       settle();
       const cur = meetingById(meetingId);
       if (cur) {
-        const { code, message } = errorFor(e);
-        apply(meetingId, reduce(cur, { type: "error", step: "summarise", code, message, at: Date.now() }));
+        const { code, message, resetsAt } = errorFor(e);
+        apply(meetingId, reduce(cur, { type: "error", step: "summarise", code, message, resetsAt, at: Date.now() }));
+        onPlanError?.(code, { step: "summarise", resetsAt });
       }
     } finally {
       settle();
@@ -2644,6 +2652,263 @@
     });
   }
 
+  // src/purchases.js
+  var RC_KEYS = { ios: "appl_REPLACE_ME", android: "goog_REPLACE_ME" };
+  var PAID_TIERS = ["plus", "pro", "max"];
+  var PRODUCT_IDS = { plus: "plus_monthly", pro: "pro_monthly", max: "max_monthly" };
+  var plugin3 = () => globalThis.Capacitor?.Plugins?.Purchases;
+  var platform = () => globalThis.Capacitor?.getPlatform?.() || "web";
+  var available = () => !!(globalThis.Capacitor?.isNativePlatform?.() && typeof plugin3()?.configure === "function" && RC_KEYS[platform()] && !RC_KEYS[platform()].includes("REPLACE_ME"));
+  var configured = false;
+  var offeringsCache = null;
+  async function configure(subscriberId) {
+    if (!available() || configured) return false;
+    try {
+      await plugin3().configure({ apiKey: RC_KEYS[platform()], appUserID: subscriberId });
+      configured = true;
+    } catch (e) {
+      console.warn("purchases: configure failed", e?.message || e);
+    }
+    return configured;
+  }
+  async function offerings({ force = false } = {}) {
+    if (!configured) return {};
+    if (offeringsCache && !force) return offeringsCache;
+    try {
+      const res = await plugin3().getOfferings();
+      const packages = res?.current?.availablePackages || [];
+      const out = {};
+      PAID_TIERS.forEach((tier) => {
+        const pkg = packages.find((p) => p.identifier === tier || p.product?.identifier === PRODUCT_IDS[tier] || p.product?.identifier?.startsWith(`${tier}_`));
+        if (pkg) out[tier] = { price: pkg.product?.priceString || "", package: pkg };
+      });
+      offeringsCache = out;
+      return out;
+    } catch (e) {
+      console.warn("purchases: offerings failed", e?.message || e);
+      return {};
+    }
+  }
+  function tierOf(customerInfo) {
+    const active2 = customerInfo?.entitlements?.active || {};
+    for (const tier of [...PAID_TIERS].reverse()) if (active2[tier]) return tier;
+    return "free";
+  }
+  var cancelled = (e) => e?.userCancelled === true || String(e?.code) === "1" || /cancel/i.test(String(e?.message || ""));
+  async function buy(tier) {
+    if (!PAID_TIERS.includes(tier) || !PLAN_TIERS.includes(tier)) throw new Error("Unknown plan");
+    const offer = (await offerings())[tier];
+    if (!offer) throw new Error("This plan is not available in the store right now.");
+    try {
+      const res = await plugin3().purchasePackage({ aPackage: offer.package });
+      return { tier: tierOf(res?.customerInfo), customerInfo: res?.customerInfo };
+    } catch (e) {
+      if (cancelled(e)) return { cancelled: true };
+      throw new Error(e?.message || "The purchase did not go through.");
+    }
+  }
+  async function restore() {
+    const res = await plugin3().restorePurchases();
+    return { tier: tierOf(res?.customerInfo), customerInfo: res?.customerInfo };
+  }
+  async function manageUrl() {
+    try {
+      const res = await plugin3().getCustomerInfo();
+      return res?.customerInfo?.managementURL || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // src/ui/paywall.js
+  var TERMS_URL = "https://eugeniocalva.github.io/Stackd-Minimalist/terms.html";
+  var PRIVACY_URL = "https://eugeniocalva.github.io/Stackd-Minimalist/privacy.html";
+  var BLURB = {
+    plus: "A 30-minute call most working days",
+    pro: "Two 30-minute calls every working day",
+    max: "About an hour of meetings every working day"
+  };
+  var poolLine = (tier) => `${PLAN_POOLS[tier].hours} h of audio · ${PLAN_POOLS[tier].summaries} summaries a month`;
+  function aiButtonState(step) {
+    const p = S.plan;
+    if (p.tier === "free" && p.checkedAt) return { locked: true, hint: `from ${PLAN_PRICES.plus} / month` };
+    if (!p.checkedAt) return { locked: false, hint: "" };
+    if (step === "summarise") return { locked: false, hint: `1 of ${p.summariesLeft} summar${p.summariesLeft === 1 ? "y" : "ies"} left` };
+    return { locked: false, hint: `${fmtDuration(p.audioSecondsLeft * 1e3)} of audio left` };
+  }
+  var prices = {};
+  function cardHTML(tier, current) {
+    const price = prices[tier] || PLAN_PRICES[tier];
+    const isCurrent = current === tier;
+    const action = !available() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : `<button type="button" class="btn ${current === "free" || current === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current === "free" || current === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current) ? "Upgrade" : "Switch"}</button>`;
+    return `
+  <div class="plan-card ${isCurrent ? "is-current" : ""}">
+    <div class="plan-head">
+      <span class="plan-name">${planName(tier)}</span>
+      <span class="plan-price num">${esc(price)}<span class="hint"> / month</span></span>
+    </div>
+    <span class="plan-pool">${esc(poolLine(tier))}</span>
+    <span class="hint">${esc(BLURB[tier])}</span>
+    ${action}
+  </div>`;
+  }
+  var bar = (label, left, total, text) => `
+  <div class="plan-bar" role="group" aria-label="${esc(label)}">
+    <div class="plan-bar-line"><span>${esc(label)}</span><span class="num">${esc(text)}</span></div>
+    <div class="plan-track"><div class="plan-fill" style="width:${total ? Math.round(100 * Math.max(0, Math.min(1, left / total))) : 0}%"></div></div>
+  </div>`;
+  function planSectionHTML() {
+    const p = S.plan;
+    const current = p.tier;
+    const paid = PAID_TIERS.includes(current);
+    const status = !p.checkedAt ? "Not checked yet" : current === "free" ? "Free · the AI steps need a plan" : current === "tester" ? "Tester · allowance resets daily" : `Renews ${p.renewsAt ? fmtDate(p.renewsAt, S.dateFormat) : "monthly"}`;
+    const bars = p.checkedAt && current !== "free" ? `
+    ${bar("Audio", p.audioSecondsLeft, p.audioSecondsTotal, `${fmtDuration(p.audioSecondsLeft * 1e3)} of ${fmtDuration(p.audioSecondsTotal * 1e3)}`)}
+    ${bar("Summaries", p.summariesLeft, p.summariesTotal, `${p.summariesLeft} of ${p.summariesTotal}`)}` : "";
+    return `
+  <span class="section-title list-label" id="settings-plan">Plan</span>
+  <div class="card plan-current">
+    <div class="plan-head">
+      <span class="plan-name">${planName(current)}</span>
+      <span class="hint">${esc(status)}</span>
+    </div>
+    ${bars}
+    <div class="plan-actions">
+      <button type="button" class="btn btn-sm btn-secondary" data-plan-check>${icon("undo", 16)}Refresh</button>
+      ${available() ? '<button type="button" class="btn btn-sm btn-secondary" data-plan-restore>Restore purchases</button>' : ""}
+      ${available() && paid ? '<button type="button" class="btn btn-sm btn-ghost" data-plan-manage>Manage subscription</button>' : ""}
+    </div>
+  </div>
+  <div class="plan-cards">
+    ${PAID_TIERS.map((t) => cardHTML(t, current)).join("")}
+  </div>
+  <p class="hint set-hint">${available() ? "Monthly subscriptions renew automatically until cancelled in your store account. The allowance resets on the renewal date; unused minutes and summaries do not carry over." : "Subscribe in the Stack’d app on iPhone or Android; the plan then applies there. Monthly subscriptions renew until cancelled."}
+    <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>`;
+  }
+  async function refresh(btn) {
+    if (btn) btn.disabled = true;
+    try {
+      await allowance({ force: true });
+      rerender();
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      toast(errorFor(e).message);
+    }
+  }
+  function bindPlanSection(root) {
+    root.querySelector("[data-plan-check]")?.addEventListener("click", (e) => refresh(e.currentTarget));
+    root.querySelector("[data-plan-restore]")?.addEventListener("click", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      try {
+        const r = await restore();
+        await allowance({ force: true }).catch(() => {
+        });
+        toast(r.tier === "free" ? "No purchases to restore" : `Restored: ${planName(r.tier)}`);
+        rerender();
+      } catch (err) {
+        b.disabled = false;
+        toast(err?.message || "Restore failed");
+      }
+    });
+    root.querySelector("[data-plan-manage]")?.addEventListener("click", async () => {
+      const url = await manageUrl();
+      if (url) window.open(url, "_blank");
+      else toast("Open your store account to manage the subscription");
+    });
+    root.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", () => purchase(b.dataset.buy, b)));
+    if (available() && !Object.keys(prices).length) {
+      offerings().then((o) => {
+        const next = Object.fromEntries(Object.entries(o).map(([t, v]) => [t, v.price]).filter(([, v]) => v));
+        if (Object.keys(next).length) {
+          prices = next;
+          rerender();
+        }
+      });
+    }
+  }
+  async function purchase(tier, btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const r = await buy(tier);
+      if (r.cancelled) {
+        if (btn) btn.disabled = false;
+        return;
+      }
+      await allowance({ force: true }).catch(() => {
+      });
+      toast(`${planName(r.tier)} is active`);
+      commit();
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      toast(e?.message || "The purchase did not go through.");
+    }
+  }
+  function sheet(html) {
+    const ov = document.createElement("div");
+    ov.className = "overlay";
+    ov.innerHTML = html;
+    document.body.appendChild(ov);
+    const unpin = pinToViewport(ov);
+    const close = () => {
+      unpin();
+      ov.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", onKey);
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov) close();
+    });
+    ov.querySelector("[data-close]")?.addEventListener("click", close);
+    return { ov, close };
+  }
+  var STEP_TEXT = {
+    summarise: "Summarise turns a transcript into minutes, decisions, open questions and action cards you can send to a board.",
+    transcribe: "Transcribe turns a recording into text with speaker labels."
+  };
+  function openPlanRequired({ step }) {
+    const { ov, close } = sheet(`
+  <div class="sheet" role="dialog" aria-label="Choose a plan">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="section-title">This needs a plan</span>
+      <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
+    </div>
+    <p class="plan-intro">${esc(STEP_TEXT[step] || "")}</p>
+    <div class="plan-cards">${PAID_TIERS.map((t) => cardHTML(t, S.plan.tier)).join("")}</div>
+    ${available() ? "" : '<p class="hint">Subscribe in the Stack’d app on iPhone or Android.</p>'}
+    <p class="hint">Renews monthly until cancelled · <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>
+  </div>`);
+    ov.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", async () => {
+      await purchase(b.dataset.buy, b);
+      if (S.plan.tier !== "free") close();
+    }));
+  }
+  function openAllowanceUsed({ step, resetsAt }) {
+    const tier = S.plan.tier;
+    const next = PAID_TIERS[PAID_TIERS.indexOf(tier) + 1] || null;
+    const what = step === "summarise" ? "summaries" : "audio minutes";
+    const when = resetsAt || S.plan.renewsAt;
+    const { ov, close } = sheet(`
+  <div class="sheet" role="dialog" aria-label="Allowance used">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="section-title">Allowance used</span>
+      <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
+    </div>
+    <p class="plan-intro">You've used this ${tier === "tester" ? "day's" : "month's"} ${what}.${when ? ` Resets ${esc(fmtDate(when, S.dateFormat))}.` : ""}</p>
+    ${next && available() ? `<div class="plan-cards">${cardHTML(next, tier)}</div>` : ""}
+    <button type="button" class="btn btn-secondary btn-block" data-close>OK</button>
+  </div>`);
+    ov.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", async () => {
+      await purchase(b.dataset.buy, b);
+      close();
+    }));
+  }
+
   // src/ui/minutesview.js
   var DISCLOSURE = "The transcript, with the speaker names you gave, is sent to our server and to an AI model provider to write the minutes and find the actions. Nothing is kept there after the result comes back, and nothing is sent until you press this button.";
   function summariseCtaHTML(m) {
@@ -2660,18 +2925,30 @@
       <span class="hint">keeps going if you leave this screen</span>
     </div>`;
     }
+    const state = aiButtonState("summarise");
+    const planErr = err && (err.code === "plan_required" || err.code === "allowance_exhausted");
+    const label = err && !planErr ? "Retry" : m.minutes ? "Regenerate" : "Summarise into minutes and actions";
     return `
   <div class="cta" data-cta="summarise">
-    ${err ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
-    <button type="button" class="btn ${m.minutes ? "btn-secondary" : "btn-primary"}" data-summarise ${offline ? "disabled" : ""}>
-      ${icon("sparkle", 18)}${err ? "Retry" : m.minutes ? "Regenerate" : "Summarise into minutes and actions"}
-    </button>
+    ${err && !planErr ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
+    ${err?.code === "allowance_exhausted" ? `<div class="notice"><span>${esc(err.message)}</span><button type="button" class="btn btn-sm btn-ghost" data-plan-sheet="allowance_exhausted">Upgrade</button></div>` : ""}
+    <span class="cta-row">
+      <button type="button" class="btn ${m.minutes ? "btn-secondary" : "btn-primary"} ${state.locked ? "is-locked" : ""}" data-summarise ${offline ? "disabled" : ""} ${state.locked ? 'data-locked="1"' : ""}>
+        ${icon(state.locked ? "lock" : "sparkle", 18)}${label}
+      </button>
+      ${state.hint ? `<span class="hint cta-hint">${esc(state.hint)}</span>` : ""}
+    </span>
     ${stale && m.minutes ? '<span class="tag tag-soon">Transcript edited since</span>' : ""}
     ${offline ? '<span class="hint">Needs a connection</span>' : ""}
   </div>`;
   }
   function bindSummariseCta(root, m) {
-    root.querySelector("[data-summarise]")?.addEventListener("click", async () => {
+    root.querySelector("[data-plan-sheet]")?.addEventListener("click", () => openAllowanceUsed({ step: "summarise", resetsAt: m.lastError?.resetsAt || null }));
+    root.querySelector("[data-summarise]")?.addEventListener("click", async (e) => {
+      if (e.currentTarget.dataset.locked) {
+        openPlanRequired({ step: "summarise" });
+        return;
+      }
       if (!S.ai.disclosed) {
         if (!await confirmDialog("Before the first summary", DISCLOSURE, { confirmLabel: "Continue" })) return;
         markDisclosed();
@@ -2845,16 +3122,10 @@
       </div>
       <p class="hint set-hint">Renaming a label updates every task and note that has it; renaming it to an existing label merges the two.</p>
 
+      ${planSectionHTML()}
+
       <span class="section-title list-label" id="settings-ai">Meetings &amp; AI</span>
       <div class="card list-card">
-        <div class="set-row set-wrap">
-          <span class="lrow-icon">${icon("sparkle", 18)}</span>
-          <div class="set-text">
-            <span class="set-title">Plan</span>
-            <span class="set-sub">${esc(planLine())}</span>
-          </div>
-          <button class="btn btn-sm btn-secondary" data-ai-check>Check</button>
-        </div>
         <div class="set-row">
           <span class="lrow-icon">${icon("lock", 18)}</span>
           <div class="set-text">
@@ -2911,14 +3182,6 @@
       </div>
     </div>
   </div>`;
-  }
-  function planLine() {
-    const p = S.plan;
-    if (!p.checkedAt) return "Not checked yet · tap Check";
-    if (p.tier === "free") return "Free · summaries need a plan (plans arrive in a later build)";
-    const name = p.tier === "tester" ? "Tester" : p.tier[0].toUpperCase() + p.tier.slice(1);
-    const when = p.tier === "tester" ? "today" : "this month";
-    return `${name} · ${p.summariesLeft} of ${p.summariesTotal} summaries left ${when}` + (p.audioSecondsTotal ? ` · ${fmtDuration(p.audioSecondsLeft * 1e3)} of audio` : "");
   }
   function bindName(input, save2) {
     const original = input.value;
@@ -2990,17 +3253,7 @@
       });
     });
     bindAdd("[data-add-label]", addLabel);
-    app.querySelector("[data-ai-check]")?.addEventListener("click", async (e) => {
-      const b = e.currentTarget;
-      b.disabled = true;
-      try {
-        await allowance({ force: true });
-        rerender();
-      } catch (err) {
-        b.disabled = false;
-        toast(errorFor(err).message);
-      }
-    });
+    bindPlanSection(app);
     app.querySelector("[data-copy-sub]")?.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(S.plan.subscriberId);
@@ -3727,7 +3980,7 @@
     });
     q("[data-close]").addEventListener("click", close);
     const confirmBtn = q("[data-confirm]");
-    const refresh = () => {
+    const refresh2 = () => {
       if (isMove && task) confirmBtn.disabled = pick.listId === task.listId && pick.lane === task.lane;
     };
     const renderLanes = () => {
@@ -3740,12 +3993,12 @@
       pick[key] = chip.dataset.val;
       q(sel).querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === chip));
       after?.();
-      refresh();
+      refresh2();
     });
     group("[data-board]", "listId", renderLanes);
     group("[data-lane]", "lane");
     renderLanes();
-    refresh();
+    refresh2();
     confirmBtn.addEventListener("click", () => {
       close();
       onConfirm(pick.listId, pick.lane);
@@ -4010,7 +4263,7 @@
 
   // src/ui/actioncards.js
   var where2 = (t) => `${listById(t.listId)?.name || "Deleted board"} · ${laneName(t.listId, t.lane)}`;
-  function cardHTML(a) {
+  function cardHTML2(a) {
     if (a.status === "added") {
       const t = taskById(a.taskId);
       return `
@@ -4053,7 +4306,7 @@
       <span class="section-title">Actions</span>
       <span class="hint">${head}</span>
     </div>
-    ${shown.length ? `<div class="card list-card acards" role="list">${shown.map(cardHTML).join("")}</div>
+    ${shown.length ? `<div class="card list-card acards" role="list">${shown.map(cardHTML2).join("")}</div>
          <span class="hint acards-hint">Swipe right to add to a board · swipe left to delete</span>` : '<p class="empty">No actions found.</p>'}
   </section>`;
   }
@@ -5882,6 +6135,11 @@
   setAfterCommit(syncReminders);
   purgeDeleted();
   resumeJobs();
+  configure(S.plan.subscriberId);
+  setPlanErrorHandler((code, { step, resetsAt }) => {
+    if (code === "plan_required") openPlanRequired({ step });
+    else if (code === "allowance_exhausted") openAllowanceUsed({ step, resetsAt });
+  });
   document.addEventListener("resume", () => resumeJobs());
   window.addEventListener("online", () => resumeJobs());
   function openTask(id) {

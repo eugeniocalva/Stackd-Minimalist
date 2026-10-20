@@ -11,6 +11,7 @@ import { esc } from '../util.js';
 import { icon } from './icons.js';
 import { confirmDialog } from './primitives.js';
 import { summarise, isOnline, isRunning } from '../ai.js';
+import { aiButtonState, openPlanRequired, openAllowanceUsed } from './paywall.js';
 
 export const DISCLOSURE = 'The transcript, with the speaker names you gave, is sent to our server and to an AI model provider to write the minutes and find the actions. Nothing is kept there after the result comes back, and nothing is sent until you press this button.';
 
@@ -30,19 +31,29 @@ export function summariseCtaHTML(m) {
       <span class="hint">keeps going if you leave this screen</span>
     </div>`;
   }
+  const state = aiButtonState('summarise');
+  const planErr = err && (err.code === 'plan_required' || err.code === 'allowance_exhausted');
+  const label = err && !planErr ? 'Retry' : m.minutes ? 'Regenerate' : 'Summarise into minutes and actions';
   return `
   <div class="cta" data-cta="summarise">
-    ${err ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ''}
-    <button type="button" class="btn ${m.minutes ? 'btn-secondary' : 'btn-primary'}" data-summarise ${offline ? 'disabled' : ''}>
-      ${icon('sparkle', 18)}${err ? 'Retry' : m.minutes ? 'Regenerate' : 'Summarise into minutes and actions'}
-    </button>
+    ${err && !planErr ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ''}
+    ${err?.code === 'allowance_exhausted' ? `<div class="notice"><span>${esc(err.message)}</span><button type="button" class="btn btn-sm btn-ghost" data-plan-sheet="allowance_exhausted">Upgrade</button></div>` : ''}
+    <span class="cta-row">
+      <button type="button" class="btn ${m.minutes ? 'btn-secondary' : 'btn-primary'} ${state.locked ? 'is-locked' : ''}" data-summarise ${offline ? 'disabled' : ''} ${state.locked ? 'data-locked="1"' : ''}>
+        ${icon(state.locked ? 'lock' : 'sparkle', 18)}${label}
+      </button>
+      ${state.hint ? `<span class="hint cta-hint">${esc(state.hint)}</span>` : ''}
+    </span>
     ${stale && m.minutes ? '<span class="tag tag-soon">Transcript edited since</span>' : ''}
     ${offline ? '<span class="hint">Needs a connection</span>' : ''}
   </div>`;
 }
 
 export function bindSummariseCta(root, m) {
-  root.querySelector('[data-summarise]')?.addEventListener('click', async () => {
+  root.querySelector('[data-plan-sheet]')?.addEventListener('click', () =>
+    openAllowanceUsed({ step: 'summarise', resetsAt: m.lastError?.resetsAt || null }));
+  root.querySelector('[data-summarise]')?.addEventListener('click', async (e) => {
+    if (e.currentTarget.dataset.locked) { openPlanRequired({ step: 'summarise' }); return; }   // Free: the paywall, no request (AC-12.6)
     if (!S.ai.disclosed) {
       if (!await confirmDialog('Before the first summary', DISCLOSURE, { confirmLabel: 'Continue' })) return;
       markDisclosed();

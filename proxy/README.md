@@ -18,7 +18,7 @@ Every request carries `X-Stackd-App: <app token>` and
 | `POST /v1/summarise` | `{ transcript: { segments, speakers }, meetingDate: 'YYYY-MM-DD', priorities: ['High', …] }` | `{ minutes: { summary, decisions, openQuestions }, actions: [{ title, due, priority, excerpt }] }` |
 | `POST /v1/transcribe` | multipart audio | Phase 20 (501 until then) |
 | `GET /v1/transcribe/:id` | — | Phase 20 |
-| `POST /v1/rc-webhook` | RevenueCat event | Phase 18 |
+| `POST /v1/rc-webhook` | RevenueCat event (its own `Authorization` value) | drops that subscriber's cached entitlement; 204 |
 
 Error codes (`code`): `unauthorized`, `bad_request`, `plan_required`,
 `allowance_exhausted` (with `resetsAt`), `too_large`, `refused`,
@@ -34,8 +34,13 @@ released on failure. KV writes are not transactional: two requests racing
 on the last unit of a pool can both pass. Accepted at this scale (the cost
 is one extra summary), noted here so nobody is surprised.
 
-Until Phase 18 the entitlement is a stub: subscriber ids listed in the
-`TESTERS` variable get the tester tier, everyone else is `free`.
+Entitlement, in order: subscriber ids listed in the `TESTERS` variable get
+the tester tier; then RevenueCat's subscriber record (`GET
+/v1/subscribers/{id}` with the secret key, cached in KV for five minutes,
+dropped by the webhook on any event for that subscriber) gives the highest
+active paid entitlement (`plus` / `pro` / `max`) and its expiry as the
+renewal date; everyone else is `free`. Without `RC_SECRET_KEY` set, only
+testers get an allowance.
 
 ## Secrets and setup (once)
 
@@ -46,6 +51,8 @@ npx wrangler login
 npx wrangler kv namespace create POOL      # paste the id into wrangler.toml
 npx wrangler secret put ANTHROPIC_API_KEY  # the Anthropic key for the minutes
 npx wrangler secret put APP_TOKEN          # any long random string; the same value goes into src/store.js APP_TOKEN
+npx wrangler secret put RC_SECRET_KEY      # RevenueCat › Project › API keys › secret key (sk_…)
+npx wrangler secret put RC_WEBHOOK_AUTH    # any long random string; paste the same into RevenueCat › Integrations › Webhooks › Authorization header
 npx wrangler deploy
 ```
 
@@ -69,10 +76,22 @@ reads secrets from a `.dev.vars` file (git-ignored):
 ```
 ANTHROPIC_API_KEY=sk-ant-…
 APP_TOKEN=dev-token
+RC_SECRET_KEY=sk_…          # optional: without it only TESTERS get an allowance
+RC_WEBHOOK_AUTH=dev-hook
 ```
 
 and the app's Settings › Meetings & AI › Developer field points at
 `http://localhost:8787`.
+
+## RevenueCat setup (once, in its dashboard)
+
+One project with an iOS and an Android app; products `plus_monthly`,
+`pro_monthly`, `max_monthly` imported from the stores; entitlements `plus`,
+`pro`, `max`, each attached to its product; one offering (current) with
+three packages identified `plus`, `pro`, `max`; the webhook pointed at
+`https://<worker>/v1/rc-webhook` with the `RC_WEBHOOK_AUTH` value as its
+Authorization header. The two public SDK keys go into `src/purchases.js`
+(`RC_KEYS`).
 
 ## Benchmark (PRD-meetings Q15)
 

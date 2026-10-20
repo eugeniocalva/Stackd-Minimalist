@@ -22,7 +22,7 @@ export const ALLOWANCE_TTL_MS = 10 * 60 * 1000;
 export const MESSAGES = {
   offline: 'No connection. Try again when you are back online.',
   unauthorized: 'This build cannot reach the service. Update the app.',
-  plan_required: 'Summarising needs a plan. Plans arrive in a later build; testers are allow-listed by their subscriber id (Settings › Meetings & AI).',
+  plan_required: 'This needs a plan.',
   allowance_exhausted: "You've used this period's summaries.",
   too_large: 'This transcript is too long to summarise.',
   refused: 'The service declined to summarise this transcript.',
@@ -81,7 +81,7 @@ export function reduce(m, ev) {
   switch (ev.type) {
     case 'start': return { jobs: { ...jobs, [ev.step]: { id: ev.id, startedAt: ev.at, phase: 'wait' } }, lastError: null };
     case 'done': return { jobs: { ...jobs, [ev.step]: null }, lastError: null };
-    case 'error': return { jobs: { ...jobs, [ev.step]: null }, lastError: { step: ev.step, code: ev.code, message: ev.message, at: ev.at } };
+    case 'error': return { jobs: { ...jobs, [ev.step]: null }, lastError: { step: ev.step, code: ev.code, message: ev.message, at: ev.at, ...(ev.resetsAt ? { resetsAt: ev.resetsAt } : {}) } };
     case 'resume': {
       const lost = STEPS.filter((s) => jobs[s] && !ev.inflight.includes(s));
       if (!lost.length) return null;
@@ -96,6 +96,10 @@ export function reduce(m, ev) {
 }
 
 const inflight = new Map();   // `${meetingId}:${step}` → AbortController
+/* The UI registers what to do when a step fails for plan reasons (open the
+   paywall or the allowance sheet, AC-12.6); the store keeps the error too. */
+let onPlanError = null;
+export function setPlanErrorHandler(fn) { onPlanError = fn; }
 export const isRunning = (meetingId, step) => inflight.has(`${meetingId}:${step}`);
 
 function apply(meetingId, patch) { if (patch) setJobState(meetingId, patch); }
@@ -134,7 +138,11 @@ export async function summarise(meetingId) {
   } catch (e) {
     settle();
     const cur = meetingById(meetingId);
-    if (cur) { const { code, message } = errorFor(e); apply(meetingId, reduce(cur, { type: 'error', step: 'summarise', code, message, at: Date.now() })); }
+    if (cur) {
+      const { code, message, resetsAt } = errorFor(e);
+      apply(meetingId, reduce(cur, { type: 'error', step: 'summarise', code, message, resetsAt, at: Date.now() }));
+      onPlanError?.(code, { step: 'summarise', resetsAt });
+    }
   } finally {
     settle();
   }

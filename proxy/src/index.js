@@ -4,7 +4,7 @@
 
 import { allowance, periodKey, isTier } from './plans.js';
 import { getUsed, reserve, release } from './pool.js';
-import { resolve } from './entitlement.js';
+import { resolve, webhook } from './entitlement.js';
 import { summarise, SummariseError } from './summarise.js';
 import { toModelText, isTranscript } from './transcript.js';
 
@@ -38,6 +38,11 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (url.pathname === '/v1/health') return json({ ok: true }, 200, cors);
+    /* RevenueCat's webhook carries its own Authorization value, not the app token */
+    if (request.method === 'POST' && url.pathname === '/v1/rc-webhook') {
+      const { status } = await webhook(request, env);
+      return new Response(null, { status });
+    }
     if (request.headers.get('Origin') && !cors['Access-Control-Allow-Origin']) return fail('unauthorized', 'Origin not allowed.', 403, cors);
 
     if (!env.APP_TOKEN || request.headers.get('X-Stackd-App') !== env.APP_TOKEN) return fail('unauthorized', 'Unknown app.', 401, cors);
@@ -48,7 +53,6 @@ export default {
       if (request.method === 'GET' && url.pathname === '/v1/allowance') return await handleAllowance(env, sub, cors);
       if (request.method === 'POST' && url.pathname === '/v1/summarise') return await handleSummarise(request, env, sub, cors);
       if (url.pathname.startsWith('/v1/transcribe')) return fail('not_implemented', 'Transcription arrives in a later build.', 501, cors);
-      if (url.pathname === '/v1/rc-webhook') return fail('not_implemented', 'Not yet.', 501, cors);
       return fail('bad_request', 'No such route.', 404, cors);
     } catch (e) {
       if (e instanceof SummariseError) return fail(e.code, e.message, e.status, cors);

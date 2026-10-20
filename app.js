@@ -21,7 +21,9 @@ import { notesHTML, bindNotes } from './src/ui/notes.js';
 import { noteDetailHTML, bindNoteDetail } from './src/ui/notedetail.js';
 import { meetingsHTML, bindMeetings } from './src/ui/meetings.js';
 import { meetingHTML, bindMeeting } from './src/ui/meeting.js';
-import { resumeJobs } from './src/ai.js';
+import { resumeJobs, setPlanErrorHandler } from './src/ai.js';
+import { configure as configurePurchases } from './src/purchases.js';
+import { openPlanRequired, openAllowanceUsed } from './src/ui/paywall.js';
 
 function render() {
   applyTheme();
@@ -67,6 +69,11 @@ setRenderer(render);
 setAfterCommit(syncReminders); // native: keep iOS pending reminders in step
 purgeDeleted();
 resumeJobs();                                   // an AI job persisted before a reload was lost with the page
+configurePurchases(S.plan.subscriberId);        // native shells only; a no-op on the web
+setPlanErrorHandler((code, { step, resetsAt }) => {
+  if (code === 'plan_required') openPlanRequired({ step });
+  else if (code === 'allowance_exhausted') openAllowanceUsed({ step, resetsAt });
+});
 document.addEventListener('resume', () => resumeJobs());   // Capacitor's foreground event
 window.addEventListener('online', () => resumeJobs());
 

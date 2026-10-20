@@ -8,16 +8,15 @@ import {
   setTheme, setDateFormat, addPriority, updatePriority, movePriority, deletePriority,
   addLabel, renameLabel, deleteLabel, setProxyUrl, resetNotices, rerender,
 } from '../store.js';
-import { allowance, errorFor } from '../ai.js';
 import { DISCLOSURE } from './minutesview.js';
 import { toast } from './primitives.js';
+import { planSectionHTML, bindPlanSection } from './paywall.js';
 import { DATE_FORMATS, fmtDate, todayISO } from '../dates.js';
 import { resolvedTheme } from '../theme.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import { bindScrollShadow } from './board.js';
 import { confirmDialog, openMenu } from './primitives.js';
-import { fmtDuration } from '../dates.js';
 
 const THEME_LABEL = { light: 'Light', dark: 'Dark', system: 'System' };
 const THEME_ICON = { light: 'sun', dark: 'moon', system: 'monitor' };
@@ -25,7 +24,7 @@ const COLOR_NAME = { red: 'Red', amber: 'Amber', green: 'Green', blue: 'Blue', v
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
 
-/** section: 'appearance' | 'dates' | 'priorities' | 'labels' | 'automations' | 'ai' */
+/** section: 'appearance' | 'dates' | 'priorities' | 'labels' | 'plan' | 'ai' | 'automations' */
 export function openSettings(section) {
   UI.screen = 'settings';
   rerender();
@@ -133,16 +132,10 @@ export function settingsHTML() {
       </div>
       <p class="hint set-hint">Renaming a label updates every task and note that has it; renaming it to an existing label merges the two.</p>
 
+      ${planSectionHTML()}
+
       <span class="section-title list-label" id="settings-ai">Meetings &amp; AI</span>
       <div class="card list-card">
-        <div class="set-row set-wrap">
-          <span class="lrow-icon">${icon('sparkle', 18)}</span>
-          <div class="set-text">
-            <span class="set-title">Plan</span>
-            <span class="set-sub">${esc(planLine())}</span>
-          </div>
-          <button class="btn btn-sm btn-secondary" data-ai-check>Check</button>
-        </div>
         <div class="set-row">
           <span class="lrow-icon">${icon('lock', 18)}</span>
           <div class="set-text">
@@ -199,16 +192,6 @@ export function settingsHTML() {
       </div>
     </div>
   </div>`;
-}
-
-/** The Plan row's second line (AC-12.2 arrives in Phase 18; until then the tester / free view). */
-function planLine() {
-  const p = S.plan;
-  if (!p.checkedAt) return 'Not checked yet · tap Check';
-  if (p.tier === 'free') return 'Free · summaries need a plan (plans arrive in a later build)';
-  const name = p.tier === 'tester' ? 'Tester' : p.tier[0].toUpperCase() + p.tier.slice(1);
-  const when = p.tier === 'tester' ? 'today' : 'this month';
-  return `${name} · ${p.summariesLeft} of ${p.summariesTotal} summaries left ${when}` + (p.audioSecondsTotal ? ` · ${fmtDuration(p.audioSecondsLeft * 1000)} of audio` : '');
 }
 
 /** Enter or blur saves through save(value); Esc restores the old name. */
@@ -283,12 +266,8 @@ export function bindSettings() {
   });
   bindAdd('[data-add-label]', addLabel);
 
-  /* Meetings & AI (PRD-meetings AC-11.1) */
-  app.querySelector('[data-ai-check]')?.addEventListener('click', async (e) => {
-    const b = e.currentTarget; b.disabled = true;
-    try { await allowance({ force: true }); rerender(); }
-    catch (err) { b.disabled = false; toast(errorFor(err).message); }
-  });
+  /* Plan (PRD-meetings US-12) and Meetings & AI (AC-11.1) */
+  bindPlanSection(app);
   app.querySelector('[data-copy-sub]')?.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(S.plan.subscriberId); toast('Subscriber id copied'); }
     catch { toast(S.plan.subscriberId); }

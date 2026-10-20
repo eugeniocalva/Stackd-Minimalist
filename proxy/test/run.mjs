@@ -7,6 +7,7 @@ import { reserve, release, getUsed } from '../src/pool.js';
 import { validate, validDue, validPriority, MAX_ACTIONS } from '../src/schema.js';
 import { toModelText, isTranscript } from '../src/transcript.js';
 import worker from '../src/index.js';
+import { fromSubscriber, resolve, webhook, cacheKey } from '../src/entitlement.js';
 
 /* ── plans ─────────────────────────────────────────────────────────── */
 assert.equal(TIERS.plus.audioSeconds, 8 * 3600); assert.equal(TIERS.plus.summaries, 20);
@@ -125,5 +126,38 @@ const before = (await getUsed(kv, 'tester00000001', periodKey('tester'))).summar
 res = await call('/v1/summarise', { method: 'POST', headers: H('tester00000001'), body: { transcript: { segments: [{ speaker: 'S1', text: 'hi' }] }, meetingDate: '2026-10-20', priorities: ['High'] } });
 assert.ok([500, 503].includes(res.status), `no key → service error, got ${res.status}`);
 assert.equal((await getUsed(kv, 'tester00000001', periodKey('tester'))).summaries, before, 'a failed step is not charged');
+
+/* ── entitlement: RevenueCat shape, cache, webhook ─────────────────── */
+const t0 = Date.UTC(2026, 9, 20);
+assert.deepEqual(fromSubscriber({ entitlements: {} }, t0), { tier: 'free', renewsAt: null });
+assert.deepEqual(fromSubscriber({ entitlements: { plus: { expires_date: '2026-11-12T09:30:00Z' } } }, t0), { tier: 'plus', renewsAt: Date.parse('2026-11-12T09:30:00Z') });
+assert.equal(fromSubscriber({ entitlements: { plus: { expires_date: '2026-11-12T09:30:00Z' }, max: { expires_date: '2026-11-01T00:00:00Z' } } }, t0).tier, 'max', 'the highest active tier wins');
+assert.equal(fromSubscriber({ entitlements: { pro: { expires_date: '2026-10-01T00:00:00Z' } } }, t0).tier, 'free', 'an expired entitlement does not count');
+assert.deepEqual(fromSubscriber({ entitlements: { pro: { expires_date: null } } }, t0), { tier: 'pro', renewsAt: null }, 'no expiry = active');
+const rcMem = new Map();
+const rcKv = { get: async (k) => rcMem.get(k) ?? null, put: async (k, v) => { rcMem.set(k, v); }, delete: async (k) => { rcMem.delete(k); } };
+let rcCalls = 0;
+const rcFetch = async (url) => { rcCalls++; assert.ok(url.endsWith('/v1/subscribers/sub00000001')); return { ok: true, json: async () => ({ subscriber: { entitlements: { pro: { expires_date: '2026-11-12T09:30:00Z' } } } }) }; };
+const rcEnv = { TESTERS: '', RC_SECRET_KEY: 'sk_test', POOL: rcKv };
+let ent = await resolve(rcEnv, 'sub00000001', { fetchImpl: rcFetch, now: t0 });
+assert.equal(ent.tier, 'pro'); assert.equal(rcCalls, 1);
+ent = await resolve(rcEnv, 'sub00000001', { fetchImpl: rcFetch, now: t0 });
+assert.equal(rcCalls, 1, 'the second lookup is served from the cache');
+assert.equal((await resolve({ ...rcEnv, RC_SECRET_KEY: '' }, 'sub00000002', { fetchImpl: rcFetch })).tier, 'free', 'no secret key → free');
+assert.equal((await resolve({ ...rcEnv, TESTERS: 'sub00000003' }, 'sub00000003', { fetchImpl: rcFetch })).tier, 'tester', 'testers first');
+const failing = async () => { throw new Error('down'); };
+assert.equal((await resolve(rcEnv, 'sub00000001', { fetchImpl: failing, now: t0 })).tier, 'pro', 'a RevenueCat outage falls back to the cache');
+assert.equal((await resolve(rcEnv, 'sub00000009', { fetchImpl: failing })).tier, 'free', '…and to free without one');
+// webhook: wrong auth → 401; right auth → the cache entry goes
+const hookEnv = { ...rcEnv, RC_WEBHOOK_AUTH: 'hook-secret' };
+const hook = (auth, body) => webhook(new Request('https://proxy.test/v1/rc-webhook', { method: 'POST', headers: auth ? { Authorization: auth } : {}, body: JSON.stringify(body) }), hookEnv);
+assert.equal((await hook('wrong', { event: { app_user_id: 'sub00000001' } })).status, 401);
+assert.equal((await hook(null, { event: { app_user_id: 'sub00000001' } })).status, 401);
+assert.ok(rcMem.has(cacheKey('sub00000001')));
+assert.equal((await hook('hook-secret', { event: { type: 'RENEWAL', app_user_id: 'sub00000001' } })).status, 204);
+assert.ok(!rcMem.has(cacheKey('sub00000001')), 'the webhook drops the cache');
+assert.equal((await hook('hook-secret', { event: {} })).status, 204, 'an event without an id is accepted and ignored');
+res = await call('/v1/rc-webhook', { method: 'POST', headers: { Authorization: 'nope' }, body: { event: {} } });
+assert.equal(res.status, 401, 'the route needs the webhook auth, not the app token');
 
 console.log('proxy tests: ok');
