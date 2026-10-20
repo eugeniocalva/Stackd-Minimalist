@@ -17,6 +17,7 @@ import { bindScrollShadow } from './board.js';
 import { openMenu, toast, confirmDialog, promptDialog } from './primitives.js';
 import { archiveMeetingWithUndo, deleteMeetingWithUndo, restoreMeetingWithToast } from './actions.js';
 import { transcriptHTML, bindTranscript } from './transcriptview.js';
+import { summariseCtaHTML, bindSummariseCta, minutesHTML, bindMinutes } from './minutesview.js';
 import { openPasteSheet, pickTranscriptFile } from './sourcesheet.js';
 
 export function openMeeting(id) {
@@ -81,6 +82,8 @@ export function meetingHTML() {
       <span class="hint mdate" data-dates>${esc(dateLine(m))}</span>
       ${m.transcript ? '' : sourceHTML()}
       ${m.transcript ? transcriptHTML(m, { readOnly: false }) : ''}
+      ${summariseCtaHTML(m)}
+      ${minutesHTML(m)}
     </div>
   </div>`;
 }
@@ -126,6 +129,10 @@ export function bindMeeting() {
   if (source) bindSource(source, m);
   const transcript = app.querySelector('[data-block="transcript"]');
   if (transcript) { bindTranscript(transcript, m); bindSource(transcript, m); }
+  const cta = app.querySelector('[data-cta="summarise"]');
+  if (cta) bindSummariseCta(cta, m);
+  const minutes = app.querySelector('[data-block="minutes"]');
+  if (minutes) bindMinutes(minutes, m);
 }
 
 /* ── Read-only view for archived / deleted meetings (AC-10.3) ─────────── */
@@ -150,6 +157,7 @@ function readOnlyHTML(m) {
       <h1 class="note-ro-title ${m.title.trim() ? '' : 'untitled'}">${esc(meetingTitle(m))}</h1>
       <span class="hint mdate">${esc(dateLine(m))}</span>
       ${m.transcript ? transcriptHTML(m, { readOnly: true }) : '<p class="empty">No transcript.</p>'}
+      ${minutesHTML(m, { readOnly: true })}
       <div class="dialog-actions">
         <button class="btn btn-secondary" data-ro-restore>${icon('undo', 18)}Restore</button>
         <button class="btn btn-ghost danger" data-ro-delete>${archived ? 'Delete' : 'Delete forever'}</button>

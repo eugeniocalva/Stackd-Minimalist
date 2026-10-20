@@ -446,6 +446,9 @@
   ];
   var MAX_RECORDING_MS = 30 * 60 * 1e3;
   var PLAN_TIERS = ["free", "plus", "pro", "max"];
+  var PROXY_URL = "https://stackd-proxy.eugeniocalva.workers.dev";
+  var APP_TOKEN = "stackd-app-2026-10";
+  var proxyUrl = () => S.ai.proxyUrl || PROXY_URL;
   var REMINDER_OPTIONS = [
     [null, "None"],
     [0, "At time of due"],
@@ -762,6 +765,7 @@
     proposed: m.actions.filter((a) => a.status === "proposed").length,
     added: m.actions.filter((a) => a.status === "added").length
   });
+  var minutesStale = (m) => !!(m.minutes && m.transcript && m.transcript.updatedAt > m.minutes.transcriptUpdatedAt);
   var meetingIsEmpty = (m) => !m.recording && !m.transcript && !m.title.trim();
   var folderCount = (status) => folderTasks(status).length + folderNotes(status).length + folderMeetings(status).length;
   var tagUseCounts = (name) => ({
@@ -769,6 +773,7 @@
     notes: S.notes.filter((n) => n.status !== "deleted" && n.tags.some((x) => sameTag(x, name))).length
   });
   var priorityById = (id) => S.priorities.find((p) => p.id === id);
+  var priorityIdByName = (name) => S.priorities.find((p) => p.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.id || "none";
   var priorityName = (id) => priorityById(id)?.name || "None";
   var priorityUseCount = (id) => S.tasks.filter((t) => t.status !== "deleted" && t.priority === id).length;
   function sortedTasks(listId) {
@@ -1064,6 +1069,81 @@
     t.speakers[label] = n || null;
     t.updatedAt = Date.now();
     touchMeeting(m);
+    commit();
+  }
+  function setMinutes(id, minutes, actions = []) {
+    const m = meetingById(id);
+    if (!m || !m.transcript) return;
+    const now = Date.now();
+    m.minutes = {
+      summary: String(minutes?.summary ?? "").trim(),
+      decisions: (minutes?.decisions || []).map((x) => String(x).trim()).filter(Boolean),
+      openQuestions: (minutes?.openQuestions || []).map((x) => String(x).trim()).filter(Boolean),
+      generatedAt: now,
+      transcriptUpdatedAt: m.transcript.updatedAt
+    };
+    m.actions = [
+      ...m.actions.filter((a) => a.status !== "proposed"),
+      ...actions.map((a) => ({
+        id: uid(),
+        title: String(a.title ?? "").trim(),
+        due: a.due || null,
+        priority: priorityIdByName(a.priority),
+        excerpt: String(a.excerpt ?? "").trim(),
+        status: "proposed",
+        taskId: null
+      })).filter((a) => a.title)
+    ];
+    m.lastError = null;
+    touchMeeting(m);
+    commit();
+  }
+  function editMinutes(id, patch) {
+    const m = meetingById(id);
+    if (!m?.minutes || m.status !== "active") return;
+    if (patch.summary !== void 0) m.minutes.summary = String(patch.summary);
+    if (patch.decisions !== void 0) m.minutes.decisions = patch.decisions.map((x) => String(x));
+    if (patch.openQuestions !== void 0) m.minutes.openQuestions = patch.openQuestions.map((x) => String(x));
+    touchMeeting(m);
+    persistQuiet();
+  }
+  function setJobState(id, patch) {
+    const m = meetingById(id);
+    if (!m) return;
+    if (patch.jobs !== void 0) m.jobs = patch.jobs;
+    if (patch.lastError !== void 0) m.lastError = patch.lastError;
+    commit();
+  }
+  function setPlanCache(a) {
+    const tier = PLAN_TIERS.includes(a?.tier) || a?.tier === "tester" ? a.tier : S.plan.tier;
+    const changed = tier !== S.plan.tier;
+    Object.assign(S.plan, {
+      tier,
+      renewsAt: a?.renewsAt ?? null,
+      audioSecondsLeft: a?.audioSecondsLeft ?? 0,
+      audioSecondsTotal: a?.audioSecondsTotal ?? 0,
+      summariesLeft: a?.summariesLeft ?? 0,
+      summariesTotal: a?.summariesTotal ?? 0,
+      checkedAt: Date.now()
+    });
+    if (changed) commit();
+    else persistQuiet();
+  }
+  function setProxyUrl(url) {
+    const u = String(url ?? "").trim().replace(/\/+$/, "");
+    if (u && !/^https:\/\/[^\s]+$|^http:\/\/localhost(:\d+)?$/.test(u)) return false;
+    S.ai.proxyUrl = u || null;
+    S.plan.checkedAt = 0;
+    commit();
+    return true;
+  }
+  function markDisclosed() {
+    S.ai.disclosed = true;
+    persistQuiet();
+  }
+  function resetNotices() {
+    S.ai.disclosed = false;
+    S.ai.consented = false;
     commit();
   }
   function setMeetingsSort(sort) {
@@ -2376,6 +2456,242 @@
     }
   }
 
+  // src/ai.js
+  var STEPS = ["transcribe", "summarise"];
+  var REQUEST_TIMEOUT_MS = 15e4;
+  var ALLOWANCE_TTL_MS = 10 * 60 * 1e3;
+  var MESSAGES = {
+    offline: "No connection. Try again when you are back online.",
+    unauthorized: "This build cannot reach the service. Update the app.",
+    plan_required: "Summarising needs a plan. Plans arrive in a later build; testers are allow-listed by their subscriber id (Settings › Meetings & AI).",
+    allowance_exhausted: "You've used this period's summaries.",
+    too_large: "This transcript is too long to summarise.",
+    refused: "The service declined to summarise this transcript.",
+    provider_unavailable: "The service is unavailable right now. Try again in a minute.",
+    timeout: "That took too long. Try again.",
+    interrupted: "Summarising was interrupted. Try again.",
+    bad_output: "The minutes came back unreadable. Try again.",
+    bad_request: "Something went wrong with the request. Try again.",
+    misconfigured: "The service is not set up yet.",
+    not_implemented: "This step arrives in a later build."
+  };
+  var CLIENT_WORDING = /* @__PURE__ */ new Set(["plan_required"]);
+  var isOnline = () => globalThis.navigator?.onLine !== false;
+  function errorFor(x) {
+    const code = x && typeof x === "object" ? x.code : null;
+    if (code && MESSAGES[code]) return { code, message: !CLIENT_WORDING.has(code) && x.message ? x.message : MESSAGES[code], resetsAt: x.resetsAt ?? null };
+    if (x?.name === "AbortError") return { code: "timeout", message: MESSAGES.timeout };
+    if (!isOnline()) return { code: "offline", message: MESSAGES.offline };
+    return { code: "provider_unavailable", message: MESSAGES.provider_unavailable };
+  }
+  var fetchImpl = (...args) => globalThis.fetch(...args);
+  async function call(path, { method = "GET", body, signal } = {}) {
+    const res = await fetchImpl(proxyUrl() + path, {
+      method,
+      headers: { "Content-Type": "application/json", "X-Stackd-App": APP_TOKEN, "X-Stackd-Subscriber": S.plan.subscriberId },
+      body: body === void 0 ? void 0 : JSON.stringify(body),
+      signal
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+    }
+    if (data?.allowance) setPlanCache(data.allowance);
+    if (!res.ok || !data?.ok) {
+      const err = new Error(data?.message || `The service answered ${res.status}.`);
+      err.code = data?.code || (res.status === 401 ? "unauthorized" : "provider_unavailable");
+      err.resetsAt = data?.resetsAt ?? null;
+      throw err;
+    }
+    return data;
+  }
+  function reduce(m, ev) {
+    const jobs = { transcribe: null, summarise: null, ...m.jobs || {} };
+    switch (ev.type) {
+      case "start":
+        return { jobs: { ...jobs, [ev.step]: { id: ev.id, startedAt: ev.at, phase: "wait" } }, lastError: null };
+      case "done":
+        return { jobs: { ...jobs, [ev.step]: null }, lastError: null };
+      case "error":
+        return { jobs: { ...jobs, [ev.step]: null }, lastError: { step: ev.step, code: ev.code, message: ev.message, at: ev.at } };
+      case "resume": {
+        const lost = STEPS.filter((s) => jobs[s] && !ev.inflight.includes(s));
+        if (!lost.length) return null;
+        const next = { ...jobs };
+        lost.forEach((s) => {
+          next[s] = null;
+        });
+        const step = lost[0];
+        const message = step === "transcribe" ? "Transcribing was interrupted. Try again." : MESSAGES.interrupted;
+        return { jobs: next, lastError: { step, code: "interrupted", message, at: ev.at } };
+      }
+      default:
+        return null;
+    }
+  }
+  var inflight = /* @__PURE__ */ new Map();
+  var isRunning = (meetingId, step) => inflight.has(`${meetingId}:${step}`);
+  function apply(meetingId, patch) {
+    if (patch) setJobState(meetingId, patch);
+  }
+  async function summarise(meetingId) {
+    const m = meetingById(meetingId);
+    const key = `${meetingId}:summarise`;
+    if (!m || m.status !== "active" || !m.transcript || inflight.has(key)) return;
+    const now = Date.now();
+    if (!isOnline()) {
+      apply(meetingId, reduce(m, { type: "error", step: "summarise", code: "offline", message: MESSAGES.offline, at: now }));
+      return;
+    }
+    const ac = new AbortController();
+    inflight.set(key, ac);
+    const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
+    apply(meetingId, reduce(m, { type: "start", step: "summarise", id: uid(), at: now }));
+    try {
+      const t = m.transcript;
+      const data = await call("/v1/summarise", {
+        method: "POST",
+        signal: ac.signal,
+        body: {
+          transcript: { segments: t.segments.map((s) => ({ speaker: s.speaker, startMs: s.startMs, text: s.text })), speakers: t.speakers },
+          meetingDate: toISO(new Date(m.createdAt)),
+          priorities: S.priorities.map((p) => p.name)
+        }
+      });
+      settle();
+      const cur = meetingById(meetingId);
+      if (!cur) return;
+      apply(meetingId, reduce(cur, { type: "done", step: "summarise" }));
+      setMinutes(meetingId, data.minutes, data.actions);
+    } catch (e) {
+      settle();
+      const cur = meetingById(meetingId);
+      if (cur) {
+        const { code, message } = errorFor(e);
+        apply(meetingId, reduce(cur, { type: "error", step: "summarise", code, message, at: Date.now() }));
+      }
+    } finally {
+      settle();
+    }
+    function settle() {
+      clearTimeout(timer);
+      inflight.delete(key);
+    }
+  }
+  async function allowance({ force = false } = {}) {
+    if (!force && Date.now() - (S.plan.checkedAt || 0) < ALLOWANCE_TTL_MS) return S.plan;
+    await call("/v1/allowance");
+    return S.plan;
+  }
+  function resumeJobs(now = Date.now()) {
+    S.meetings.forEach((m) => {
+      const running = STEPS.filter((s) => inflight.has(`${m.id}:${s}`));
+      apply(m.id, reduce(m, { type: "resume", inflight: running, at: now }));
+    });
+  }
+
+  // src/ui/minutesview.js
+  var DISCLOSURE = "The transcript, with the speaker names you gave, is sent to our server and to an AI model provider to write the minutes and find the actions. Nothing is kept there after the result comes back, and nothing is sent until you press this button.";
+  function summariseCtaHTML(m) {
+    if (!m.transcript) return "";
+    const running = m.jobs?.summarise || isRunning(m.id, "summarise");
+    const err = m.lastError?.step === "summarise" ? m.lastError : null;
+    const offline = !isOnline();
+    const stale = minutesStale(m);
+    if (running) {
+      return `
+    <div class="cta cta-running" role="status" aria-live="polite">
+      <span class="spin" aria-hidden="true"></span>
+      <span>Summarising…</span>
+      <span class="hint">keeps going if you leave this screen</span>
+    </div>`;
+    }
+    return `
+  <div class="cta" data-cta="summarise">
+    ${err ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
+    <button type="button" class="btn ${m.minutes ? "btn-secondary" : "btn-primary"}" data-summarise ${offline ? "disabled" : ""}>
+      ${icon("sparkle", 18)}${err ? "Retry" : m.minutes ? "Regenerate" : "Summarise into minutes and actions"}
+    </button>
+    ${stale && m.minutes ? '<span class="tag tag-soon">Transcript edited since</span>' : ""}
+    ${offline ? '<span class="hint">Needs a connection</span>' : ""}
+  </div>`;
+  }
+  function bindSummariseCta(root, m) {
+    root.querySelector("[data-summarise]")?.addEventListener("click", async () => {
+      if (!S.ai.disclosed) {
+        if (!await confirmDialog("Before the first summary", DISCLOSURE, { confirmLabel: "Continue" })) return;
+        markDisclosed();
+      }
+      if (m.minutes && !await confirmDialog("Regenerate the minutes?", "The minutes and the actions not yet added to a board are replaced.", { confirmLabel: "Regenerate" })) return;
+      summarise(m.id);
+    });
+  }
+  var generatedLine = (mm) => `Generated by AI · ${fmtDate(mm.generatedAt, S.dateFormat)} ${fmtClock(mm.generatedAt)} · check before you rely on it.`;
+  function sectionHTML(key, title, value, { readOnly, list }) {
+    const text = list ? value.join("\n") : value;
+    const empty = !text.trim();
+    if (readOnly) {
+      return `
+    <div class="min-section">
+      <span class="section-title">${title}</span>
+      ${empty ? '<p class="min-empty">None noted</p>' : list ? `<ul class="min-list">${value.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="min-text">${esc(text)}</p>`}
+    </div>`;
+    }
+    return `
+  <div class="min-section">
+    <label class="section-title" for="min-${key}">${title}</label>
+    <textarea id="min-${key}" class="min-edit ${list ? "min-edit-list" : ""}" data-min="${key}" rows="1" placeholder="None noted" aria-label="${title}">${esc(text)}</textarea>
+    ${list ? '<span class="hint">One per line</span>' : ""}
+  </div>`;
+  }
+  function minutesHTML(m, { readOnly = false } = {}) {
+    const mm = m.minutes;
+    if (!mm) return "";
+    const { proposed, added } = actionCounts(m);
+    return `
+  <section class="mblock" data-block="minutes" aria-label="Minutes">
+    <div class="mblock-head">
+      <span class="section-title">Minutes</span>
+      <span class="hint">${esc(generatedLine(mm))}</span>
+    </div>
+    <div class="card minutes">
+      ${sectionHTML("summary", "Summary", mm.summary, { readOnly, list: false })}
+      ${sectionHTML("decisions", "Decisions", mm.decisions, { readOnly, list: true })}
+      ${sectionHTML("openQuestions", "Open questions", mm.openQuestions, { readOnly, list: true })}
+    </div>
+    <p class="hint min-actions-note">${proposed + added ? `${proposed + added} action${proposed + added === 1 ? "" : "s"} proposed${added ? ` · ${added} added` : ""} · action cards arrive in the next build` : "No actions found."}</p>
+  </section>`;
+  }
+  var grow = (ta) => {
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  };
+  function bindMinutes(root, m, { readOnly = false } = {}) {
+    if (readOnly) return;
+    let timer = null;
+    const pending = {};
+    const flush = () => {
+      if (!timer) return;
+      clearTimeout(timer);
+      timer = null;
+      editMinutes(m.id, { ...pending });
+      Object.keys(pending).forEach((k) => delete pending[k]);
+    };
+    root.querySelectorAll("[data-min]").forEach((ta) => {
+      grow(ta);
+      ta.addEventListener("input", () => {
+        grow(ta);
+        const key = ta.dataset.min;
+        pending[key] = key === "summary" ? ta.value : ta.value.split("\n").map((s) => s.trim()).filter(Boolean);
+        clearTimeout(timer);
+        timer = setTimeout(flush, 500);
+      });
+      ta.addEventListener("blur", flush);
+    });
+    window.addEventListener("pagehide", flush, { once: true });
+  }
+
   // src/ui/settings.js
   var THEME_LABEL = { light: "Light", dark: "Dark", system: "System" };
   var THEME_ICON = { light: "sun", dark: "moon", system: "monitor" };
@@ -2478,6 +2794,51 @@
       </div>
       <p class="hint set-hint">Renaming a label updates every task and note that has it; renaming it to an existing label merges the two.</p>
 
+      <span class="section-title list-label" id="settings-ai">Meetings &amp; AI</span>
+      <div class="card list-card">
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon("sparkle", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Plan</span>
+            <span class="set-sub">${esc(planLine())}</span>
+          </div>
+          <button class="btn btn-sm btn-secondary" data-ai-check>Check</button>
+        </div>
+        <div class="set-row">
+          <span class="lrow-icon">${icon("lock", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">What leaves your device</span>
+            <span class="set-sub set-long">${esc(DISCLOSURE)} Recordings, transcripts, minutes and actions stay on this device otherwise.</span>
+          </div>
+        </div>
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon("document", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Subscriber id</span>
+            <span class="set-sub num">${esc(S.plan.subscriberId)}</span>
+          </div>
+          <button class="btn btn-sm btn-secondary" data-copy-sub>Copy</button>
+        </div>
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon("undo", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">One-time notices</span>
+            <span class="set-sub">${S.ai.disclosed || S.ai.consented ? "Shown · tap to see them again" : "Not shown yet"}</span>
+          </div>
+          <button class="btn btn-sm btn-secondary" data-reset-notices ${S.ai.disclosed || S.ai.consented ? "" : "disabled"}>Show again</button>
+        </div>
+      </div>
+      <details class="set-dev">
+        <summary class="hint">Developer</summary>
+        <div class="card list-card">
+          <div class="set-row set-add">
+            <span class="lrow-icon dashed">${icon("settings", 18)}</span>
+            <input class="set-input" data-proxy-url value="${esc(S.ai.proxyUrl || "")}" placeholder="${esc(PROXY_URL)}" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Proxy URL (leave empty for the default)">
+          </div>
+        </div>
+        <p class="hint set-hint">Proxy URL override, https only (http://localhost for a local Worker). Leave empty for the default.</p>
+      </details>
+
       <span class="section-title list-label" id="settings-automations">Automations</span>
       <div class="card list-card">
         <div class="set-row">
@@ -2499,6 +2860,14 @@
       </div>
     </div>
   </div>`;
+  }
+  function planLine() {
+    const p = S.plan;
+    if (!p.checkedAt) return "Not checked yet · tap Check";
+    if (p.tier === "free") return "Free · summaries need a plan (plans arrive in a later build)";
+    const name = p.tier === "tester" ? "Tester" : p.tier[0].toUpperCase() + p.tier.slice(1);
+    const when = p.tier === "tester" ? "today" : "this month";
+    return `${name} · ${p.summariesLeft} of ${p.summariesTotal} summaries left ${when}` + (p.audioSecondsTotal ? ` · ${fmtDuration(p.audioSecondsLeft * 1e3)} of audio` : "");
   }
   function bindName(input, save2) {
     const original = input.value;
@@ -2570,6 +2939,45 @@
       });
     });
     bindAdd("[data-add-label]", addLabel);
+    app.querySelector("[data-ai-check]")?.addEventListener("click", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      try {
+        await allowance({ force: true });
+        rerender();
+      } catch (err) {
+        b.disabled = false;
+        toast(errorFor(err).message);
+      }
+    });
+    app.querySelector("[data-copy-sub]")?.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(S.plan.subscriberId);
+        toast("Subscriber id copied");
+      } catch {
+        toast(S.plan.subscriberId);
+      }
+    });
+    app.querySelector("[data-reset-notices]")?.addEventListener("click", () => {
+      resetNotices();
+      toast("The notices will show again");
+    });
+    const url = app.querySelector("[data-proxy-url]");
+    if (url) {
+      const save2 = () => {
+        if (url.value.trim() === (S.ai.proxyUrl || "")) return;
+        if (!setProxyUrl(url.value)) {
+          toast("Use an https:// address (or http://localhost)");
+          url.value = S.ai.proxyUrl || "";
+          return;
+        }
+        toast(S.ai.proxyUrl ? "Proxy URL set" : "Proxy URL reset to the default");
+      };
+      url.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") url.blur();
+      });
+      url.addEventListener("change", save2);
+    }
   }
 
   // src/search.js
@@ -2638,7 +3046,7 @@
     if (!input) return;
     const clearBtn = root.querySelector("[data-search-clear]");
     let timer = null;
-    const apply = (value) => {
+    const apply2 = (value) => {
       clearTimeout(timer);
       timer = null;
       if (value === UI.query) return;
@@ -2649,7 +3057,7 @@
     };
     input.addEventListener("input", () => {
       clearTimeout(timer);
-      timer = setTimeout(() => apply(input.value), 150);
+      timer = setTimeout(() => apply2(input.value), 150);
       clearBtn?.classList.toggle("hidden", !input.value && isDesktop.matches);
     });
     input.addEventListener("keydown", (e) => {
@@ -2657,7 +3065,7 @@
       e.preventDefault();
       if (input.value) {
         input.value = "";
-        apply("");
+        apply2("");
         return;
       }
       if (!isDesktop.matches) {
@@ -4583,6 +4991,8 @@
       <span class="hint mdate" data-dates>${esc(dateLine(m))}</span>
       ${m.transcript ? "" : sourceHTML()}
       ${m.transcript ? transcriptHTML(m, { readOnly: false }) : ""}
+      ${summariseCtaHTML(m)}
+      ${minutesHTML(m)}
     </div>
   </div>`;
   }
@@ -4651,6 +5061,10 @@
       bindTranscript(transcript, m);
       bindSource(transcript, m);
     }
+    const cta = app.querySelector('[data-cta="summarise"]');
+    if (cta) bindSummariseCta(cta, m);
+    const minutes = app.querySelector('[data-block="minutes"]');
+    if (minutes) bindMinutes(minutes, m);
   }
   function readOnlyHTML3(m) {
     const archived = m.status === "archived";
@@ -4671,6 +5085,7 @@
       <h1 class="note-ro-title ${m.title.trim() ? "" : "untitled"}">${esc(meetingTitle(m))}</h1>
       <span class="hint mdate">${esc(dateLine(m))}</span>
       ${m.transcript ? transcriptHTML(m, { readOnly: true }) : '<p class="empty">No transcript.</p>'}
+      ${minutesHTML(m, { readOnly: true })}
       <div class="dialog-actions">
         <button class="btn btn-secondary" data-ro-restore>${icon("undo", 18)}Restore</button>
         <button class="btn btn-ghost danger" data-ro-delete>${archived ? "Delete" : "Delete forever"}</button>
@@ -5239,6 +5654,9 @@
   setRenderer(render);
   setAfterCommit(syncReminders);
   purgeDeleted();
+  resumeJobs();
+  document.addEventListener("resume", () => resumeJobs());
+  window.addEventListener("online", () => resumeJobs());
   function openTask(id) {
     const t = taskById(id);
     if (!t) return;

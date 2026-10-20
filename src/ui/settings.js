@@ -4,16 +4,20 @@
    leaving the field saves, Esc reverts. */
 
 import {
-  S, UI, PRIORITY_COLORS, THEMES, allTags, tagUseCounts, priorityUseCount,
+  S, UI, PRIORITY_COLORS, THEMES, PROXY_URL, allTags, tagUseCounts, priorityUseCount,
   setTheme, setDateFormat, addPriority, updatePriority, movePriority, deletePriority,
-  addLabel, renameLabel, deleteLabel, rerender,
+  addLabel, renameLabel, deleteLabel, setProxyUrl, resetNotices, rerender,
 } from '../store.js';
+import { allowance, errorFor } from '../ai.js';
+import { DISCLOSURE } from './minutesview.js';
+import { toast } from './primitives.js';
 import { DATE_FORMATS, fmtDate, todayISO } from '../dates.js';
 import { resolvedTheme } from '../theme.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import { bindScrollShadow } from './board.js';
 import { confirmDialog, openMenu } from './primitives.js';
+import { fmtDuration } from '../dates.js';
 
 const THEME_LABEL = { light: 'Light', dark: 'Dark', system: 'System' };
 const THEME_ICON = { light: 'sun', dark: 'moon', system: 'monitor' };
@@ -21,7 +25,7 @@ const COLOR_NAME = { red: 'Red', amber: 'Amber', green: 'Green', blue: 'Blue', v
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
 
-/** section: 'appearance' | 'dates' | 'priorities' | 'labels' | 'automations' */
+/** section: 'appearance' | 'dates' | 'priorities' | 'labels' | 'automations' | 'ai' */
 export function openSettings(section) {
   UI.screen = 'settings';
   rerender();
@@ -129,6 +133,51 @@ export function settingsHTML() {
       </div>
       <p class="hint set-hint">Renaming a label updates every task and note that has it; renaming it to an existing label merges the two.</p>
 
+      <span class="section-title list-label" id="settings-ai">Meetings &amp; AI</span>
+      <div class="card list-card">
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon('sparkle', 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Plan</span>
+            <span class="set-sub">${esc(planLine())}</span>
+          </div>
+          <button class="btn btn-sm btn-secondary" data-ai-check>Check</button>
+        </div>
+        <div class="set-row">
+          <span class="lrow-icon">${icon('lock', 18)}</span>
+          <div class="set-text">
+            <span class="set-title">What leaves your device</span>
+            <span class="set-sub set-long">${esc(DISCLOSURE)} Recordings, transcripts, minutes and actions stay on this device otherwise.</span>
+          </div>
+        </div>
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon('document', 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Subscriber id</span>
+            <span class="set-sub num">${esc(S.plan.subscriberId)}</span>
+          </div>
+          <button class="btn btn-sm btn-secondary" data-copy-sub>Copy</button>
+        </div>
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon('undo', 18)}</span>
+          <div class="set-text">
+            <span class="set-title">One-time notices</span>
+            <span class="set-sub">${S.ai.disclosed || S.ai.consented ? 'Shown · tap to see them again' : 'Not shown yet'}</span>
+          </div>
+          <button class="btn btn-sm btn-secondary" data-reset-notices ${S.ai.disclosed || S.ai.consented ? '' : 'disabled'}>Show again</button>
+        </div>
+      </div>
+      <details class="set-dev">
+        <summary class="hint">Developer</summary>
+        <div class="card list-card">
+          <div class="set-row set-add">
+            <span class="lrow-icon dashed">${icon('settings', 18)}</span>
+            <input class="set-input" data-proxy-url value="${esc(S.ai.proxyUrl || '')}" placeholder="${esc(PROXY_URL)}" autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Proxy URL (leave empty for the default)">
+          </div>
+        </div>
+        <p class="hint set-hint">Proxy URL override, https only (http://localhost for a local Worker). Leave empty for the default.</p>
+      </details>
+
       <span class="section-title list-label" id="settings-automations">Automations</span>
       <div class="card list-card">
         <div class="set-row">
@@ -150,6 +199,16 @@ export function settingsHTML() {
       </div>
     </div>
   </div>`;
+}
+
+/** The Plan row's second line (AC-12.2 arrives in Phase 18; until then the tester / free view). */
+function planLine() {
+  const p = S.plan;
+  if (!p.checkedAt) return 'Not checked yet · tap Check';
+  if (p.tier === 'free') return 'Free · summaries need a plan (plans arrive in a later build)';
+  const name = p.tier === 'tester' ? 'Tester' : p.tier[0].toUpperCase() + p.tier.slice(1);
+  const when = p.tier === 'tester' ? 'today' : 'this month';
+  return `${name} · ${p.summariesLeft} of ${p.summariesTotal} summaries left ${when}` + (p.audioSecondsTotal ? ` · ${fmtDuration(p.audioSecondsLeft * 1000)} of audio` : '');
 }
 
 /** Enter or blur saves through save(value); Esc restores the old name. */
@@ -223,4 +282,26 @@ export function bindSettings() {
     });
   });
   bindAdd('[data-add-label]', addLabel);
+
+  /* Meetings & AI (PRD-meetings AC-11.1) */
+  app.querySelector('[data-ai-check]')?.addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    try { await allowance({ force: true }); rerender(); }
+    catch (err) { b.disabled = false; toast(errorFor(err).message); }
+  });
+  app.querySelector('[data-copy-sub]')?.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(S.plan.subscriberId); toast('Subscriber id copied'); }
+    catch { toast(S.plan.subscriberId); }
+  });
+  app.querySelector('[data-reset-notices]')?.addEventListener('click', () => { resetNotices(); toast('The notices will show again'); });
+  const url = app.querySelector('[data-proxy-url]');
+  if (url) {
+    const save = () => {
+      if (url.value.trim() === (S.ai.proxyUrl || '')) return;
+      if (!setProxyUrl(url.value)) { toast('Use an https:// address (or http://localhost)'); url.value = S.ai.proxyUrl || ''; return; }
+      toast(S.ai.proxyUrl ? 'Proxy URL set' : 'Proxy URL reset to the default');
+    };
+    url.addEventListener('keydown', (e) => { if (e.key === 'Enter') url.blur(); });
+    url.addEventListener('change', save);
+  }
 }

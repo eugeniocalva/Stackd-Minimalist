@@ -4,14 +4,44 @@
     {
       "name": "stackd",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["--yes", "http-server", "-p", "8123", "-c-1", "."],
+      "runtimeArgs": [
+        "--yes",
+        "http-server",
+        "-p",
+        "8123",
+        "-c-1",
+        "."
+      ],
       "port": 8123
     },
     {
       "name": "stackd-8124",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["--yes", "http-server", "-p", "8124", "-c-1", "."],
+      "runtimeArgs": [
+        "--yes",
+        "http-server",
+        "-p",
+        "8124",
+        "-c-1",
+        "."
+      ],
       "port": 8124
+    },
+    {
+      "name": "proxy",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "proxy",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "8787",
+        "--ip",
+        "127.0.0.1"
+      ],
+      "port": 8787
     }
   ]
 }

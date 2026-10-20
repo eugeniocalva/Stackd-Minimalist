@@ -1,0 +1,27 @@
+# Stack'd Meetings proxy (docs/architecture.md §20). Deployed by
+# .github/workflows/proxy.yml; secrets are set once with `wrangler secret put`
+# (see README.md), never written here.
+name = "stackd-proxy"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Per-subscriber counters (pool:…), the entitlement cache (rccache:…).
+# Create it once: `wrangler kv namespace create POOL`, then paste the id.
+[[kv_namespaces]]
+binding = "POOL"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+# Origins the web app is served from; the shells send capacitor:// (iOS)
+# and http://localhost (Android). Comma-separated.
+ALLOWED_ORIGINS = "https://eugeniocalva.github.io,capacitor://localhost,ionic://localhost,http://localhost,http://localhost:8123,http://localhost:8124"
+# Minutes model (PRD-meetings Q15: the Phase 16 benchmark picks between the
+# small and mid tiers; the mid tier is the fallback).
+SUMMARY_MODEL = "claude-sonnet-5-5"
+# Subscriber ids (Settings › Meetings & AI shows them) that get the tester
+# allowance (60 audio minutes + 10 summaries a day) without a purchase.
+TESTERS = ""
+
+[observability]
+enabled = true

@@ -67,6 +67,11 @@ export const MEETINGS_SORTS = [
 export const MAX_RECORDING_MS = 30 * 60 * 1000;
 export const PLAN_TIERS = ['free', 'plus', 'pro', 'max'];
 export const PROXY_URL = 'https://stackd-proxy.eugeniocalva.workers.dev';
+/* A low-value constant that stops drive-by use of the proxy; the subscriber
+   entitlement is the real gate (architecture §20). Must equal the Worker's
+   APP_TOKEN secret. */
+export const APP_TOKEN = 'stackd-app-2026-10';
+export const proxyUrl = () => S.ai.proxyUrl || PROXY_URL;
 /* reminder = minutes before the due time; null = none */
 export const REMINDER_OPTIONS = [
   [null, 'None'], [0, 'At time of due'], [10, '10 minutes before'],
@@ -380,6 +385,8 @@ export const tagUseCounts = (name) => ({
 });
 
 export const priorityById = (id) => S.priorities.find((p) => p.id === id);
+/** The id of the priority whose name matches (case-insensitive), else 'none'. */
+export const priorityIdByName = (name) => S.priorities.find((p) => p.name.toLowerCase() === String(name ?? '').trim().toLowerCase())?.id || 'none';
 export const priorityName = (id) => priorityById(id)?.name || 'None';
 export const priorityUseCount = (id) =>
   S.tasks.filter((t) => t.status !== 'deleted' && t.priority === id).length;
@@ -646,6 +653,73 @@ export function renameSpeaker(id, label, name) {
   t.updatedAt = Date.now();
   touchMeeting(m); commit();
 }
+
+/** The proxy's answer to Summarise (AC-07.1): the minutes, stamped with the
+    transcript version they were made from, and the proposed actions, which
+    replace the previous proposed ones (added and dismissed ones stay). */
+export function setMinutes(id, minutes, actions = []) {
+  const m = meetingById(id); if (!m || !m.transcript) return;
+  const now = Date.now();
+  m.minutes = {
+    summary: String(minutes?.summary ?? '').trim(),
+    decisions: (minutes?.decisions || []).map((x) => String(x).trim()).filter(Boolean),
+    openQuestions: (minutes?.openQuestions || []).map((x) => String(x).trim()).filter(Boolean),
+    generatedAt: now, transcriptUpdatedAt: m.transcript.updatedAt,
+  };
+  m.actions = [
+    ...m.actions.filter((a) => a.status !== 'proposed'),
+    ...actions.map((a) => ({
+      id: uid(), title: String(a.title ?? '').trim(), due: a.due || null, priority: priorityIdByName(a.priority),
+      excerpt: String(a.excerpt ?? '').trim(), status: 'proposed', taskId: null,
+    })).filter((a) => a.title),
+  ];
+  m.lastError = null;
+  touchMeeting(m); commit();
+}
+
+/** In-place edits of the minutes text (AC-07.4); quiet, like a note body. */
+export function editMinutes(id, patch) {
+  const m = meetingById(id); if (!m?.minutes || m.status !== 'active') return;
+  if (patch.summary !== undefined) m.minutes.summary = String(patch.summary);
+  if (patch.decisions !== undefined) m.minutes.decisions = patch.decisions.map((x) => String(x));
+  if (patch.openQuestions !== undefined) m.minutes.openQuestions = patch.openQuestions.map((x) => String(x));
+  touchMeeting(m); persistQuiet();
+}
+
+/** Job and error state from ai.js (jobs, lastError); re-renders so buttons follow. */
+export function setJobState(id, patch) {
+  const m = meetingById(id); if (!m) return;
+  if (patch.jobs !== undefined) m.jobs = patch.jobs;
+  if (patch.lastError !== undefined) m.lastError = patch.lastError;
+  commit();
+}
+
+/* — plan cache and AI settings (PRD-meetings US-09, US-11) — */
+
+/** The proxy's allowance answer → S.plan (the proxy is the truth; the app only copies). */
+export function setPlanCache(a) {
+  const tier = PLAN_TIERS.includes(a?.tier) || a?.tier === 'tester' ? a.tier : S.plan.tier;
+  const changed = tier !== S.plan.tier;
+  Object.assign(S.plan, {
+    tier, renewsAt: a?.renewsAt ?? null,
+    audioSecondsLeft: a?.audioSecondsLeft ?? 0, audioSecondsTotal: a?.audioSecondsTotal ?? 0,
+    summariesLeft: a?.summariesLeft ?? 0, summariesTotal: a?.summariesTotal ?? 0,
+    checkedAt: Date.now(),
+  });
+  if (changed) commit(); else persistQuiet();
+}
+
+/** Settings › Developer: https only (http for localhost); '' clears. Returns false when rejected. */
+export function setProxyUrl(url) {
+  const u = String(url ?? '').trim().replace(/\/+$/, '');
+  if (u && !/^https:\/\/[^\s]+$|^http:\/\/localhost(:\d+)?$/.test(u)) return false;
+  S.ai.proxyUrl = u || null; S.plan.checkedAt = 0;
+  commit();
+  return true;
+}
+export function markDisclosed() { S.ai.disclosed = true; persistQuiet(); }
+export function markConsented() { S.ai.consented = true; persistQuiet(); }
+export function resetNotices() { S.ai.disclosed = false; S.ai.consented = false; commit(); }
 
 export function setMeetingsSort(sort) {
   if (!MEETINGS_SORTS.some(([v]) => v === sort) || S.meetingsSort === sort) return;

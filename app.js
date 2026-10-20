@@ -21,6 +21,7 @@ import { notesHTML, bindNotes } from './src/ui/notes.js';
 import { noteDetailHTML, bindNoteDetail } from './src/ui/notedetail.js';
 import { meetingsHTML, bindMeetings } from './src/ui/meetings.js';
 import { meetingHTML, bindMeeting } from './src/ui/meeting.js';
+import { resumeJobs } from './src/ai.js';
 
 function render() {
   applyTheme();
@@ -65,6 +66,9 @@ function render() {
 setRenderer(render);
 setAfterCommit(syncReminders); // native: keep iOS pending reminders in step
 purgeDeleted();
+resumeJobs();                                   // an AI job persisted before a reload was lost with the page
+document.addEventListener('resume', () => resumeJobs());   // Capacitor's foreground event
+window.addEventListener('online', () => resumeJobs());
 
 /** Show a task, e.g. from a tapped reminder notification. */
 function openTask(id) {

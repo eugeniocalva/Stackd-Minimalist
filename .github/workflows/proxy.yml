@@ -1,0 +1,79 @@
+# Deploys proxy/ (the Cloudflare Worker behind the Meetings AI steps).
+#
+# MANUAL ONLY (workflow_dispatch), like the app builds: the repository is
+# public and the deploy token must never be reachable from a fork.
+#
+# Secrets (Settings > Secrets and variables > Actions):
+#   CLOUDFLARE_API_TOKEN   an API token with "Workers Scripts: Edit" and
+#                          "Workers KV Storage: Edit" on the account
+#   CLOUDFLARE_ACCOUNT_ID  the account id (Workers & Pages overview, right column)
+#
+# The Worker's own secrets (ANTHROPIC_API_KEY, APP_TOKEN) are set once with
+# `wrangler secret put` (proxy/README.md) and are not touched here.
+name: Deploy proxy
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only run the tests and a dry-run build, deploy nothing'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proxy-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: proxy
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: proxy/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Tests (plans, pool, schema, pipeline)
+        run: npm test
+
+      - name: Check the KV namespace id was filled in
+        run: |
+          grep -q 'REPLACE_WITH_KV_NAMESPACE_ID' wrangler.toml \
+            && { echo "::error::wrangler.toml still has the placeholder KV id - run 'wrangler kv namespace create POOL' and paste the id"; exit 1; } || true
+
+      - name: Dry-run build
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker"
+
+      - name: Deploy
+        if: ${{ !inputs.dry_run }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      # The Worker's public URL is the PROXY_URL constant in src/store.js.
+      - name: Smoke test
+        if: ${{ !inputs.dry_run }}
+        working-directory: .
+        run: |
+          url="$(sed -n "s/^export const PROXY_URL = '\([^']*\)';.*/\1/p" src/store.js)"
+          [ -n "$url" ] || { echo "::error::PROXY_URL not found in src/store.js"; exit 1; }
+          sleep 5
+          curl -fsS "$url/v1/health" | grep -q '"ok":true' || { echo "::error::$url/v1/health did not answer ok"; exit 1; }
+          echo "health OK at $url"
