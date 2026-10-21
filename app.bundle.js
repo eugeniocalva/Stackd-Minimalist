@@ -2687,6 +2687,7 @@
   var JOB_TTL_MS = 2 * 3600 * 1e3;
   var MESSAGES = {
     offline: "No connection. Try again when you are back online.",
+    from_file: "The AI steps need the app opened from the website (or start-stackd.cmd), not from a file on disk.",
     unauthorized: "This build cannot reach the service. Update the app.",
     plan_required: "This needs a plan.",
     allowance_exhausted: "You've used this period's summaries.",
@@ -2704,10 +2705,12 @@
   };
   var CLIENT_WORDING = /* @__PURE__ */ new Set(["plan_required"]);
   var isOnline = () => globalThis.navigator?.onLine !== false;
+  var fromFile = () => globalThis.location?.protocol === "file:";
   function errorFor(x) {
     const code = x && typeof x === "object" ? x.code : null;
     if (code && MESSAGES[code]) return { code, message: !CLIENT_WORDING.has(code) && x.message ? x.message : MESSAGES[code], resetsAt: x.resetsAt ?? null };
     if (x?.name === "AbortError") return { code: "timeout", message: MESSAGES.timeout };
+    if (fromFile()) return { code: "from_file", message: MESSAGES.from_file };
     if (!isOnline()) return { code: "offline", message: MESSAGES.offline };
     return { code: "provider_unavailable", message: MESSAGES.provider_unavailable };
   }

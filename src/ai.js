@@ -25,6 +25,7 @@ export const JOB_TTL_MS = 2 * 3600 * 1000;
 /** What the app says for each code (the proxy's own message wins when it has one). */
 export const MESSAGES = {
   offline: 'No connection. Try again when you are back online.',
+  from_file: 'The AI steps need the app opened from the website (or start-stackd.cmd), not from a file on disk.',
   unauthorized: 'This build cannot reach the service. Update the app.',
   plan_required: 'This needs a plan.',
   allowance_exhausted: "You've used this period's summaries.",
@@ -43,12 +44,16 @@ export const MESSAGES = {
 const CLIENT_WORDING = new Set(['plan_required']);   // codes whose wording the app owns for now
 
 export const isOnline = () => globalThis.navigator?.onLine !== false;
+/* Opened from disk (file://): the browser sends no usable origin, so the
+   proxy's CORS rules refuse every call (architecture §26, AC-11.5). */
+export const fromFile = () => globalThis.location?.protocol === 'file:';
 
 /** Any thrown thing → { code, message } the UI can show. */
 export function errorFor(x) {
   const code = x && typeof x === 'object' ? x.code : null;
   if (code && MESSAGES[code]) return { code, message: !CLIENT_WORDING.has(code) && x.message ? x.message : MESSAGES[code], resetsAt: x.resetsAt ?? null };
   if (x?.name === 'AbortError') return { code: 'timeout', message: MESSAGES.timeout };
+  if (fromFile()) return { code: 'from_file', message: MESSAGES.from_file };
   if (!isOnline()) return { code: 'offline', message: MESSAGES.offline };
   return { code: 'provider_unavailable', message: MESSAGES.provider_unavailable };
 }
