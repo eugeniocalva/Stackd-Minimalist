@@ -49,7 +49,8 @@ cd proxy
 npm ci
 npx wrangler login
 npx wrangler kv namespace create POOL      # paste the id into wrangler.toml
-npx wrangler secret put ANTHROPIC_API_KEY  # the Anthropic key for the minutes
+npx wrangler secret put ANTHROPIC_API_KEY  # the Anthropic key for the minutes (a workspace-scoped Console key)
+npx wrangler secret put ANTHROPIC_WORKSPACE_ID  # only for a user-level key not scoped to a workspace: the workspace id (wrkspc_…)
 npx wrangler secret put ASSEMBLYAI_API_KEY # the speech-to-text key (STT_PROVIDER in wrangler.toml)
 npx wrangler secret put APP_TOKEN          # any long random string; the same value goes into src/store.js APP_TOKEN
 npx wrangler secret put RC_SECRET_KEY      # RevenueCat › Project › API keys › secret key (sk_…)

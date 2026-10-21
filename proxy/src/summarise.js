@@ -18,7 +18,12 @@ export async function summarise(env, { transcriptText, meetingDate, priorities }
   /* the secret may carry a trailing line break (PowerShell adds one when piping the clipboard) */
   const apiKey = String(env.ANTHROPIC_API_KEY || '').trim();
   if (!client && !apiKey) { console.error('summarise: ANTHROPIC_API_KEY is not set'); throw new SummariseError('misconfigured', 'The service is not configured.', 500); }
-  const anthropic = client || new Anthropic({ apiKey, maxRetries: 2, timeout: 110_000 });
+  /* a user-level key (not scoped to a workspace) must name the workspace to use */
+  const workspace = String(env.ANTHROPIC_WORKSPACE_ID || '').trim();
+  const anthropic = client || new Anthropic({
+    apiKey, maxRetries: 2, timeout: 110_000,
+    ...(workspace ? { defaultHeaders: { 'anthropic-workspace-id': workspace } } : {}),
+  });
   let res;
   try {
     res = await anthropic.beta.messages.create({

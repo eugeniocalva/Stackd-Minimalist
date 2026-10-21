@@ -22,7 +22,7 @@ const out = new URL('./out/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/
 mkdirSync(out, { recursive: true });
 
 if (!process.env.ANTHROPIC_API_KEY) { console.error('ANTHROPIC_API_KEY is not set'); process.exit(1); }
-const env = { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY };
+const env = { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY, ANTHROPIC_WORKSPACE_ID: process.env.ANTHROPIC_WORKSPACE_ID };
 
 /* the same pasted-shape parser as the app, minimal: "Name: text" lines */
 function parse(text) {
