@@ -15,8 +15,10 @@ export class SummariseError extends Error {
 }
 
 export async function summarise(env, { transcriptText, meetingDate, priorities }, { model = env.SUMMARY_MODEL || DEFAULT_MODEL, client = null } = {}) {
-  if (!client && !env.ANTHROPIC_API_KEY) throw new SummariseError('misconfigured', 'The service is not configured.', 500);
-  const anthropic = client || new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: 110_000 });
+  /* the secret may carry a trailing line break (PowerShell adds one when piping the clipboard) */
+  const apiKey = String(env.ANTHROPIC_API_KEY || '').trim();
+  if (!client && !apiKey) { console.error('summarise: ANTHROPIC_API_KEY is not set'); throw new SummariseError('misconfigured', 'The service is not configured.', 500); }
+  const anthropic = client || new Anthropic({ apiKey, maxRetries: 2, timeout: 110_000 });
   let res;
   try {
     res = await anthropic.beta.messages.create({
@@ -29,12 +31,13 @@ export async function summarise(env, { transcriptText, meetingDate, priorities }
       output_config: { effort: 'medium', format: { type: 'json_schema', schema: SCHEMA } },
     });
   } catch (e) {
-    if (e instanceof Anthropic.AuthenticationError) throw new SummariseError('misconfigured', 'The service is not configured.', 500);
+    /* the provider's reason goes to the Worker log (wrangler tail), never the key */
+    console.error('summarise: provider error', e?.status ?? '', e?.error?.error?.type ?? '', e?.message || e);
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) throw new SummariseError('misconfigured', 'The service is not configured.', 500);
     if (e instanceof Anthropic.BadRequestError) throw new SummariseError('bad_request', `The service rejected the request: ${e.message}`, 400);
     if (e instanceof Anthropic.RateLimitError || e instanceof Anthropic.InternalServerError || e instanceof Anthropic.APIConnectionError) {
       throw new SummariseError('provider_unavailable', 'The service is busy. Try again in a minute.', 503);
     }
-    console.error('summarise', e?.message || e);     // the detail stays in the log, never in the app
     throw new SummariseError('provider_unavailable', 'The service failed. Try again in a minute.', 503);
   }
   if (res.stop_reason === 'refusal') throw new SummariseError('refused', 'The service declined to summarise this transcript.', 422);
