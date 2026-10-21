@@ -32,7 +32,7 @@ SUMMARY_MODEL = "claude-sonnet-5-5"
 STT_PROVIDER = "assemblyai"
 # Subscriber ids (Settings › Meetings & AI shows them) that get the tester
 # allowance (60 audio minutes + 10 summaries a day) without a purchase.
-TESTERS = "r6j0e59ndjn942d4"
+TESTERS = "r6j0e59ndjn942d4,ywylzya5z5moe1qc"
 
 [observability]
 enabled = true
