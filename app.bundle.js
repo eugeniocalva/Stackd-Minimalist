@@ -5100,7 +5100,7 @@
   <div class="row acard" data-action="${a.id}" role="listitem">
     <button type="button" class="swipe-add" data-add aria-label="Add to a board">${icon("board", 22)}</button>
     <div class="t-main">
-      <input class="ac-title" data-title value="${esc(a.title)}" aria-label="Action" maxlength="200" autocomplete="off">
+      <textarea class="ac-title" data-title rows="1" aria-label="Action" maxlength="200" spellcheck="false">${esc(a.title)}</textarea>
       ${chips ? `<div class="t-meta">${chips}</div>` : ""}
       ${a.excerpt ? `<p class="ac-excerpt">“${esc(a.excerpt)}”</p>` : ""}
     </div>
@@ -5178,7 +5178,13 @@
         timer = null;
         editAction(m.id, a.id, { title: title.value });
       };
+      const grow2 = () => {
+        title.style.height = "auto";
+        title.style.height = `${title.scrollHeight}px`;
+      };
+      grow2();
       title.addEventListener("input", () => {
+        grow2();
         clearTimeout(timer);
         timer = setTimeout(flush, 500);
       });

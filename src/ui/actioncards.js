@@ -41,7 +41,7 @@ function cardHTML(a) {
   <div class="row acard" data-action="${a.id}" role="listitem">
     <button type="button" class="swipe-add" data-add aria-label="Add to a board">${icon('board', 22)}</button>
     <div class="t-main">
-      <input class="ac-title" data-title value="${esc(a.title)}" aria-label="Action" maxlength="200" autocomplete="off">
+      <textarea class="ac-title" data-title rows="1" aria-label="Action" maxlength="200" spellcheck="false">${esc(a.title)}</textarea>
       ${chips ? `<div class="t-meta">${chips}</div>` : ''}
       ${a.excerpt ? `<p class="ac-excerpt">“${esc(a.excerpt)}”</p>` : ''}
     </div>
@@ -114,7 +114,9 @@ export function bindActions(root, meetingId) {
     const title = el.querySelector('[data-title]');
     let timer = null;
     const flush = () => { if (!timer) return; clearTimeout(timer); timer = null; editAction(m.id, a.id, { title: title.value }); };
-    title.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(flush, 500); });
+    const grow = () => { title.style.height = 'auto'; title.style.height = `${title.scrollHeight}px`; };
+    grow();
+    title.addEventListener('input', () => { grow(); clearTimeout(timer); timer = setTimeout(flush, 500); });
     title.addEventListener('blur', flush);
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); title.blur(); } });
     el.querySelector('[data-del-btn]').addEventListener('click', () => { flush(); del(m, a); });

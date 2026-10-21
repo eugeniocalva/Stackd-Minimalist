@@ -358,7 +358,7 @@ textarea.input.paste-area { width: 100%; min-height: 220px; resize: vertical; fo
 .acard { position: relative; cursor: default; user-select: none; -webkit-user-select: none; touch-action: pan-y; transition: transform 0.22s ease-out; align-items: center; }
 .acard.swiping { transition: none; }
 .acard .t-main { gap: 4px; }
-.ac-title { width: 100%; background: none; border: 0; padding: 0; color: var(--text-primary); font: inherit; font-size: var(--text-base); font-weight: 600; line-height: 1.4; border-radius: var(--radius-sm); user-select: text; -webkit-user-select: text; }
+.ac-title { display: block; width: 100%; background: none; border: 0; padding: 0; color: var(--text-primary); font: inherit; font-size: var(--text-base); font-weight: 600; line-height: 1.4; border-radius: var(--radius-sm); user-select: text; -webkit-user-select: text; resize: none; overflow: hidden; }
 .ac-title:focus { outline: none; box-shadow: 0 0 0 3px var(--color-border); }
 .ac-excerpt { margin: 2px 0 0; font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.45; overflow-wrap: anywhere; }
 /* the two side buttons start past the card's edges; the slide brings one in */

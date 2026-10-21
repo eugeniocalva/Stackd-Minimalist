@@ -338,7 +338,7 @@ These need what the in-app browser cannot provide. Each has its procedure.
 | AC-04.3 lock-screen recording | a TestFlight build and a Play internal build | `docs/benchmarks/background-recording.md`; fill in the table. If iOS stops the recorder, the native fallback in architecture §26. |
 | AC-04.2 / 04.4 real capture | a phone or a desktop with a microphone | Record 30 s, stop, play back; then let one run to 30:00 and see the automatic stop. |
 | AC-05.1 – 05.3 with the real provider | `ASSEMBLYAI_API_KEY` on the Worker | `proxy/benchmark/stt.mjs` on the three recordings (headset, phone on a table, two speakers overlapping), then Transcribe from the app. |
-| AC-07.1 with the real model | `ANTHROPIC_API_KEY` on the Worker | `proxy/benchmark/run.mjs` on five transcripts, rate blind, set `SUMMARY_MODEL`; then Summarise from the app. The request shape in `summarise.js` is from the API reference and has not run. |
+| AC-07.1 model choice | the benchmark | **Verified 2026-10-21:** Summarise from the website against the deployed Worker on a 402-segment, 58-minute Teams transcript returned minutes, decisions, open questions and 11 actions with resolved due dates; one summary charged. Still open: `proxy/benchmark/run.mjs` on five transcripts to choose between the small and mid tiers for `SUMMARY_MODEL`. |
 | AC-12.3 purchase, AC-12.4 restore | RevenueCat project, the SDK keys in `src/purchases.js`, store sandbox accounts | Buy Plus on one phone, use a summary, Restore on a second phone, upgrade to Pro, let the sandbox renewal lapse; check Settings › Plan each time. |
 | AC-11.5 shells | the two builds | Smoke the Meetings area in both shells, including the file picker and the foreground-service notification on Android. |
 | AC-02.3 row chip while a job runs | — | Seen during the Phase 16 and 20 checks (the chip renders from the persisted job); not re-counted here. |
@@ -371,3 +371,18 @@ public keys, and the Worker secrets (`proxy/README.md`).
 3. Walk US-01 to US-12 in `docs/prd-meetings.md` at 375 px and 1280 px,
    light and dark; the scripted checks above are the same walk done by
    hand.
+
+### Addendum 2026-10-21 — live Worker
+
+- Deployed on `https://minimalist-api.stackdplatform.com` (custom domain on
+  the `stackdplatform.com` zone; the account's workers.dev subdomain has no
+  certificate at the edge, TLS alert 40 for every name under it).
+- Setup lessons, now handled in code or docs: the app opened from disk
+  (`file://`) cannot reach the proxy and now says so; the tester id is per
+  browser and per origin; `wrangler secret put` must run from `proxy/`
+  (or with `--name stackd-proxy`); in Windows PowerShell 5.1 a pasted or
+  piped secret can arrive empty, so the dashboard (Settings › Variables and
+  Secrets) is the reliable way to set it; a user-level Anthropic key needs
+  `ANTHROPIC_WORKSPACE_ID`, a "Not linked" workspace key does not.
+- Defect found and fixed: long action titles were clipped by a single-line
+  field; they now wrap.
