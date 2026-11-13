@@ -386,3 +386,55 @@ public keys, and the Worker secrets (`proxy/README.md`).
   `ANTHROPIC_WORKSPACE_ID`, a "Not linked" workspace key does not.
 - Defect found and fixed: long action titles were clipped by a single-line
   field; they now wrap.
+
+---
+
+# 1.6.0 (in progress): security reviews
+
+One entry per build that leaves the repository, as `docs/prd-accounts.md`
+US-13 requires. The full QA walk of 1.6.0 is added above this section when
+the release is ready.
+
+## Security review: 2026-11-13, Phase 23, before the TestFlight build
+
+- **Reviewed:** `main` (`81f75f8`) to `release/1.6.0` (`21ee226`), one
+  commit, 25 files: the new web address, the security headers, export and
+  import, the old-address banner. No account, sign-in or sync code exists
+  yet. `VERSION` is unchanged (`stackd-v1.5.0`); this is a test build, not
+  the 1.6.0 release.
+- **How:** `/security-review` in Claude Code. A read-only review that
+  traced the code; nothing was executed, so no exploit file was tried
+  against a running app.
+- **Result: no finding rated high or medium.**
+- **Looked at closely and cleared:**
+  - *Imported file → page.* Every field `importFile()` accepts was traced
+    to where it is drawn. Ids, colours, lanes, priorities, dates and
+    statuses pass an anchored pattern or an allow-list before they are
+    stored (`src/backup.js`); free text is escaped where it is drawn; note
+    bodies go through `sanitize()`. Each record is rebuilt field by field,
+    so unknown keys are dropped.
+  - *Imported file → device settings.* `replaceRecords()` never assigns
+    the plan, the subscriber id, the proxy address, the theme, a recording
+    key or an open job from the file, and the export contains none of
+    them.
+  - *`_headers`.* Scripts are limited to the app's own files with no
+    inline allowance; connections to the app and the proxy only; framing
+    refused.
+  - *`.github/workflows/site.yml`.* Push to `main` and manual start only,
+    read-only token, no value from an event reaches a shell, secrets are
+    passed to the two steps that need them.
+  - *Proxy.* The only change adds the app's new origin to the exact-match
+    list.
+- **Accepted, not fixed (below the bar, with the reason):**
+  - `style-src 'unsafe-inline'` in the policy: the app sets inline
+    `style` attributes (allowance bars); no HTML injection was found that
+    could use it. Tighten when those styles move to classes.
+  - `scripts/serve.mjs`: a malformed percent sequence in a URL stops the
+    server, and it does not check the `Host` header. It is a developer
+    tool bound to `localhost`, never deployed.
+  - On the web host the policy blocks a custom proxy address set under
+    Settings › Developer. Intended: the override is for local development,
+    where the header is not sent.
+- **Not covered by this review:** the proxy's own test suite fails on a
+  test this phase did not touch (an assertion expecting the `pro` tier);
+  it blocks the proxy deploy workflow and is tracked separately.
