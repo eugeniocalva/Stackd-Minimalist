@@ -421,8 +421,12 @@ Done once (2026-10-18): Apple Developer Program, the bundle id
    Review), add the build. Install **TestFlight** from the App Store on the
    iPhone, accept the invite, install Stack'd.
 
-Every later release: bump `VERSION` in `sw.js`, push, run the workflow with
-upload ticked. Don't use "Adicionar para revisão" / "Add for Review" on the
+Every later release: run `/security-review` in Claude Code over everything
+changed since the previous release, fix what it rates high, and record the
+result under a "Security review" heading in `docs/qa-report.md`; only then
+bump `VERSION` in `sw.js`, push, run the workflow with upload ticked. The
+review is a gate for every release on every platform (web, TestFlight,
+Google Play). Don't use "Adicionar para revisão" / "Add for Review" on the
 App Store page until the store listing is ready; TestFlight doesn't need it.
 
 ## Android / Google Play
