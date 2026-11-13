@@ -1,10 +1,10 @@
 # Plan: accounts, sync across devices, and registration compliance
 
-Status: plan, 2026-11-13. Target release 1.6.0. Phases continue from
-`docs/architecture.md` (last phase there is 22). Per
-`.agents/vibe-coding-workflow.md` this is the input to the PRD
-(`docs/prd-accounts.md`) and to Part IV of the architecture doc; no code
-is written from this file alone.
+Status: plan, 2026-11-13. Target release 1.6.0. Superseded in detail by
+the PRD (`docs/prd-accounts.md`) and by Part IV of
+`docs/architecture.md` (§28 onwards), which are the documents to build
+from; this file stays as the record of the reasoning and of the
+compliance checklist (§4, §5).
 
 Not legal advice. The compliance section is an engineering checklist; have
 a lawyer read the new Terms and Privacy Policy before the release.
@@ -67,8 +67,11 @@ where personal data lives.
 
 ### 3.2 Move the web app to its own domain first
 
-Serve the web app from `app.stackdplatform.com` (GitHub Pages custom
-domain; the repo and the deploy stay as they are). Reasons:
+Serve the web app from `app.stackdplatform.com`, hosted on Cloudflare
+from the same repository. (First drafted as a GitHub Pages custom domain;
+the architecture found that this redirects the old address, stranding
+its data, and that GitHub Pages cannot send the security headers the
+sign-in pages need.) Reasons for the move:
 
 - The session can then be an `HttpOnly` cookie shared only between
   `app.` and `minimalist-api.stackdplatform.com`, which page scripts
@@ -98,9 +101,11 @@ First time on any device:
    existing account enters its PIN.
 5. The device gets a session and sync starts.
 
-So a new device always needs two things: access to the mailbox and the
-PIN. The PIN alone never signs anyone in from a device the account has
-not seen.
+So signing in on a new device needs two things: access to the mailbox
+and the PIN. The PIN alone never signs anyone in from a device the
+account has not seen. A forgotten PIN is reset with an email code alone,
+so the mailbox is the root of trust, as with any reset by email; a reset
+is never silent (below).
 
 Every time after that, on a signed-in device: the app opens to a lock
 screen that takes the PIN or the device biometrics (the lock can be set
@@ -166,9 +171,10 @@ How it works:
 - One endpoint, `POST /v1/sync { cursor, changes }`, pushes local changes
   and returns everything newer than the cursor. The server gives every
   accepted change a revision number.
-- Conflict rule: the newer `updatedAt` wins per record; the server clamps
+- Conflict rule: the newer change wins per record; the server clamps
   timestamps to its own clock so a device with a wrong clock cannot win
-  forever. Boards gain `updatedAt` (tasks, notes and meetings have it).
+  forever. The architecture gives sync its own change time per record,
+  so the records' `updatedAt` is left alone and boards need no new field.
 - Sync runs on start, on resume or focus, when the network returns, and
   after edits. No live socket in this version. A small status line in
   Settings and a dot in the shell show "Synced", "Syncing" or "Offline,

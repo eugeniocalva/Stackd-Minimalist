@@ -7,10 +7,11 @@ biometrics in place of the PIN; the plan following the account; and the
 legal and security work that holding people's data on a server requires.
 Using the app without an account stays exactly as shipped in 1.5.0.
 
-Status: **draft for the architect, 2026-11-13.** Decisions taken are in
-§07; calls the analyst made alone are in §08; open questions are in §09.
-Companion documents: `docs/plan-accounts.md` (the design this PRD was
-written from), `docs/prd-meetings.md`, `docs/architecture.md`. Target
+Status: **architecture written, 2026-11-13; not built.** Decisions taken
+are in §07; calls the analyst made alone are in §08; open questions are
+in §09. Companion documents: `docs/plan-accounts.md` (the design this PRD
+was written from), `docs/architecture.md` Part IV (§28 onwards, which
+also lists the points it refined here), `docs/prd-meetings.md`. Target
 release: **1.6.0**.
 
 Not legal advice. US-11 is an engineering checklist; a lawyer reads the
@@ -281,7 +282,10 @@ what I have.*
 - [ ] AC-06.7 After "Keep a copy", the device is signed out and works as
       a signed-out device with that data. Signing in again later follows
       AC-06.2 to AC-06.4.
-- [ ] AC-06.8 Recordings are never removed by signing out.
+- [ ] AC-06.8 "Keep a copy" never removes a recording. "Remove from this
+      device" removes the meetings and therefore their recordings: the
+      dialog counts the recordings that exist only on this device and
+      asks a second time before deleting them.
 
 ### US-07 — App lock: PIN and biometrics
 *As an account holder, I want to open the app quickly without typing, and
@@ -328,9 +332,11 @@ I do not want someone who picks up my phone to read my meetings.*
 - [ ] AC-08.5 The browser still offers no purchase. Its Plan section shows
       the plan and the bars when the account has one, and "Subscribe in
       the Stack'd app on iPhone or Android, then sign in here" otherwise.
-- [ ] AC-08.6 The tester allow-list works by account email as well as by
-      the old id; Settings shows the account email where it showed the
-      subscriber id, and keeps the id for signed-out devices.
+- [ ] AC-08.6 The owner can make an account a tester by its email, and
+      the old allow-list of device ids keeps working for signed-out
+      devices. No tester's email is written in the public repository.
+      Settings shows the account email where it showed the subscriber id,
+      and keeps the id for signed-out devices.
 - [ ] AC-08.7 Signing out returns the device to its anonymous id and, if
       the store account still owns the purchase, Restore purchases brings
       the plan back there as in 1.5.0.
@@ -525,9 +531,9 @@ are in `docs/plan-accounts.md` §3; the architect confirms or changes
 them.
 
 ### Data
-- No migration of `stackd-v2` for signed-out use. Boards gain an
-  `updatedAt`. Sync bookkeeping lives under its own key, so a signed-out
-  store is byte-for-byte what 1.5.0 would write, plus defaults.
+- No migration of `stackd-v2` and no new field in it. Sync bookkeeping
+  lives under its own keys, so a signed-out store is byte-for-byte what
+  1.5.0 would write.
 - `meeting.recording` and `meeting.jobs` are stripped before a meeting
   leaves the device and preserved when one arrives.
 
@@ -640,8 +646,10 @@ it names.
 - [ ] Legal name and contact address for the policy and the email footer
       (AC-09.2, AC-11.1).
 - [ ] Choose the email provider; add the DNS records (AC-09.4).
-- [ ] Create the EU database; add the custom domain to GitHub Pages
-      (US-12).
+- [ ] Create the EU database; set up `app.stackdplatform.com` on
+      Cloudflare hosting (US-12). Not a GitHub Pages custom domain: that
+      would redirect the old address and strand the data stored there
+      (architecture §28).
 - [ ] Accept the processing agreements: hosting, email, purchases,
       speech-to-text, AI model (AC-11.9).
 - [ ] Update the App Store privacy labels and the Play Data safety form;
@@ -665,6 +673,7 @@ it names.
 | Two devices edit one record offline and one edit is lost | Stated as the rule (AC-05.6); the loss is one record's older version, never a whole board. |
 | Sign-in email goes to spam | AC-09.4 is tested on three providers before the release. |
 | A 4-digit PIN is guessed | Never the only proof on a new device; five tries; reset signs everything out and emails the owner of the account. |
+| Someone who controls the user's mailbox resets the PIN | True of any reset by email, and accepted: the mailbox is the root of trust. A reset is never silent (AC-03.5). |
 | Someone with the unlocked device reads the data in the browser's storage | Stated honestly (AC-03.8); encryption at rest is a later release (§02). |
 | The domain move strands browser users | AC-12.2 keeps the old address alive with an export. |
 | Store review objects to account rules | Sign-in is optional, deletion is in the app, there is no third-party login. |

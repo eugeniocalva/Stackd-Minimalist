@@ -1,8 +1,9 @@
 # Technical Architecture: Stack'd Minimalist
 
-Implements three PRDs: `docs/prd.md` (tasks, v2 — §1–§8, shipped in 1.1.0
-→ 1.3.0), `docs/prd-notes.md` (Notes, 1.4.0 — §9–§17, shipped) and
-`docs/prd-meetings.md` (Meetings and paid plans, 1.5.0 — §18 onwards).
+Implements four PRDs: `docs/prd.md` (tasks, v2 — §1–§8, shipped in 1.1.0
+→ 1.3.0), `docs/prd-notes.md` (Notes, 1.4.0 — §9–§17, shipped),
+`docs/prd-meetings.md` (Meetings and paid plans, 1.5.0 — §18–§27) and
+`docs/prd-accounts.md` (Accounts and sync, 1.6.0 — §28 onwards, planned).
 Structural code only (schemas, interfaces, module layout, phases); no
 application logic here. Each part builds on the ones before without
 changing them; where an earlier module gains a responsibility, the later
@@ -1554,3 +1555,897 @@ without a hole; release (22) last.
 The proxy has its own `npm test` in `proxy/` (Node, no framework, same
 style) for `pool.js` reservation / charge / release on an in-memory KV and
 the webhook signature check; `proxy.yml` runs it before `wrangler deploy`.
+
+---
+
+# Part IV — Accounts and sync (1.6.0, `docs/prd-accounts.md`)
+
+Implements `docs/prd-accounts.md`, written from `docs/plan-accounts.md`.
+Structural code only. Where this part refines the plan or the PRD, §28
+says so and the two documents were updated to match.
+
+## 28. Approach
+
+- **Signed out is the default and stays untouched.** Everything in this
+  part hangs off one device-local key, `stackd-account`. When it is
+  absent, no new module makes a request, schedules a timer or changes a
+  byte of `stackd-v2`.
+- **One backend.** The Worker in `proxy/` gains a D1 database created with
+  the EU jurisdiction (it cannot be added later), a mail adapter and a
+  daily clean-up. No second service holds personal data.
+- **The mailbox is the root of trust; the PIN is the lock.** Signing in on
+  a new device takes an email code and the PIN. Resetting the PIN takes
+  an email code alone, so whoever controls the mailbox controls the
+  account, as with any reset-by-email design. A reset is loud: it signs
+  out every other device and sends a notice. The PIN's jobs are the app
+  lock and stopping a single intercepted code from being enough.
+- **Sync has its own clock.** Each record syncs inside an envelope with a
+  `changedAt` that only the sync engine writes. The records' own
+  `updatedAt` keeps its meaning ("Edited …" on notes), and no mutation in
+  `store.js` is rewritten. Boards therefore do **not** gain `updatedAt`
+  (the PRD's data note is superseded).
+- **Diff against a shadow, not instrument every mutation.** After a
+  commit the engine hashes each record's wire form and compares it with
+  the hash it last synced. Changed → push; missing → tombstone. About
+  1 000 records hash in a few milliseconds.
+- **Delete wins.** Once the server holds a tombstone for an id, later
+  writes to that id are refused. No clock can resurrect a record
+  (AC-05.7).
+- **The web app moves to Cloudflare hosting, not to a GitHub Pages custom
+  domain.** Two reasons found during design: setting a custom domain on
+  GitHub Pages redirects the old `github.io` address, which would strand
+  the browser data stored there and make AC-12.2 impossible; and GitHub
+  Pages cannot send response headers, so `frame-ancestors` and a real
+  Content-Security-Policy are out of reach. `app.stackdplatform.com` is
+  served by Cloudflare from the same repository with a `_headers` file;
+  GitHub Pages keeps serving the old address, where the same code shows
+  the move banner and offers no account.
+- **Two session carriers.** Web: an `HttpOnly` cookie, possible because
+  `app.` and `minimalist-api.` are the same site. Shells: a bearer token
+  in the Keychain / Keystore, because `capacitor://localhost` is not.
+- **Plugins through the bridge, as before.** Biometrics and secure
+  storage are reached through `globalThis.Capacitor.Plugins`, never
+  imported, so the module build keeps loading (see `notify.js`).
+- **Pure where possible.** Hashing, the diff, the merge decision, the
+  lock timing, the request validation and the PIN / code rules have no
+  DOM or network dependency and run under `npm run check` and the
+  proxy's `npm test`.
+
+Refinements recorded in the PRD and the plan: hosting (AC-12.1, owner
+tasks); no `updatedAt` on boards (§05 Data); AC-06.8 now covers "Keep a
+copy" and requires a second confirmation before "Remove from this device"
+deletes recordings that exist nowhere else; testers are flagged in the
+database rather than listed by email in a public config file (AC-08.6).
+
+---
+
+## 29. Data Schema additions
+
+### On the device
+
+```js
+// localStorage['stackd-v2'] — unchanged. No field is added for accounts or sync.
+
+// localStorage['stackd-account'] — absent ⇔ signed out
+{
+  userId: 'k3f…',                 // 24 chars [a-z0-9]; also the RevenueCat app user id and the pool id
+  email: 'ana@example.com',
+  sessionId: 's_…',               // this device's row in Devices; not a secret
+  platform: 'web' | 'ios' | 'android',
+  pinVersion: 3,                  // the account's PIN generation this device last proved
+  accepted: { terms: '2026-12-01', privacy: '2026-12-01' },
+  lock: { after: 'immediately' | '5m' | '1h' | 'off', biometrics: false },
+  verifier: { salt: 'b64', hash: 'b64' } | null,   // web only: offline PIN check; shells keep it in secure storage
+  lastActiveAt: 1760000000000,    // lock timing across reloads
+  offlineFails: 0, offlineWaitUntil: 0,
+}
+
+// localStorage['stackd-sync'] — the shadow; kept on "Keep a copy" sign-out, tagged with its account
+{
+  userId: 'k3f…',
+  cursor: 1287,                   // last server revision applied
+  serverOffset: -420,             // ms to add to Date.now() to get server time
+  shadow: { 'task:a1b2c3d4': ['9f3c…', 1760000000000], … },   // key → [hash, changedAt]
+  lastSyncAt: 1760000000000,
+  paused: null | { code: ErrorCode, at },
+}
+
+// localStorage['stackd-v2-backup'] — one slot, written before a merge or replace (AC-06.5)
+{ savedAt: 1760000000000, reason: 'merge' | 'replace', doc: { …stackd-v2… } }
+
+// localStorage['stackd-age-refused'] — epoch ms; the Age step refuses until + 24 h (AC-02.3)
+
+// Secure storage (shells only, Keychain / Keystore)
+'stackd-session'   → bearer token
+'stackd-verifier'  → { salt, hash }
+```
+
+The session on the web is a cookie the page cannot read:
+`stackd_session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/v1;
+Max-Age=7776000`, host-only on `minimalist-api.stackdplatform.com`.
+
+### Wire records
+
+```js
+/** One synced record in transit and at rest. */
+{ kind: 'list' | 'task' | 'note' | 'meeting' | 'settings',
+  id: 'a1b2c3d4',                 // the record's own id; 'settings' for the single settings record
+  changedAt: 1760000000000,       // sync clock, device time corrected by serverOffset, strictly increasing per record
+  deleted: false,                 // true ⇒ data is null (tombstone)
+  data: { … } | null }
+
+// What data holds, per kind (toWire / fromWire in src/sync.js):
+// list      the board as stored: { id, name, lanes }
+// task      the task as stored, minus reminderFiredAt
+// note      the note as stored
+// meeting   the meeting as stored, minus recording, jobs, lastError
+// settings  { dateFormat, priorities, labels }
+// Never on the wire: theme, currentList, view, sort, notesSort, meetingsSort, lastAuto, onboarded, ai, plan.
+```
+
+Inbound, `fromWire` puts back what the device owns: a meeting keeps its
+local `recording`, `jobs` and `lastError`; a task keeps its local
+`reminderFiredAt`, or is re-armed when its schedule changed.
+
+### In D1 (`proxy/migrations/0001_accounts.sql`)
+
+```sql
+CREATE TABLE users (
+  id                 TEXT PRIMARY KEY,           -- 24 chars [a-z0-9]
+  email              TEXT NOT NULL UNIQUE,       -- trimmed, lower-cased
+  created_at         INTEGER NOT NULL,
+  adult_confirmed_at INTEGER NOT NULL,           -- the fact and the time; never a birth year
+  terms_version      TEXT NOT NULL,
+  privacy_version    TEXT NOT NULL,
+  accepted_at        INTEGER NOT NULL,
+  pin_salt           BLOB NOT NULL,
+  pin_hash           BLOB NOT NULL,
+  pin_version        INTEGER NOT NULL DEFAULT 1, -- bumped by change and reset
+  pin_fails          INTEGER NOT NULL DEFAULT 0,
+  pin_locked         INTEGER NOT NULL DEFAULT 0,
+  rev                INTEGER NOT NULL DEFAULT 0, -- last sync revision handed out
+  tester             INTEGER NOT NULL DEFAULT 0  -- set by the owner with wrangler d1 execute
+);
+
+CREATE TABLE legacy_ids (                        -- anonymous device ids linked at sign-in (AC-08.2)
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  subscriber_id TEXT NOT NULL,
+  linked_at     INTEGER NOT NULL,
+  PRIMARY KEY (user_id, subscriber_id)
+);
+
+CREATE TABLE login_codes (                       -- one live code per email; no user row needed
+  email_key         TEXT PRIMARY KEY,            -- HMAC(CODE_PEPPER, email)
+  code_hash         BLOB NOT NULL,               -- HMAC(CODE_PEPPER, email ‖ code)
+  expires_at        INTEGER NOT NULL,            -- sent_at + 10 min
+  attempts          INTEGER NOT NULL DEFAULT 0,  -- 5 max
+  sent_at           INTEGER NOT NULL,
+  ticket_hash       BLOB,                        -- set by a correct code; proves the mailbox for 10 min
+  ticket_expires_at INTEGER
+);
+
+CREATE TABLE sessions (
+  id           TEXT PRIMARY KEY,                 -- 's_…', shown in Devices
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash   BLOB NOT NULL UNIQUE,             -- SHA-256 of the 32-byte token
+  platform     TEXT NOT NULL,                    -- 'web' | 'ios' | 'android'
+  label        TEXT NOT NULL,                    -- 'iPhone', 'Android', 'Browser on Windows' …
+  pin_version  INTEGER NOT NULL,
+  created_at   INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL                  -- written at most once an hour
+);
+CREATE INDEX sessions_user ON sessions(user_id);
+
+CREATE TABLE records (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL,
+  id         TEXT NOT NULL,
+  rev        INTEGER NOT NULL,
+  changed_at INTEGER NOT NULL,
+  deleted    INTEGER NOT NULL DEFAULT 0,
+  data       TEXT,                               -- JSON; NULL when deleted
+  PRIMARY KEY (user_id, kind, id)
+);
+CREATE INDEX records_rev ON records(user_id, rev);
+
+CREATE TABLE consent_log (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  what    TEXT NOT NULL,                         -- 'terms' | 'privacy' | 'adult'
+  version TEXT NOT NULL,
+  at      INTEGER NOT NULL
+);
+
+CREATE TABLE rate (                              -- fixed-window counters
+  key          TEXT PRIMARY KEY,                 -- 'code:e:<email_key>' | 'code:n:<HMAC(ip)>' | 'verify:n:…' | 'sync:u:<id>'
+  window_start INTEGER NOT NULL,
+  count        INTEGER NOT NULL
+);
+```
+
+Signing out or revoking deletes the session row; deleting the account
+deletes the user row and everything cascades. KV keeps what it has today
+(`pool:`, `rccache:`, `job:`).
+
+### Invariants (tested in `check-sync.mjs`, `check-lock.mjs` and `proxy/test`)
+- `stackd-account` absent ⇒ no request to `/v1/auth`, `/v1/account` or
+  `/v1/sync`, and no sync timer.
+- `toWire(kind, x)` never contains `recording`, `jobs`, `lastError`,
+  `reminderFiredAt`, or any per-device setting.
+- `fromWire(toWire(x), x)` deep-equals `x` for every kind.
+- A pushed `changedAt` is greater than the shadow's `changedAt` for that
+  record, whatever the device clock says.
+- Server: every query on `records`, `sessions`, `legacy_ids` and
+  `consent_log` is bound to the session's `user_id`; no id from a request
+  body selects a user (AC-05.10).
+- Server: a row with `deleted = 1` is never updated back to `deleted = 0`.
+- Server: `pin_fails` only resets on a correct PIN or a reset; a locked
+  PIN accepts no PIN at all, right or wrong.
+- Server: a new user row exists only after a correct code **and** a PIN;
+  an abandoned registration leaves a code row that expires.
+
+---
+
+## 30. System Architecture (additions)
+
+```
+┌──────────────── device ────────────────┐        ┌────────────── Cloudflare ──────────────┐
+│ web:   app.stackdplatform.com          │        │ proxy/ (Worker)                        │
+│        (static, _headers: CSP)         │  HTTPS │  /v1/auth/*   codes · PIN · sessions   │
+│ shells: capacitor://localhost          ├───────▶│  /v1/account  profile · devices ·      │
+│                                        │ cookie │               export · delete          │
+│  account.js ─┐                         │   or   │  /v1/sync     push + pull              │
+│  sync.js ────┼─ net.js ────────────────│ bearer │  /v1/…        the 1.5.0 routes,        │
+│  ai.js ──────┘                         │        │               identity from session    │
+│  lock.js ─ secure.js ─ Keychain/Keystore        │  scheduled()  daily clean-up           │
+│  purchases.js ─ RevenueCat plugin      │        │  D1 (EU) · KV (pools, jobs) · mail ────┼──▶ mailbox
+└────────────────────────────────────────┘        └────────────────────────────────────────┘
+ old address eugeniocalva.github.io/Stackd-Minimalist: same code, banner + export only
+```
+
+### Identity on every request
+
+`identify(request, env)` in `proxy/src/auth/sessions.js` runs before any
+route and returns one of:
+
+| Result | When | Used as |
+|---|---|---|
+| `{ kind: 'account', userId, sessionId }` | a valid cookie or `Authorization: Bearer` | pool id and RevenueCat id = `userId` |
+| `{ kind: 'anon', subscriberId }` | no session; `X-Stackd-Subscriber` as today | the 1.5.0 behaviour, unchanged |
+| error `signed_out` (401) | a cookie or bearer was sent and is unknown or expired | the device signs itself out |
+
+The 1.5.0 handlers keep their signatures: where they took `sub`, they
+take the pool id. A request that carries a session ignores
+`X-Stackd-Subscriber` for identity (AC-08.3). User ids match the existing
+`SUB_ID` pattern, so `pool.js` and `jobs.js` need no change.
+
+Cookie-authenticated requests must carry an `Origin` on the allow-list
+(today a missing `Origin` is accepted for the shells; with a cookie it is
+refused). CORS gains `Access-Control-Allow-Credentials: true` and the
+headers `Authorization` and `X-Stackd-Client`.
+
+### Endpoints
+
+| Endpoint | Auth | Body | Returns |
+|---|---|---|---|
+| `POST /v1/auth/start` | app token | `{ email }` | 204 always; 429 `rate_limited` |
+| `POST /v1/auth/verify` | app token | `{ email, code }` | `{ ticket, account: 'new' \| 'existing', pinLocked }` |
+| `POST /v1/auth/register` | ticket | `{ ticket, pin, adult: true, termsVersion, privacyVersion, label, legacyId? }` | session |
+| `POST /v1/auth/signin` | ticket | `{ ticket, pin, label, legacyId? }` | session |
+| `POST /v1/auth/pin/reset` | ticket | `{ ticket, pin, label }` | session; every other session deleted; mail |
+| `POST /v1/auth/pin/check` | session | `{ pin }` | `{ pinVersion }` (the lock screen, online) |
+| `POST /v1/auth/pin/change` | session | `{ pin, newPin }` | `{ pinVersion }`; mail |
+| `GET /v1/account` | session | — | `{ id, email, createdAt, pinVersion, accepted, current: { terms, privacy }, devices[] }` |
+| `POST /v1/account/accept` | session | `{ termsVersion, privacyVersion }` | 204 |
+| `POST /v1/account/signout` | session | `{ sessionId? , all? }` | 204 |
+| `GET /v1/account/export` | session | — | the AC-10.1 file |
+| `POST /v1/account/delete` | session | `{ pin }` or `{ ticket }` | 204; mail |
+| `GET /v1/sync/summary` | session | — | `{ counts: { list, task, note, meeting } }` |
+| `POST /v1/sync` | session | `{ cursor, changes[] }` | `{ cursor, changes[], rejected[], more, serverTime }` |
+
+A session answer is `{ account }` plus `Set-Cookie` when
+`X-Stackd-Client: web`, or `{ account, token }` for the shells.
+
+New error codes: `rate_limited` (with `retryAfter`), `code_wrong`,
+`code_expired`, `pin_wrong` (with `left`), `pin_locked`, `pin_weak`,
+`underage`, `accept_required`, `pin_required` (this session's
+`pin_version` is behind), `signed_out`, `quota`, `conflict`.
+
+### Sign-in sequence
+
+```
+app                                   proxy                                  mailbox
+ │ age step (device only, AC-02.3)      │                                       │
+ │── POST /auth/start { email } ───────▶│ rate check; store code hash; ───────▶ │ code
+ │◀──────────────── 204 ────────────────│ (same work for a known and an unknown email)
+ │── POST /auth/verify { email, code } ▶│ compare in constant time; attempts+1
+ │◀── { ticket, account, pinLocked } ───│ ticket = 32 random bytes, hash stored, 10 min
+ │  account 'new'      → Choose a PIN ──▶ /auth/register   user row is created here
+ │  account 'existing' → Enter your PIN ▶ /auth/signin     pin_wrong { left } · pin_locked
+ │  locked or forgotten → New PIN ──────▶ /auth/pin/reset  other sessions deleted, mail
+ │◀── session (cookie or token) ────────│ mail "New sign-in" unless this is the account's first
+ │ GET /sync/summary → mergePlan → first POST /sync
+```
+
+### Secrets and hashing
+
+| Thing | How it is stored |
+|---|---|
+| Email code | `HMAC-SHA256(CODE_PEPPER, email ‖ ':' ‖ code)`; compared in constant time |
+| PIN | `PBKDF2-HMAC-SHA256(HMAC-SHA256(PIN_PEPPER, userId ‖ ':' ‖ pin), pin_salt, 100 000, 32 bytes)`. 100 000 is the Workers runtime's ceiling; the pepper, a Worker secret outside the database, is what makes a stolen database useless for a 10 000-value PIN (AC-03.7) |
+| Session token, ticket | 32 random bytes to the client, SHA-256 at rest |
+| Device PIN verifier | `PBKDF2(pin, device salt, 100 000)`; web: in `stackd-account`; shells: secure storage. An app-lock, not a secret store (AC-03.8) |
+| Network address | never stored; `HMAC(CODE_PEPPER, ip)` as a rate key for one window |
+
+New Worker secrets: `PIN_PEPPER`, `CODE_PEPPER`, the mail key if the
+provider needs one. New vars: `APP_ORIGIN`, `MAIL_FROM`,
+`TERMS_VERSION`, `PRIVACY_VERSION`, `OWNER_FOOTER`.
+
+### Sync protocol
+
+Client, in `sync.js`:
+
+1. **Diff.** For every record: `hash(canonical(toWire(x)))` against the
+   shadow. Changed or new → a change with
+   `changedAt = max(now + serverOffset, shadow.changedAt + 1)`. In the
+   shadow but gone → a tombstone.
+2. **Push and pull** in one `POST /v1/sync`, at most 200 changes and 4 MB
+   per request, repeated while `more`.
+3. **Apply.** Inbound changes whose hash differs from local go through
+   `store.applyRemote()`; the shadow is updated first, so applying never
+   looks like a local edit. While a text field or `contenteditable` has
+   focus, inbound changes wait (up to the next blur or 2 s idle), so sync
+   never moves a caret.
+4. **Rejected** changes (`older`, `deleted`) are dropped locally in favour
+   of what the pull delivered.
+
+Server, per change, in one transaction with the revision counter:
+
+| Stored row | Incoming | Outcome |
+|---|---|---|
+| none | upsert or tombstone | stored, `rev = ++users.rev` |
+| `deleted = 1` | anything | rejected `deleted` |
+| live, `changed_at >= incoming` | upsert | rejected `older` |
+| live, `changed_at < incoming` | upsert or tombstone | stored, new `rev` |
+
+`changed_at` is clamped to the server's clock on the way in. The pull is
+`rev > cursor ORDER BY rev LIMIT 500`. Limits: 1 MB per record, 20 000
+records and 50 MB per account (`quota`).
+
+Triggers (all through one debounced `sync.request()`): boot, Capacitor
+`resume`, `visibilitychange` to visible, `online`, 2 s after a commit
+(the `setAfterCommit` hook that already runs `syncReminders`), and
+**Sync now**. Failures back off 5 s → 5 min and surface as "Sync paused".
+
+### First sign-in and sign-out
+
+`mergePlan(local, remoteCounts)` is pure and returns `'upload'`,
+`'download'` or `'ask'` (AC-06.1 to 06.4). `isUntouchedSeed(S)` is true
+when the boards and task titles equal the seed's and nothing was edited,
+added, or onboarded past the samples; such a device counts as empty.
+
+| Choice | What happens |
+|---|---|
+| upload | first sync pushes everything |
+| download | untouched samples are removed, then the pull fills the store |
+| Merge | backup slot written; union by id through a normal sync |
+| Use my account | backup slot written; local records replaced by the pull |
+| Sign out, keep a copy | session and `stackd-account` removed; store and shadow stay |
+| Sign out, remove | unsynced changes pushed or counted in the dialog; recordings that exist only here are counted and need a second confirmation; then the store, the shadow and the backup are removed and the app restarts as a fresh install |
+
+While a backup slot exists, `media.orphans()` treats its recording keys
+as referenced, so restoring the backup finds its audio.
+
+### App lock
+
+```
+            sign-in / correct PIN / biometrics ok
+ locked ───────────────────────────────────────────▶ unlocked
+   ▲                                                    │
+   └──── hidden or backgrounded longer than lock.after ─┘
+         · boot with lock.after ≠ 'off' · pin_required from the server
+```
+
+- `app.js` `render()` shows the lock screen and nothing else while
+  locked; open sheets are closed on lock.
+- Online, the PIN goes to `/v1/auth/pin/check` (it counts towards the
+  five, AC-07.5) with a 3 s timeout; offline or on timeout it is checked
+  against the device verifier with waits of 30 s doubling per failure.
+- Biometrics is a local yes or no from the operating system through the
+  bridge; nothing is sent anywhere.
+- PC biometrics (Should): a WebAuthn platform credential created on that
+  browser and used with `userVerification: 'required'` as the same local
+  yes or no.
+
+### The plan on an account
+
+- `purchases.identify(userId)` after sign-in: the plugin's `logIn`, then
+  `syncPurchases` so a purchase made under the device's anonymous id
+  moves to the account without a store prompt. Sign-out logs the plugin
+  back in as the device's `subscriberId`.
+- `legacyId` (the device's `subscriberId`) is sent at sign-in and stored
+  in `legacy_ids` (5 per account at most). For the current period the
+  pool that is read is the account's plus those of its legacy ids, so
+  usage carries over (AC-08.2). Claiming someone else's id can only add
+  their usage to one's own count.
+- `entitlement.resolve` checks `users.tester` for accounts and the
+  `TESTERS` variable for anonymous ids.
+- Account deletion calls RevenueCat's subscriber delete with the Worker's
+  existing secret key.
+
+### Mail
+
+One adapter interface, like speech-to-text: `proxy/src/mail/index.js`
+picks `send({ to, subject, text })` from `MAIL_PROVIDER`. First choice is
+Cloudflare's own email service through a Worker binding (no extra
+processor; in public beta and needs the Workers Paid plan at the time of
+writing); the fallback is an HTTP provider with an EU region. Five
+templates in `mail/templates.js`, plain text only, each ending with
+`OWNER_FOOTER`. Sending runs in `ctx.waitUntil`, so the answer to
+`/auth/start` does not wait for it.
+
+### Hosting, headers, the old address
+
+- `app.stackdplatform.com`: Cloudflare static hosting of the output of
+  `npm run build -- --site` (the `www/` tree plus `privacy.html`,
+  `terms.html`, `account-deletion.html` and `_headers`), deployed on push
+  to `main`.
+- `_headers`: `Content-Security-Policy: default-src 'self'; script-src
+  'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:;
+  media-src 'self' blob:; font-src 'self'; connect-src 'self'
+  https://minimalist-api.stackdplatform.com; frame-ancestors 'none';
+  base-uri 'none'; form-action 'none'; object-src 'none'`, plus
+  `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff` and
+  HSTS. `script-src 'self'` requires the two inline scripts in
+  `index.html` to move into files.
+- The shells load from their own scheme and get no header; they are
+  covered by the origin check in `npm run check` (§37).
+- Old address: `legal.isLegacyOrigin()` is true on `*.github.io`. There
+  the shell shows the move banner with **Download my data**, and the
+  Account section is replaced by a pointer to the new address. Recordings
+  cannot travel in the file; the banner says so and the meetings keep
+  their transcripts.
+
+### Retention (the `scheduled()` handler, daily)
+
+Expired `login_codes`; sessions with `last_seen_at` older than 90 days;
+`records` with `deleted = 1` and `changed_at` older than 90 days; `rate`
+rows older than a day. Worker logs: invocation logging off, and no code
+path logs an email, a code, a PIN, a token, an address or record data
+(AC-11.7).
+
+---
+
+## 31. File & Folder Structure (delta)
+
+```
+Stackd Minimalist/
+├─ index.html                  ~ the two inline scripts become src/pretheme.js and src/filefallback.js
+├─ app.js                      ~ boot: account.init(), lock gate in render(), sync triggers, afterCommit → sync.request()
+├─ account-deletion.html       NEW  public page (AC-10.5)
+├─ privacy.html, terms.html    ~ rewritten (US-11)
+├─ _headers                    NEW  CSP and security headers for the Cloudflare site
+├─ src/
+│  ├─ legal.js                 NEW  APP_ORIGIN, TERMS_URL, PRIVACY_URL, DELETION_URL, TERMS_VERSION, PRIVACY_VERSION,
+│  │                                isLegacyOrigin(); the URL constants leave ui/paywall.js
+│  ├─ net.js                   NEW  the one fetch wrapper: app token, subscriber id, cookie or bearer, error mapping,
+│  │                                setFetch(); ai.js, account.js and sync.js all call it
+│  ├─ account.js               NEW  'stackd-account' state, sign-in / register / reset calls, devices, accept,
+│  │                                sign-out, export, delete; signedIn(), onChange()
+│  ├─ secure.js                NEW  bearer token and verifier in Keychain / Keystore through the bridge; web no-op
+│  ├─ sync.js                  NEW  canonical, hash, toWire / fromWire, diff, mergePlan, clock (pure) + the runner
+│  ├─ lock.js                  NEW  shouldLock, backoff (pure); verifier (WebCrypto); biometrics bridge; lock / unlock
+│  ├─ backup.js                NEW  the pre-sign-in backup slot; exportFile(); importFile() with validation
+│  ├─ pretheme.js              NEW  classic script: theme before first paint (was inline)
+│  ├─ filefallback.js          NEW  classic script: the file:// bundle loader (was inline)
+│  ├─ store.js                 ~ + exportRecords(), applyRemote(), replaceRecords(), isUntouchedSeed(), SEED_TITLES;
+│  │                             no schema change
+│  ├─ ai.js                    ~ call() and the upload go through net.js; 'signed_out' handled once, there
+│  ├─ purchases.js             ~ + identify(userId), anonymous(subscriberId)
+│  ├─ media.js                 ~ orphans(keys) also receives the backup slot's keys
+│  └─ ui/
+│     ├─ pinpad.js             NEW  four dots + digit keys; used by sign-in, lock screen, change PIN
+│     ├─ signin.js             NEW  the sheet: Age, Email, Code, PIN; reset; re-accept; merge dialog; sign-out dialog
+│     ├─ lockscreen.js         NEW  "Stack'd is locked": pinpad, biometric prompt, waits, "Reset with an email code"
+│     ├─ account.js            NEW  Settings › Account: signed-out card, email, sync status, Sync now, Devices,
+│     │                             App lock, Change PIN, Export, Delete, restore-backup row
+│     ├─ settings.js           ~ Account section first; the id row shows the account email when signed in
+│     ├─ paywall.js            ~ renewal terms on every card (AC-11.5); web texts of AC-08.5
+│     ├─ shell.js              ~ sync dot on the Settings entry; move banner on the old address
+│     ├─ meeting.js, recorder.js  ~ "Recording is on the device that made it" (AC-05.3)
+│     └─ icons.js              + cloud, cloud-off, device, shield, fingerprint, backspace
+├─ styles/
+│  ├─ components.css           + pin pad, lock screen, step sheet, device rows, sync status, banner (≤ 160 lines)
+│  └─ screens.css              + account section (≤ 60 lines)
+├─ proxy/
+│  ├─ wrangler.toml            ~ [[d1_databases]] DB · mail binding · [triggers] crons · new vars ·
+│  │                             ALLOWED_ORIGINS += https://app.stackdplatform.com · invocation logs off
+│  ├─ migrations/0001_accounts.sql   NEW  §29
+│  ├─ src/index.js             ~ identify() first; routes for auth, account, sync; credentials in CORS; scheduled()
+│  ├─ src/db.js                NEW  the D1 statements, each bound to a user id; batch helper
+│  ├─ src/auth/crypto.js       NEW  random, HMAC, PBKDF2, constant-time compare
+│  ├─ src/auth/codes.js        NEW  start, verify, tickets
+│  ├─ src/auth/pin.js          NEW  rules (four digits, weak list), set, check with lockout, change, reset
+│  ├─ src/auth/sessions.js     NEW  create, identify, revoke, cookie and bearer handling, labels
+│  ├─ src/auth/ratelimit.js    NEW  fixed windows on the rate table
+│  ├─ src/account.js           NEW  profile, accept, sign-out, export, delete (+ RevenueCat delete)
+│  ├─ src/sync.js              NEW  validate changes, apply with revisions, pull, summary, quotas
+│  ├─ src/mail/index.js, mail/{provider}.js, mail/templates.js   NEW
+│  ├─ src/retention.js         NEW  the daily clean-up
+│  ├─ src/entitlement.js       ~ tester flag for accounts
+│  ├─ src/pool.js              ~ getUsed sums the legacy ids for the period
+│  └─ test/run.mjs             ~ + auth, sessions, sync, isolation, retention on a real SQL engine (node:sqlite)
+├─ plugins / package.json      + the biometric plugin and a secure-storage plugin for Capacitor 8
+├─ android/…/AndroidManifest.xml   + USE_BIOMETRIC
+├─ .github/workflows/
+│  ├─ ios-testflight.yml       ~ PlistBuddy adds NSFaceIDUsageDescription; Podfile greps for the two plugins
+│  ├─ proxy.yml                ~ d1 migrations apply before deploy
+│  └─ site.yml                 NEW  build --site and deploy to Cloudflare on push to main
+├─ scripts/
+│  ├─ build-www.mjs            ~ --site adds the legal pages and _headers
+│  ├─ check-sync.mjs           NEW
+│  ├─ check-lock.mjs           NEW
+│  ├─ check-origins.mjs        NEW
+│  └─ check-store.mjs          ~ applyRemote, replaceRecords, isUntouchedSeed
+├─ sw.js                       SHELL += src/{legal,net,account,secure,sync,lock,backup,pretheme,filefallback}.js,
+│                              src/ui/{pinpad,signin,lockscreen,account}.js; VERSION 'stackd-v1.6.0'
+└─ docs/                       prd-accounts.md, plan-accounts.md, qa-report.md (+1.6.0 and its Security review entry)
+```
+
+---
+
+## 32. Core Interfaces & Types (additions)
+
+```js
+/** @typedef {'list'|'task'|'note'|'meeting'|'settings'} Kind */
+/** @typedef {{ kind: Kind, id: string, changedAt: number, deleted: boolean, data: object|null }} Change */
+/** @typedef {{ id: string, platform: 'web'|'ios'|'android', label: string, createdAt: number, lastSeenAt: number, current: boolean }} Device */
+/** @typedef {{ id: string, email: string, createdAt: number, pinVersion: number, accepted: { terms, privacy }, current: { terms, privacy }, devices: Device[] }} Account */
+/** @typedef {'immediately'|'5m'|'1h'|'off'} LockAfter */
+/** @typedef {'synced'|'syncing'|'pending'|'offline'|'paused'} SyncState */
+/** @typedef {'upload'|'download'|'ask'} MergePlan */
+// ErrorCode gains: 'rate_limited'|'code_wrong'|'code_expired'|'pin_wrong'|'pin_locked'|'pin_weak'|'underage'
+//                 |'accept_required'|'pin_required'|'signed_out'|'quota'|'conflict'
+
+// src/legal.js
+export const APP_ORIGIN = 'https://app.stackdplatform.com';
+export const TERMS_URL, PRIVACY_URL, DELETION_URL;        // under APP_ORIGIN
+export const TERMS_VERSION, PRIVACY_VERSION;              // the effective dates of the two pages
+export function isLegacyOrigin(host = location.hostname): boolean;
+
+// src/net.js — no store import beyond the ids it sends
+export function setFetch(fn), setUpload(fn);              // moved here from ai.js, re-exported there
+export function request(path, { method, body, signal, auth = 'auto' }): Promise<object>;   // throws { code, message, … }
+export function upload(path, formData, { onProgress, signal }): Promise<object>;
+export function onSignedOut(fn): void;                    // 'signed_out' from any call → account.forget()
+
+// src/account.js
+export const ACCOUNT_KEY = 'stackd-account';
+export function init(): void;                             // reads the key; no network when absent
+export function signedIn(): boolean;
+export function current(): { userId, email, sessionId, platform, lock, pinVersion } | null;
+export function onChange(fn): void;
+export function ageRefusedUntil(): number;                // 0 when not refused
+export function checkAge(year, now = new Date()): boolean;   // false also writes the 24 h refusal
+export function start(email): Promise<void>;
+export function verify(email, code): Promise<{ ticket, account: 'new'|'existing', pinLocked: boolean }>;
+export function register(ticket, pin): Promise<Account>;  // sends adult, versions, label, legacyId
+export function signIn(ticket, pin): Promise<Account>;
+export function resetPin(ticket, pin): Promise<Account>;
+export function changePin(pin, newPin): Promise<void>;
+export function accept(): Promise<void>;
+export function refresh(): Promise<Account>;              // GET /v1/account
+export function signOutDevice(sessionId): Promise<void>;
+export function signOut({ everywhere = false, keepData }): Promise<void>;
+export function exportData(): Promise<Blob>;
+export function deleteAccount({ pin, ticket, keepData }): Promise<void>;
+export function forget({ keepData }): void;               // local half of sign-out; also after 'signed_out'
+export function deviceLabel(): string;                    // 'iPhone' | 'Android' | 'Browser on Windows' …
+
+// src/secure.js — shells only; resolves null on the web
+export function available(): boolean;
+export function get(key), set(key, value), remove(key): Promise<…>;
+
+// src/sync.js — pure part
+export const KINDS: Kind[];
+export function canonical(value): string;                 // JSON with sorted keys
+export function hash(text): string;                       // 53-bit, hex; not cryptographic
+export function toWire(kind, record): object;
+export function fromWire(kind, data, local | undefined): object;
+export function collect(S): Map<string, { kind, id, data }>;          // 'task:a1b2' → wire form
+export function diff(collected, shadow, now): Change[];
+export function mergePlan(local: { untouched: boolean, counts }, remote: { counts }): MergePlan;
+export function nextChangedAt(now, serverOffset, previous): number;
+// runner
+export function request(reason?): void;                   // debounced; no-op when signed out or locked out
+export function now(): Promise<void>;                     // Sync now
+export function firstSync(choice: 'upload'|'download'|'merge'|'replace'): Promise<void>;
+export function state(): { state: SyncState, pending: number, lastSyncAt: number|null, paused: { code, at } | null };
+export function onState(fn): void;
+export function reset({ keepShadow }): void;              // sign-out
+
+// src/store.js — additions (no schema change)
+export const SEED_TITLES: string[];
+export function isUntouchedSeed(state = S): boolean;
+export function exportRecords(): { lists, tasks, notes, meetings, settings };
+export function applyRemote({ upserts: { kind, record }[], deletes: { kind, id }[] }): void;
+                                                          // no touch(), no updatedAt change; save + render + afterCommit skipped
+                                                          // for sync; drops media of meetings deleted remotely
+export function replaceRecords(records): void;            // "Use my account"
+
+// src/lock.js
+export function shouldLock({ after: LockAfter, lastActiveAt, now, booting }): boolean;
+export function backoffMs(fails): number;                 // 0,0,0,0,30 s, 60 s, 120 s …
+export function makeVerifier(pin): Promise<{ salt, hash }>;
+export function checkVerifier(pin, verifier): Promise<boolean>;
+export function locked(): boolean;
+export function lock(), touch(): void;                    // touch(): record activity
+export function unlockWithPin(pin): Promise<{ ok: true } | { ok: false, code: 'pin_wrong'|'pin_locked'|'wait', left?, waitMs? }>;
+export function biometricsAvailable(): Promise<false | 'face' | 'fingerprint' | 'other'>;
+export function unlockWithBiometrics(): Promise<boolean>;
+export function setLock(patch: { after?: LockAfter, biometrics?: boolean }, pin): Promise<void>;
+
+// src/backup.js
+export const BACKUP_KEY = 'stackd-v2-backup', BACKUP_DAYS = 30;
+export function keep(reason: 'merge'|'replace'): void;
+export function info(): { savedAt, reason, counts } | null;
+export function restore(): void;                          // signs out first, then puts the document back
+export function purgeOld(now = Date.now()): void;
+export function recordingKeys(): string[];                // for media.orphans()
+export function exportFile(): Blob;                       // the old-address "Download my data"
+export function importFile(file): Promise<{ counts }>;    // validates shape, runs withSettings + sanitize; signed out only
+
+// src/purchases.js — additions
+export function identify(userId): Promise<void>;          // logIn + syncPurchases
+export function anonymous(subscriberId): Promise<void>;   // back to the device id on sign-out
+
+// src/ui/pinpad.js
+export function pinpadHTML({ label, length = 4, error, disabled }): string;
+export function bindPinpad(root, { onComplete(pin), onChange(n) }): { clear(), shake(), focus() };
+
+// src/ui/signin.js
+export function openSignIn({ reason }: { reason?: 'plan'|'settings' }): void;
+export function openMergeDialog(local, remote): Promise<'merge'|'replace'|null>;
+export function openSignOutDialog(): Promise<{ keepData: boolean } | null>;
+
+// src/ui/lockscreen.js
+export function lockHTML(): string;
+export function bindLock(): void;
+
+// src/ui/account.js
+export function accountSectionHTML(): string;
+export function bindAccountSection(root): void;
+
+// proxy/src/auth/sessions.js
+export function identify(request, env): Promise<{ kind: 'account', userId, sessionId, pinVersion } | { kind: 'anon', subscriberId }>;
+export function createSession(env, { userId, platform, label, pinVersion }): Promise<{ id, token }>;
+export function sessionResponse(body, { token, client }): Response;   // Set-Cookie for web, token in body for shells
+export function revoke(env, userId, { sessionId, allBut }): Promise<void>;
+
+// proxy/src/auth/pin.js
+export function validPin(pin): 'ok' | 'pin_weak' | 'bad_request';
+export function setPin(env, userId, pin): Promise<{ salt, hash }>;
+export function checkPin(env, user, pin): Promise<{ ok: true } | { ok: false, code: 'pin_wrong'|'pin_locked', left: number }>;
+
+// proxy/src/sync.js
+export const LIMITS = { changes: 200, bytes: 4_000_000, record: 1_000_000, records: 20_000, account: 50_000_000, pull: 500 };
+export function validChange(c): boolean;                  // kind, id pattern, changedAt, data shape per kind
+export function apply(env, userId, changes, now): Promise<{ accepted: number, rejected: { kind, id, reason }[] }>;
+export function pull(env, userId, cursor): Promise<{ changes: Change[], cursor: number, more: boolean }>;
+
+// proxy/src/mail/index.js
+export function send(env, { to, template, vars }): Promise<void>;
+```
+
+---
+
+## 33. Component Inventory (additions)
+
+| Component | Source of styling | Used by |
+|---|---|---|
+| Step sheet (1 of 4, Back, title, one field, primary button) | Premium sheet (§6) with a step line | sign-in |
+| Year picker | native `<select>`, no default option | Age step |
+| Code field | Finance input, `inputmode="numeric"`, `autocomplete="one-time-code"`, wide letter-spacing | Code step, reset, delete |
+| PIN pad | new: four dots + 3 × 4 round keys ≥ 56 px, `aria-live` count | sign-in, lock screen, change PIN |
+| Lock screen | full-height centred card on the page background | app |
+| Account card (signed out) | Finance `.card` with one primary button | Settings |
+| Sync status line | `.set-sub` text + state icon | Settings › Account |
+| Sync dot | 8 px accent dot on the Settings entry | sidebar, mobile nav |
+| Device row | Flush row (§6): icon, label, "last active", Sign out | Settings › Account |
+| Merge dialog | confirm dialog with two option cards and counts | first sign-in |
+| Move banner | Disclaimer banner (§6) with a button | old address |
+| Plan card renewal line | `.hint` directly above the button | paywall |
+
+---
+
+## 34. Implementation Phases (the roadmap, continued)
+
+Numbering continues from §24. Same rules, with two changes for this
+release: phases are committed on the branch `release/1.6.0`, not on
+`main` (AC-13.6), and the release phase includes the security review.
+Estimates are focused build time.
+
+### Phase 23 — Branch, new address, headers, export and import · M (~6 h + owner tasks) — US-12, AC-11.6, AC-13.6
+- Owner: Cloudflare site for `app.stackdplatform.com`; D1 database
+  created with `--jurisdiction=eu`; mail provider decision and DNS; legal
+  name and contact address.
+- `release/1.6.0` branch. `src/legal.js`; URL constants move out of
+  `paywall.js`. `index.html` inline scripts → `src/pretheme.js`,
+  `src/filefallback.js`. `_headers`. `build-www.mjs --site`. `site.yml`.
+- `src/backup.js` `exportFile` / `importFile`; Settings row "Import a
+  Stack'd file" (signed out); move banner and **Download my data** on the
+  old address.
+- `scripts/check-origins.mjs`; proxy `ALLOWED_ORIGINS`.
+- **Done when:** the app runs from the new address with the CSP header
+  and no console violation; a file exported at the old address imports
+  at the new one with every task, note and meeting; AC-12.1 to 12.4 and
+  AC-11.6 pass. This phase alone may be merged to `main` early, since it
+  contains no account code.
+
+### Phase 24 — Sign-in on the server · L (~9 h) — US-02, US-03, US-04, US-09 (server half)
+- Migration `0001`; `db.js`; `auth/crypto.js`, `codes.js`, `pin.js`,
+  `sessions.js`, `ratelimit.js`; `account.js` (profile, accept,
+  sign-out); `mail/*` with the five templates; `identify()` in front of
+  the router; CORS credentials; `retention.js` and the cron trigger;
+  `proxy.yml` applies migrations.
+- `proxy/test/run.mjs` on `node:sqlite`: wrong, expired and reused codes;
+  the 5-attempt and 5-per-hour limits; identical answers for known and
+  unknown emails; register requires `adult` and current versions; weak
+  PINs; lockout after five and refusal of a correct PIN while locked;
+  reset deletes other sessions; change bumps `pin_version` and other
+  sessions get `pin_required`; a revoked or 90-day-old session gets
+  `signed_out`; cookie requests without an allowed `Origin` are refused;
+  no test output contains an email or a PIN.
+- **Done when:** a scripted client registers, signs in as a second
+  device, is locked out, resets, and the three notices are produced by a
+  stub mail adapter; AC-02.6 to 02.9, AC-03.3 to 03.7, AC-04.2, AC-04.4,
+  AC-04.5 hold at the API.
+
+### Phase 25 — Sign-in UI · M (~7 h) — US-02, US-03, US-04, US-14
+- `net.js` (and `ai.js` moved onto it), `account.js`, `secure.js`
+  (plugin added to both shells), `ui/pinpad.js`, `ui/signin.js`,
+  `ui/account.js` with the signed-out card, email, Devices, Change PIN;
+  re-accept flow; `settings.js` and `icons.js` changes.
+- `check-ai.mjs` still passes through `net.js`; new cases for
+  `signed_out` and `accept_required`.
+- **Done when:** AC-01.1 to 01.3, AC-02.1 to 02.5, AC-03.1, 03.2, 03.6,
+  AC-04.1, 04.3, 04.6, AC-14.1 to 14.3 pass on web at 375 px and
+  1280 px and in both shells; an under-18 year stops the flow for 24 h.
+
+### Phase 26 — Sync · L (~11 h) — US-05, US-06
+- `sync.js` pure part first, with `check-sync.mjs`; then `proxy/src/sync.js`
+  with its tests (the outcome table of §30, isolation between two users,
+  quotas, paging); then the runner, the triggers in `app.js`,
+  `store.applyRemote` / `replaceRecords` / `isUntouchedSeed`, the focus
+  rule for inbound changes, status line and dot.
+- `backup.js` slot, merge dialog, sign-out dialog, restore-backup row;
+  `media.orphans` honours the backup; "Recording is on the device that
+  made it".
+- **Done when:** AC-05.1 to 05.11 and AC-06.1 to 06.8 pass with two
+  browsers and one phone, including: offline edits on both sides, a
+  delete against an edit, a device clock set one day back, 500 / 500 / 50
+  records within the time limits.
+
+### Phase 27 — The plan on the account · M (~5 h + sandbox) — US-08
+- `purchases.identify` / `anonymous`; `legacyId` at sign-in; pool sum
+  over legacy ids; tester flag; handlers use the identity's pool id;
+  paywall texts for the web; the id row in Settings.
+- **Done when:** AC-08.1 to 08.7 pass: a tester account shares one
+  allowance between phone and PC; a sandbox purchase made before
+  registering follows the account; a forged `X-Stackd-Subscriber` on a
+  signed-in request changes nothing.
+
+### Phase 28 — App lock and biometrics · M (~7 h + devices) — US-07
+- Spike first (1 h): the biometric and secure-storage plugins answer
+  through `Capacitor.Plugins` on both shells; if a call needs the JS
+  wrapper, it is bundled as `purchases.js` documents for RevenueCat.
+- `lock.js`, `ui/lockscreen.js`, the lock gate in `render()`, activity
+  tracking, settings rows; `NSFaceIDUsageDescription` and
+  `USE_BIOMETRIC`; `check-lock.mjs`.
+- **Done when:** AC-07.1 to 07.8 pass: unlock by PIN offline on all
+  three platforms, by Face ID / Touch ID on the iPhone and by fingerprint
+  on the Android phone; a PIN changed on the PC is asked for on the
+  phone.
+
+### Phase 29 — Rights and the legal surface · M (~6 h) — US-10, US-11
+- Export and delete (client and server, RevenueCat delete, final mail);
+  `account-deletion.html`; `privacy.html` and `terms.html` rewritten with
+  the owner's details; renewal line on every plan card; log review
+  against AC-11.7.
+- Owner: store privacy forms, processing agreements, the lawyer's read.
+- **Done when:** AC-10.1 to 10.6 and AC-11.1 to 11.9 are ticked; after a
+  test deletion the database holds no row for that user in any table.
+
+### Phase 30 — QA, security review, release 1.6.0 · M (~5 h + two phones) — US-13, US-14, US-01
+- QA walk of `docs/prd-accounts.md` per `agents/qa_tester.md` on two
+  phones and a PC; the 1.5.0 regression walk signed out (AC-01.4);
+  findings fixed.
+- `/security-review` on `release/1.6.0` against `main`, with the AC-13.5
+  targets; high findings fixed; the entry written to
+  `docs/qa-report.md`.
+- README, `VERSION` `stackd-v1.6.0`, `npm run check`, `npm run bundle`,
+  merge to `main`, then the workflows: proxy (with migrations), site,
+  iOS, Android.
+
+Order rationale: the address moves first because cookies, the CSP and
+the legal URLs all depend on it, and it is the only phase safe to ship
+alone; the server precedes its UI so the UI is built against real
+answers; sync needs a session; the plan needs both; the lock is
+independent of sync and waits for the plugin spike; the legal pages come
+late so they describe what was actually built; the review comes last so
+it sees everything.
+
+---
+
+## 35. Acceptance criteria → phase
+
+| PRD criterion | Phase |
+|---|---|
+| AC-01.1 – 01.3 | 25 |
+| AC-01.4 | 30 |
+| AC-02.1 – 02.5 | 25 |
+| AC-02.6 – 02.9 | 24 (API), 25 (messages) |
+| AC-03.1, 03.2, 03.6 | 25 (03.1 rules: 24) |
+| AC-03.3 – 03.5, 03.7 | 24 |
+| AC-03.8 | 29 (texts) |
+| AC-04.1, 04.3, 04.6 | 25 |
+| AC-04.2, 04.4, 04.5 | 24 |
+| AC-05.1 – 05.11 | 26 |
+| AC-06.1 – 06.8 | 26 |
+| AC-07.1 – 07.8 | 28 |
+| AC-08.1 – 08.7 | 27 |
+| AC-09.1 – 09.3, 09.5 | 24 |
+| AC-09.4 | 23 (DNS), 30 (three mailboxes) |
+| AC-10.1 – 10.6 | 29 |
+| AC-11.1 – 11.5, 11.7 – 11.9 | 29 |
+| AC-11.6 | 23 |
+| AC-12.1 – 12.4 | 23 |
+| AC-13.1 – 13.3, 13.5 | 30 |
+| AC-13.4 | done (README, workflow doc) |
+| AC-13.6 | 23 |
+| AC-14.1 – 14.3 | 25 (sign-in), 26, 28, 29 for their own screens |
+| AC-14.4 | each phase for its files; 30 verified |
+
+---
+
+## 36. Risks and Mitigations (1.6.0)
+
+| Risk | Mitigation |
+|---|---|
+| Whoever controls the mailbox can reset the PIN and take the account | Inherent to reset by email and stated in §28. A reset deletes every other session and mails a notice; hardening later: a waiting period before a reset takes effect. |
+| A stolen database reveals PINs (10 000 values) | The PIN hash is keyed with a Worker secret that is not in the database; PBKDF2 at the runtime's ceiling on top. |
+| A device clock that is wrong loses or wins every conflict | `changedAt` uses server-corrected time and is always above the last synced value; the server clamps to its own clock. |
+| Inbound sync re-renders while the user types | Inbound changes wait while an editable element has focus; the shadow is updated before applying, so no echo. |
+| Manual reordering renumbers a whole board and floods sync | 200 changes per request with paging; hashing makes unchanged records free; measured in Phase 26 against AC-05.11. |
+| First merge doubles the sample data or loses real data | `isUntouchedSeed`; the backup slot; `mergePlan` and the merge paths in `check-sync.mjs` before any UI. |
+| "Use my account" or "Remove from this device" orphans recordings | Backup keys count as referenced; "Remove" counts the recordings and asks again. |
+| The session cookie is not sent (browser treats the API as third party) | App and API share the registrable domain, so the cookie is same-site; verified in Safari, Firefox and Chrome in Phase 25. Local development uses `wrangler dev` with the app on `localhost`. |
+| Cross-site request forgery on cookie routes | `SameSite=Strict`, mandatory allowed `Origin`, and a custom header that forces a preflight. |
+| GitHub Pages redirect or missing headers | Avoided: the new address is on Cloudflare, the old one is left as it is (§28). |
+| Recordings made in the browser at the old address cannot move | Stated in the banner; transcripts and minutes move in the file; phones are unaffected. |
+| The biometric or secure-storage plugin is not reachable through the bridge | One-hour spike at the start of Phase 28; fallback is bundling the wrapper as for RevenueCat; the PIN works regardless. |
+| RevenueCat does not move the purchase on `logIn` from a custom id | `syncPurchases` after `logIn`, with the project's restore behaviour set to transfer; verified in the Phase 27 sandbox run before anything else in that phase. |
+| Cloudflare's email service is still beta, or the Worker is on the free plan | The mail adapter; an HTTP provider behind the same interface. |
+| Worker logs capture addresses or emails | Invocation logs off; emails only in POST bodies, never in URLs; a test greps the captured console output. |
+| D1 limits (row size, statement count per batch) | 1 MB per record and 200 changes per request stay well inside them; a transcript near the limit is refused with `too_large` rather than truncated. |
+| The lock is mistaken for encryption | Texts in Settings and the policy (AC-03.8); the review in Phase 30 checks them. |
+| The CSP breaks the shells or the `file://` bundle | The CSP is a response header of the web host only; shells and `file://` never receive it. |
+| Service-worker shell drift with thirteen new files | `check-shell.mjs`; VERSION bump in Phase 30. |
+| Secrets in the public repository | Peppers and the mail key are Worker secrets; tester status is a database flag; `check-origins.mjs` and the security review both look for stray keys. |
+
+---
+
+## 37. Checks added to `npm run check`
+
+| Script | Covers |
+|---|---|
+| `scripts/check-sync.mjs` (new) | `canonical` key order and stability; `hash` on equal and different input; `toWire` strips the device-only fields for every kind; `fromWire(toWire(x), x)` round trip; `diff` for new, changed, unchanged and removed records; `nextChangedAt` with a clock a day behind; `mergePlan` for the four cases; the runner against a fake `net.request`: push then apply, rejected `older` and `deleted`, paging, back-off, nothing sent when signed out. |
+| `scripts/check-lock.mjs` (new) | `shouldLock` for each setting around its boundary and at boot; `backoffMs`; verifier round trip and a wrong PIN; `checkAge` at the 18-year boundary and the 24-hour refusal. |
+| `scripts/check-origins.mjs` (new) | Every URL in `index.html`, the legal pages, `styles/`, `src/`, `app.js` and `sw.js` is on the allow-list (the app origin, the proxy, the store management links, XML namespaces); fails on anything else, and on a string shaped like a provider key. |
+| `scripts/check-store.mjs` (extended) | `applyRemote` does not change `updatedAt`, keeps a meeting's local `recording` and a task's `reminderFiredAt`, removes media for a remotely deleted meeting through the injected stub; `replaceRecords`; `isUntouchedSeed` on a fresh seed, after one edit, and on a 1.5.0 store; a signed-out store written by 1.6.0 equals what 1.5.0 would write. |
+| `scripts/check-ai.mjs` (extended) | The AI steps through `net.js`; `signed_out` forgets the session once; a signed-in request sends no reliance on `X-Stackd-Subscriber`. |
+| `scripts/check-shell.mjs` (unchanged) | Fails until the thirteen new files are in SHELL. |
+
+The proxy's `npm test` gains the Phase 24 and Phase 26 cases listed in
+§34, run against `node:sqlite` through a thin D1-shaped adapter so the
+SQL in `db.js` is the SQL that is tested; `proxy.yml` runs it before the
+migrations and the deploy.
