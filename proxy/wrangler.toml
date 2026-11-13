@@ -21,9 +21,11 @@ binding = "POOL"
 id = "5db8ec1359f04d0281e126e1d0948147"
 
 [vars]
-# Origins the web app is served from; the shells send capacitor:// (iOS)
-# and http://localhost (Android). Comma-separated.
-ALLOWED_ORIGINS = "https://eugeniocalva.github.io,capacitor://localhost,ionic://localhost,http://localhost,http://localhost:8123,http://localhost:8124"
+# Origins the web app is served from: the new address (1.6.0) and the old
+# GitHub Pages one, which keeps working for one release (PRD-accounts
+# AC-12.2). The shells send capacitor:// (iOS) and http://localhost
+# (Android). Comma-separated.
+ALLOWED_ORIGINS = "https://app.stackdplatform.com,https://eugeniocalva.github.io,capacitor://localhost,ionic://localhost,http://localhost,http://localhost:8123,http://localhost:8124"
 # Minutes model (PRD-meetings Q15: the Phase 16 benchmark picks between the
 # small and mid tiers; the mid tier is the fallback).
 SUMMARY_MODEL = "claude-sonnet-5-5"

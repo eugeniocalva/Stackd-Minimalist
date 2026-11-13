@@ -1,0 +1,110 @@
+# Builds the web app and deploys it to Cloudflare, where it is served on
+# https://app.stackdplatform.com with the headers in _headers
+# (docs/architecture.md §30, PRD-accounts US-12).
+#
+# GitHub Pages keeps publishing the same code on the old github.io address
+# by itself; there the app shows the "Stack'd has moved" banner.
+#
+# Trigger: every push to main, and by hand. A `push` run only starts for
+# commits pushed to this repository by someone with write access; a fork or
+# a pull request cannot start it, so the deploy token stays out of reach.
+# There is deliberately no pull_request trigger.
+#
+# ┌─ OWNER: fill these in before the first deploy ────────────────────────┐
+# │ 1. Create the Cloudflare Pages project (Workers & Pages > Create >    │
+# │    Pages > Direct Upload) and attach the custom domain                │
+# │    app.stackdplatform.com to it.                                      │
+# │ 2. Put the project's name in CLOUDFLARE_PAGES_PROJECT below.          │
+# │ 3. Secrets (Settings > Secrets and variables > Actions):              │
+# │      CLOUDFLARE_PAGES_TOKEN  an API token with only                   │
+# │                              "Account > Cloudflare Pages > Edit"      │
+# │      CLOUDFLARE_ACCOUNT_ID   the account id (already set for          │
+# │                              proxy.yml if the account is the same)    │
+# │ Until 2 and 3 are done the run builds and checks, then skips the      │
+# │ deploy with a warning instead of failing.                             │
+# └───────────────────────────────────────────────────────────────────────┘
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-deploy
+  cancel-in-progress: false
+
+env:
+  # PLACEHOLDER: the Cloudflare Pages project name. Replace it.
+  CLOUDFLARE_PAGES_PROJECT: REPLACE_WITH_PAGES_PROJECT_NAME
+  # Same version as proxy/package.json, so one wrangler is in use.
+  WRANGLER_VERSION: 4.151.3
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The same gate as the app builds; includes the origin allow-list
+      # (scripts/check-origins.mjs, AC-11.6).
+      - name: Gates (npm run check)
+        run: npm run check
+
+      - name: Build the site into www/
+        run: npm run build -- --site
+
+      - name: Check the site tree
+        run: |
+          for f in index.html app.js sw.js _headers privacy.html terms.html; do
+            [ -f "www/$f" ] || { echo "::error::www/$f is missing from the site build"; exit 1; }
+          done
+          grep -q "script-src 'self'" www/_headers || { echo "::error::_headers lost its Content-Security-Policy"; exit 1; }
+
+      - name: Is the deploy configured?
+        id: cfg
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          ready=true
+          case "$CLOUDFLARE_PAGES_PROJECT" in
+            REPLACE_WITH_*) echo "::warning::site.yml still has the placeholder project name - nothing deployed"; ready=false ;;
+          esac
+          [ -n "$TOKEN" ] || { echo "::warning::secret CLOUDFLARE_PAGES_TOKEN is not set - nothing deployed"; ready=false; }
+          [ -n "$ACCOUNT" ] || { echo "::warning::secret CLOUDFLARE_ACCOUNT_ID is not set - nothing deployed"; ready=false; }
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Cloudflare
+        if: ${{ steps.cfg.outputs.ready == 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >
+          npx --yes "wrangler@$WRANGLER_VERSION" pages deploy www
+          --project-name "$CLOUDFLARE_PAGES_PROJECT"
+          --branch main
+          --commit-dirty=true
+
+      # The address is the APP_ORIGIN constant in src/legal.js.
+      - name: Smoke test
+        if: ${{ steps.cfg.outputs.ready == 'true' }}
+        run: |
+          url="$(sed -n "s/^export const APP_ORIGIN = '\([^']*\)';.*/\1/p" src/legal.js)"
+          [ -n "$url" ] || { echo "::error::APP_ORIGIN not found in src/legal.js"; exit 1; }
+          sleep 10
+          curl -fsSI "$url/" | tr -d '\r' | grep -qi "^content-security-policy:.*script-src 'self'" \
+            || { echo "::error::$url/ did not answer with the Content-Security-Policy header"; exit 1; }
+          echo "site OK at $url"

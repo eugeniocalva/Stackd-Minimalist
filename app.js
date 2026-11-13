@@ -12,7 +12,7 @@ import { applyTheme, systemDark } from './src/theme.js';
 import { app } from './src/util.js';
 import {
   onboardingHTML, bindOnboarding, listsMenuHTML, bindListsMenu,
-  mobileNavHTML, bindMobileNav, desktopHTML, bindDesktop,
+  mobileNavHTML, bindMobileNav, desktopHTML, bindDesktop, moveBannerHTML, bindMoveBanner,
 } from './src/ui/shell.js';
 import { mobileListHTML, bindMobileList } from './src/ui/board.js';
 import { detailHTML, bindDetail } from './src/ui/detail.js';
@@ -38,10 +38,11 @@ function render() {
     toast('Stop the recording first');
   }
   const focusAddsub = document.activeElement?.classList?.contains('addsub-input');
-  if (!S.onboarded) { app.innerHTML = onboardingHTML(); bindOnboarding(); return; }
+  const banner = moveBannerHTML();   // '' except on the old address
+  if (!S.onboarded) { app.innerHTML = banner + onboardingHTML(); bindOnboarding(); bindMoveBanner(); return; }
 
   if (isDesktop.matches) {
-    app.innerHTML = desktopHTML();
+    app.innerHTML = banner + desktopHTML();
     bindDesktop();
   } else {
     const screen = UI.screen === 'lists' ? listsMenuHTML()
@@ -55,7 +56,7 @@ function render() {
       : mobileListHTML();
     /* no nav on a detail, nor behind an open composer (its toolbar must stay above the keyboard) */
     const withNav = !['detail', 'note', 'meeting'].includes(UI.screen) && !(UI.screen === 'notes' && UI.composer.expanded);
-    app.innerHTML = screen + (withNav ? mobileNavHTML() : '');
+    app.innerHTML = banner + screen + (withNav ? mobileNavHTML() : '');
     if (UI.screen === 'lists') bindListsMenu();
     else if (UI.screen === 'detail') bindDetail();
     else if (UI.screen === 'folders') bindFolders();
@@ -67,6 +68,7 @@ function render() {
     else bindMobileList();
     if (withNav) bindMobileNav();
   }
+  bindMoveBanner();
   if (focusAddsub || UI.refocusAddsub) {
     UI.refocusAddsub = false;
     document.querySelector('.addsub-input')?.focus();

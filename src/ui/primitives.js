@@ -157,3 +157,16 @@ export function openMenu(anchorEl, items) {
   document.addEventListener('keydown', onKey);
   bind(pop, close);
 }
+
+/* ── File download ───────────────────────────────────────────────────── */
+
+/** Hands a Blob to the browser as a download (web only). */
+export function downloadFile(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.hidden = true;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}

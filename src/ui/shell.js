@@ -17,6 +17,33 @@ import { noteDetailHTML, bindNoteDetail } from './notedetail.js';
 import { searchFieldHTML, bindSearch } from './search.js';
 import { meetingsHTML, bindMeetings, openMeetings, addMeeting } from './meetings.js';
 import { meetingHTML, bindMeeting } from './meeting.js';
+import { toast, downloadFile } from './primitives.js';
+import { APP_ORIGIN, APP_HOST, isLegacyOrigin } from '../legal.js';
+import { exportFile, exportFileName } from '../backup.js';
+
+/* — the old address (PRD-accounts AC-12.2, AC-12.3) — */
+
+/** On github.io only: the app has moved, and the data stored under this
+    address can only leave as a file. Shown above every screen, installed
+    PWA included; it cannot be dismissed, the address goes away. */
+export function moveBannerHTML() {
+  if (!isLegacyOrigin()) return '';
+  return `
+  <div class="notice move-banner" role="region" aria-label="Stack'd has moved">
+    ${icon('move', 18)}
+    <span><strong>Stack'd has moved to <a href="${APP_ORIGIN}" target="_blank" rel="noopener">${APP_HOST}</a>.</strong>
+      Download your data here, then import it there in Settings. Recordings cannot travel in the file; their transcripts and minutes do.</span>
+    <button class="btn btn-sm btn-secondary" data-download-data>${icon('download', 16)}Download my data</button>
+  </div>`;
+}
+
+export function bindMoveBanner() {
+  app.querySelector('[data-download-data]')?.addEventListener('click', () => {
+    const name = exportFileName();
+    downloadFile(exportFile(), name);
+    toast(`Saved ${name}. Open ${APP_HOST}, then Settings › Import a Stack'd file.`, { ms: 10000 });
+  });
+}
 
 /* — onboarding — */
 

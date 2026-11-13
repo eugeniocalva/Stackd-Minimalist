@@ -259,8 +259,8 @@
     }
     return wanted.map((e) => {
       if (isHeld(e)) return { ...e, id: ids.get(e.taskId), sig: held.get(e.taskId).sig, held: true };
-      const text = e.fireAt <= now ? reminderText(e, e.board, phraseAt(e, now)) : {};
-      const out = { ...e, ...text, id: ids.get(e.taskId) };
+      const text2 = e.fireAt <= now ? reminderText(e, e.board, phraseAt(e, now)) : {};
+      const out = { ...e, ...text2, id: ids.get(e.taskId) };
       return { ...out, sig: `${out.fireAt}|${out.title}|${out.body}` };
     });
   }
@@ -299,13 +299,13 @@
       if (boundary && !atStart) out.push("<br>");
       boundary = false;
     };
-    const pushText = (text) => {
-      if (!text) return;
-      if (text.trim()) {
+    const pushText = (text2) => {
+      if (!text2) return;
+      if (text2.trim()) {
         flushBoundary();
         atStart = false;
       }
-      out.push(escText(text));
+      out.push(escText(text2));
     };
     const closeTo = (name) => {
       const i = open2.lastIndexOf(name);
@@ -340,7 +340,7 @@
     while (open2.length) out.push(`</${open2.pop()}>`);
     return out.join("").replace(/^(?:\s|<br>)+/, "").replace(/(?:<br>|\s)+((?:<\/[bius]>)*)$/, "$1").replace(/(?:<br>){3,}/g, "<br><br>").replace(/<([bius])><\/\1>/g, "");
   }
-  var fromPlain = (text) => sanitize(escText(String(text ?? "")).replace(/\r?\n/g, "<br>"));
+  var fromPlain = (text2) => sanitize(escText(String(text2 ?? "")).replace(/\r?\n/g, "<br>"));
   var ENTITY = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
   var decode = (s) => s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e) => {
     if (e[0] === "#") {
@@ -352,7 +352,7 @@
   function toText(html) {
     const src = String(html ?? "").replace(DROP_CONTENT, "");
     let s = "", last = 0, boundary = false;
-    const text = (t) => {
+    const text2 = (t) => {
       if (!t) return;
       if (t.trim() && boundary) {
         s += "\n";
@@ -361,7 +361,7 @@
       s += t;
     };
     for (const m of src.matchAll(TOKEN)) {
-      text(src.slice(last, m.index));
+      text2(src.slice(last, m.index));
       last = m.index + m[0].length;
       const raw = m[1] ? m[1].toLowerCase() : null;
       if (raw === "br") {
@@ -369,7 +369,7 @@
         boundary = false;
       } else if (raw && BLOCK.has(raw)) boundary = true;
     }
-    text(src.slice(last));
+    text2(src.slice(last));
     return decode(s).replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
   }
   var firstLine = (html) => toText(html).split("\n").find((l) => l.trim()) || "";
@@ -569,12 +569,12 @@
       ...v1,
       version: 2,
       tasks: (v1.tasks || []).map((t) => {
-        const time = V1_REMINDER_TIME[t.reminder];
-        const hasSchedule = !!(t.due && time);
+        const time2 = V1_REMINDER_TIME[t.reminder];
+        const hasSchedule = !!(t.due && time2);
         const task = {
           ...blankTask(t.listId, t.title),
           ...t,
-          dueTime: hasSchedule ? time : null,
+          dueTime: hasSchedule ? time2 : null,
           reminder: hasSchedule ? 0 : null,
           createdAt: now,
           updatedAt: now
@@ -1234,11 +1234,11 @@
     commit();
     return t;
   }
-  function editSegment(id, segmentId, text) {
+  function editSegment(id, segmentId, text2) {
     const m = meetingById(id);
     const seg = m?.transcript?.segments.find((s) => s.id === segmentId);
     if (!seg || m.status !== "active") return;
-    const t = String(text ?? "").trim();
+    const t = String(text2 ?? "").trim();
     if (!t || t === seg.text) return;
     seg.text = t;
     m.transcript.updatedAt = Date.now();
@@ -1423,19 +1423,19 @@
   function newList() {
     const name = prompt("New board name");
     if (!name || !name.trim()) return;
-    const list2 = { id: uid(), name: name.trim(), lanes: defaultLanes() };
-    S.lists.push(list2);
-    S.currentList = list2.id;
+    const list3 = { id: uid(), name: name.trim(), lanes: defaultLanes() };
+    S.lists.push(list3);
+    S.currentList = list3.id;
     UI.screen = "list";
     commit();
   }
   function addLane(listId, name) {
-    const list2 = listById(listId);
+    const list3 = listById(listId);
     const n = (name || "").trim();
-    if (!list2 || !n) return null;
+    if (!list3 || !n) return null;
     const lane = { id: uid(), name: n };
-    const i = list2.lanes.findIndex((l) => l.id === DONE_LANE);
-    list2.lanes.splice(i === -1 ? list2.lanes.length : i, 0, lane);
+    const i = list3.lanes.findIndex((l) => l.id === DONE_LANE);
+    list3.lanes.splice(i === -1 ? list3.lanes.length : i, 0, lane);
     commit();
     return lane;
   }
@@ -1456,9 +1456,9 @@
   }
   var canDeleteLane = (listId, laneId) => laneId !== DONE_LANE && lanesOf(listId).filter((l) => l.id !== DONE_LANE && l.id !== laneId).length > 0;
   function deleteLane(listId, laneId) {
-    const list2 = listById(listId);
-    if (!list2 || !canDeleteLane(listId, laneId)) return null;
-    list2.lanes = list2.lanes.filter((l) => l.id !== laneId);
+    const list3 = listById(listId);
+    if (!list3 || !canDeleteLane(listId, laneId)) return null;
+    list3.lanes = list3.lanes.filter((l) => l.id !== laneId);
     const to = firstLane(listId);
     let moved = 0;
     S.tasks.forEach((t) => {
@@ -1614,6 +1614,65 @@
     const removed = before - S.tasks.length - S.notes.length - S.meetings.length;
     if (removed) save();
     return removed;
+  }
+  function exportRecords() {
+    return JSON.parse(JSON.stringify({
+      lists: S.lists,
+      tasks: S.tasks,
+      notes: S.notes,
+      meetings: S.meetings,
+      settings: { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels }
+    }));
+  }
+  function replaceRecords({ lists, tasks, notes, meetings, settings }) {
+    const before = {
+      lists: S.lists,
+      tasks: S.tasks,
+      notes: S.notes,
+      meetings: S.meetings,
+      dateFormat: S.dateFormat,
+      priorities: S.priorities,
+      labels: S.labels,
+      currentList: S.currentList
+    };
+    const mine = new Map(S.meetings.map((m) => [m.id, m]));
+    const now = Date.now();
+    S.lists = lists;
+    S.tasks = tasks;
+    S.tasks.forEach((t) => {
+      if (t.reminderFiredAt === null) armReminder(t, now);
+    });
+    S.notes = notes;
+    S.meetings = meetings.map((m) => {
+      const local = mine.get(m.id);
+      return {
+        ...m,
+        recording: local?.recording ?? null,
+        jobs: local?.jobs ?? { transcribe: null, summarise: null },
+        lastError: local?.lastError ?? null
+      };
+    });
+    if (isDateFormat(settings.dateFormat)) S.dateFormat = settings.dateFormat;
+    S.priorities = settings.priorities;
+    S.labels = settings.labels;
+    withSettings(S);
+    if (!listById(S.currentList)) S.currentList = S.lists[0].id;
+    try {
+      save();
+    } catch (e) {
+      Object.assign(S, before);
+      withSettings(S);
+      throw e;
+    }
+    const kept = new Set(S.meetings.map((m) => m.id));
+    dropMedia(before.meetings.filter((m) => !kept.has(m.id)));
+    if (["detail", "note", "meeting"].includes(UI.screen)) UI.screen = "list";
+    UI.detailId = null;
+    UI.query = "";
+    UI.queryKey = null;
+    UI.tagFilter = null;
+    renderer();
+    afterCommit();
   }
 
   // src/notify.js
@@ -1865,6 +1924,8 @@
     stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>',
     play: '<path d="m6 3 14 9-14 9V3z" fill="currentColor"/>',
     pause: '<rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
     document: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
     sparkle: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',
     attach: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
@@ -2025,6 +2086,17 @@
     back.addEventListener("click", close);
     document.addEventListener("keydown", onKey);
     bind(pop, close);
+  }
+  function downloadFile(blob2, name) {
+    const url = URL.createObjectURL(blob2);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.hidden = true;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1e4);
   }
 
   // src/ui/schedule.js
@@ -3034,9 +3106,17 @@
     }
   }
 
+  // src/legal.js
+  var APP_ORIGIN = "https://app.stackdplatform.com";
+  var APP_HOST = new URL(APP_ORIGIN).host;
+  var TERMS_URL = `${APP_ORIGIN}/terms.html`;
+  var PRIVACY_URL = `${APP_ORIGIN}/privacy.html`;
+  var DELETION_URL = `${APP_ORIGIN}/account-deletion.html`;
+  function isLegacyOrigin(host = globalThis.location?.hostname || "") {
+    return /(^|\.)github\.io$/i.test(host);
+  }
+
   // src/ui/paywall.js
-  var TERMS_URL = "https://eugeniocalva.github.io/Stackd-Minimalist/terms.html";
-  var PRIVACY_URL = "https://eugeniocalva.github.io/Stackd-Minimalist/privacy.html";
   var BLURB = {
     plus: "A 30-minute call most working days",
     pro: "Two 30-minute calls every working day",
@@ -3066,9 +3146,9 @@
     ${action}
   </div>`;
   }
-  var bar = (label, left, total, text) => `
+  var bar = (label, left, total, text2) => `
   <div class="plan-bar" role="group" aria-label="${esc(label)}">
-    <div class="plan-bar-line"><span>${esc(label)}</span><span class="num">${esc(text)}</span></div>
+    <div class="plan-bar-line"><span>${esc(label)}</span><span class="num">${esc(text2)}</span></div>
     <div class="plan-track"><div class="plan-fill" style="width:${total ? Math.round(100 * Math.max(0, Math.min(1, left / total))) : 0}%"></div></div>
   </div>`;
   function planSectionHTML() {
@@ -3273,31 +3353,31 @@
   }
   function minutesToText(m) {
     const mm = m.minutes;
-    const lines = [meetingTitle(m), `${fmtDate(m.createdAt, S.dateFormat)} ${fmtClock(m.createdAt)}`, ""];
-    lines.push("Summary", mm.summary || "None noted", "");
-    lines.push("Decisions", ...mm.decisions.length ? mm.decisions.map((d) => `- ${d}`) : ["None noted"], "");
-    lines.push("Open questions", ...mm.openQuestions.length ? mm.openQuestions.map((q) => `- ${q}`) : ["None noted"], "");
+    const lines2 = [meetingTitle(m), `${fmtDate(m.createdAt, S.dateFormat)} ${fmtClock(m.createdAt)}`, ""];
+    lines2.push("Summary", mm.summary || "None noted", "");
+    lines2.push("Decisions", ...mm.decisions.length ? mm.decisions.map((d) => `- ${d}`) : ["None noted"], "");
+    lines2.push("Open questions", ...mm.openQuestions.length ? mm.openQuestions.map((q) => `- ${q}`) : ["None noted"], "");
     const actions = m.actions.filter((a) => a.status !== "dismissed");
-    lines.push("Actions", ...actions.length ? actions.map((a) => `- ${a.title}${a.due ? ` · due ${fmtDate(a.due, S.dateFormat)}` : ""}${a.priority !== "none" ? ` · ${priorityName(a.priority)}` : ""}${a.status === "added" ? " · on a board" : ""}`) : ["None"]);
-    lines.push("", generatedLine(mm));
-    return lines.join("\n");
+    lines2.push("Actions", ...actions.length ? actions.map((a) => `- ${a.title}${a.due ? ` · due ${fmtDate(a.due, S.dateFormat)}` : ""}${a.priority !== "none" ? ` · ${priorityName(a.priority)}` : ""}${a.status === "added" ? " · on a board" : ""}`) : ["None"]);
+    lines2.push("", generatedLine(mm));
+    return lines2.join("\n");
   }
   var generatedLine = (mm) => `Generated by AI · ${fmtDate(mm.generatedAt, S.dateFormat)} ${fmtClock(mm.generatedAt)} · check before you rely on it.`;
-  function sectionHTML(key, title, value, { readOnly, list: list2 }) {
-    const text = list2 ? value.join("\n") : value;
-    const empty = !text.trim();
+  function sectionHTML(key, title, value, { readOnly, list: list3 }) {
+    const text2 = list3 ? value.join("\n") : value;
+    const empty = !text2.trim();
     if (readOnly) {
       return `
     <div class="min-section">
       <span class="section-title">${title}</span>
-      ${empty ? '<p class="min-empty">None noted</p>' : list2 ? `<ul class="min-list">${value.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="min-text">${esc(text)}</p>`}
+      ${empty ? '<p class="min-empty">None noted</p>' : list3 ? `<ul class="min-list">${value.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="min-text">${esc(text2)}</p>`}
     </div>`;
     }
     return `
   <div class="min-section">
     <label class="section-title" for="min-${key}">${title}</label>
-    <textarea id="min-${key}" class="min-edit ${list2 ? "min-edit-list" : ""}" data-min="${key}" rows="1" placeholder="None noted" aria-label="${title}">${esc(text)}</textarea>
-    ${list2 ? '<span class="hint">One per line</span>' : ""}
+    <textarea id="min-${key}" class="min-edit ${list3 ? "min-edit-list" : ""}" data-min="${key}" rows="1" placeholder="None noted" aria-label="${title}">${esc(text2)}</textarea>
+    ${list3 ? '<span class="hint">One per line</span>' : ""}
   </div>`;
   }
   function minutesHTML(m, { readOnly = false } = {}) {
@@ -3354,6 +3434,277 @@
     window.addEventListener("pagehide", flush, { once: true });
   }
 
+  // src/backup.js
+  var FILE_APP = "stackd";
+  var FILE_FORMAT = 1;
+  var MAX_FILE_BYTES = 12 * 1024 * 1024;
+  var MAX_RECORDS = 2e4;
+  var ACCOUNT_KEY = "stackd-account";
+  var ImportError = class extends Error {
+    constructor(code, message) {
+      super(message);
+      this.name = "ImportError";
+      this.code = code;
+    }
+  };
+  function canImport() {
+    try {
+      return localStorage.getItem(ACCOUNT_KEY) === null;
+    } catch {
+      return true;
+    }
+  }
+  var countsOf = (r) => ({ boards: r.lists.length, tasks: r.tasks.length, notes: r.notes.length, meetings: r.meetings.length });
+  function exportDocument(now = Date.now()) {
+    const records = exportRecords();
+    records.meetings = records.meetings.map(({ recording, jobs, lastError, ...m }) => m);
+    return { app: FILE_APP, format: FILE_FORMAT, exportedAt: now, records };
+  }
+  var exportFileName = (now = Date.now()) => `stackd-export-${toISO(new Date(now))}.json`;
+  function exportFile(now = Date.now()) {
+    return new Blob([JSON.stringify(exportDocument(now))], { type: "application/json" });
+  }
+  var ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+  var SPEAKER = /^[A-Za-z0-9][\w .-]{0,39}$/;
+  var ISO_DATE = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/;
+  var HHMM = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  var STATUSES = ["active", "archived", "deleted"];
+  var RECURS = RECUR_OPTIONS.map(([v]) => v);
+  var REMINDERS = REMINDER_OPTIONS.map(([v]) => v);
+  var SOURCES = ["recording", "pasted", "file"];
+  var ACTION_STATUSES = ["proposed", "added", "dismissed"];
+  var LONG = 2e6;
+  var bad = (what) => {
+    throw new ImportError("bad_file", `This file is damaged (${what}).`);
+  };
+  var isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  var obj = (v, what) => isObj(v) ? v : bad(what);
+  var list2 = (v, what) => v === void 0 || v === null ? [] : Array.isArray(v) ? v : bad(what);
+  var idOf = (v, what) => typeof v === "string" && ID.test(v) ? v : bad(`${what} without a valid id`);
+  var text = (v, max = 2e3) => typeof v === "string" ? v.slice(0, max) : "";
+  var flag = (v) => v === true;
+  var time = (v) => Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
+  var num = (v, fallback) => Number.isFinite(v) ? v : fallback;
+  var count = (v) => Number.isInteger(v) && v >= 0 ? v : 0;
+  var date = (v) => typeof v === "string" && ISO_DATE.test(v) ? v : null;
+  var pick = (v, allowed, fallback) => allowed.includes(v) ? v : fallback;
+  var tagsOf = (v) => normalizeTags(list2(v, "labels that are not a list").filter((x) => typeof x === "string").map((x) => x.slice(0, 64)));
+  function unique(items, what) {
+    const seen = /* @__PURE__ */ new Set();
+    items.forEach((x) => {
+      if (seen.has(x.id)) bad(`two ${what} with the same id`);
+      seen.add(x.id);
+    });
+    return items;
+  }
+  function lifecycle(r, now) {
+    const status = pick(r.status, STATUSES, "active");
+    return {
+      status,
+      archivedAt: status === "archived" ? time(r.archivedAt) ?? now : null,
+      deletedAt: status === "deleted" ? time(r.deletedAt) ?? now : null
+      // never null: purgeDeleted() would drop it at once
+    };
+  }
+  function stamps(r, now) {
+    const createdAt = time(r.createdAt) ?? now;
+    return { createdAt, updatedAt: Math.max(createdAt, time(r.updatedAt) ?? createdAt) };
+  }
+  var checkItems = (v, field, what) => list2(v, what).map((c) => {
+    obj(c, what);
+    return { id: idOf(c.id, what), [field]: text(c[field]), done: flag(c.done) };
+  });
+  function cleanBoard(r) {
+    obj(r, "a board that is not a record");
+    let lanes = unique(list2(r.lanes, "lanes that are not a list").map((l) => {
+      obj(l, "a lane that is not a record");
+      return { id: idOf(l.id, "a lane"), name: text(l.name, 80).trim() || "Lane" };
+    }), "lanes");
+    if (!lanes.length) lanes = defaultLanes();
+    if (!lanes.some((l) => l.id === DONE_LANE)) lanes.push({ id: DONE_LANE, name: "Done" });
+    if (lanes.length === 1) lanes.unshift({ id: "backlog", name: "Backlog" });
+    return { id: idOf(r.id, "a board"), name: text(r.name, 80).trim() || "Board", lanes };
+  }
+  function cleanPriority(r) {
+    obj(r, "a priority that is not a record");
+    const id = idOf(r.id, "a priority");
+    if (id === "none") bad("a priority called none");
+    return { id, name: text(r.name, 24).trim() || "Priority", color: pick(r.color, PRIORITY_COLORS, "gray") };
+  }
+  function cleanTask(r, i, ctx) {
+    obj(r, "a task that is not a record");
+    const board = ctx.boards.get(r.listId) || ctx.firstBoard;
+    const lane = board.lanes.some((l) => l.id === r.lane) ? r.lane : (board.lanes.find((l) => l.id !== DONE_LANE) || board.lanes[0]).id;
+    const due = date(r.due);
+    const start = date(r.start);
+    const o = r.origin;
+    const origin = isObj(o) && typeof o.listId === "string" && ID.test(o.listId) ? { listId: o.listId, lane: typeof o.lane === "string" && ID.test(o.lane) ? o.lane : lane, order: num(o.order, 0) } : null;
+    const f = r.from;
+    const from = isObj(f) && typeof f.meetingId === "string" && ID.test(f.meetingId) && typeof f.actionId === "string" && ID.test(f.actionId) ? { meetingId: f.meetingId, actionId: f.actionId } : null;
+    const life = lifecycle(r, ctx.now);
+    return {
+      id: idOf(r.id, "a task"),
+      listId: board.id,
+      lane,
+      title: text(r.title).trim() || "Untitled",
+      done: flag(r.done),
+      order: num(r.order, i),
+      priority: ctx.priorities.has(r.priority) ? r.priority : "none",
+      tags: tagsOf(r.tags),
+      subtasks: checkItems(r.subtasks, "title", "a subtask"),
+      start: start && (!due || start <= due) ? start : null,
+      due,
+      dueTime: due && typeof r.dueTime === "string" && HHMM.test(r.dueTime) ? r.dueTime : null,
+      recur: due ? pick(r.recur, RECURS, "none") : "none",
+      reminder: due ? pick(r.reminder, REMINDERS, null) : null,
+      reminderFiredAt: time(r.reminderFiredAt),
+      completedCount: count(r.completedCount),
+      lastCompletedAt: time(r.lastCompletedAt),
+      ...life,
+      origin: life.status === "active" ? null : origin,
+      from,
+      ...stamps(r, ctx.now)
+    };
+  }
+  function cleanNote(r, i, ctx) {
+    obj(r, "a note that is not a record");
+    return {
+      id: idOf(r.id, "a note"),
+      order: num(r.order, i),
+      title: text(r.title),
+      body: sanitize(text(r.body, LONG)),
+      color: pick(r.color, NOTE_COLORS, null),
+      tags: tagsOf(r.tags),
+      checklist: r.checklist === null || r.checklist === void 0 ? null : checkItems(r.checklist, "text", "a checklist item"),
+      ...lifecycle(r, ctx.now),
+      ...stamps(r, ctx.now)
+    };
+  }
+  function cleanTranscript(r, now) {
+    const speakers = {};
+    Object.entries(isObj(r.speakers) ? r.speakers : {}).forEach(([label, name]) => {
+      if (!SPEAKER.test(label)) bad("a speaker label");
+      speakers[label] = typeof name === "string" && name.trim() ? name.trim().slice(0, 80) : null;
+    });
+    const segments = list2(r.segments, "a transcript that is not a list").map((s) => {
+      obj(s, "a transcript line that is not a record");
+      if (typeof s.speaker !== "string" || !SPEAKER.test(s.speaker)) bad("a speaker label");
+      if (!Object.hasOwn(speakers, s.speaker)) speakers[s.speaker] = null;
+      return { id: idOf(s.id, "a transcript line"), speaker: s.speaker, startMs: Number.isFinite(s.startMs) && s.startMs >= 0 ? s.startMs : null, text: text(s.text, LONG).trim() };
+    }).filter((s) => s.text);
+    return {
+      source: pick(r.source, SOURCES, "pasted"),
+      fileName: typeof r.fileName === "string" && r.fileName ? r.fileName.slice(0, 200) : null,
+      segments,
+      speakers,
+      ...stamps(r, now)
+    };
+  }
+  var lines = (v) => list2(v, "minutes that are not a list").filter((x) => typeof x === "string").map((x) => x.slice(0, 4e3));
+  function cleanMeeting(r, i, ctx) {
+    obj(r, "a meeting that is not a record");
+    const transcript = isObj(r.transcript) ? cleanTranscript(r.transcript, ctx.now) : null;
+    const m = r.minutes;
+    const minutes = transcript && isObj(m) ? {
+      summary: text(m.summary, 2e4),
+      decisions: lines(m.decisions),
+      openQuestions: lines(m.openQuestions),
+      generatedAt: time(m.generatedAt) ?? ctx.now,
+      transcriptUpdatedAt: time(m.transcriptUpdatedAt) ?? 0
+      // unknown ⇒ shown as out of date
+    } : null;
+    const actions = unique(list2(r.actions, "actions that are not a list").map((a) => {
+      obj(a, "an action that is not a record");
+      return {
+        id: idOf(a.id, "an action"),
+        title: text(a.title).trim(),
+        due: date(a.due),
+        priority: ctx.priorities.has(a.priority) ? a.priority : "none",
+        excerpt: text(a.excerpt, 4e3),
+        status: pick(a.status, ACTION_STATUSES, "proposed"),
+        taskId: typeof a.taskId === "string" && ID.test(a.taskId) ? a.taskId : null
+      };
+    }).filter((a) => a.title), "actions");
+    return {
+      id: idOf(r.id, "a meeting"),
+      title: text(r.title),
+      ...stamps(r, ctx.now),
+      recording: null,
+      transcript,
+      minutes,
+      actions,
+      jobs: { transcribe: null, summarise: null },
+      lastError: null,
+      ...lifecycle(r, ctx.now)
+    };
+  }
+  function cleanRecords(raw, now = Date.now()) {
+    obj(raw, "no records");
+    const settings = obj(raw.settings, "no settings");
+    const lists = unique(list2(raw.lists, "boards that are not a list").map(cleanBoard), "boards");
+    if (!lists.length) bad("no boards");
+    const rawTasks = list2(raw.tasks, "tasks that are not a list");
+    const rawNotes = list2(raw.notes, "notes that are not a list");
+    const rawMeetings = list2(raw.meetings, "meetings that are not a list");
+    if (rawTasks.length + rawNotes.length + rawMeetings.length > MAX_RECORDS) bad("too many records");
+    const priorities = unique(list2(settings.priorities, "priorities that are not a list").map(cleanPriority), "priorities");
+    const ctx = {
+      now,
+      firstBoard: lists[0],
+      boards: new Map(lists.map((l) => [l.id, l])),
+      priorities: new Set(priorities.map((p) => p.id))
+    };
+    return {
+      lists,
+      tasks: unique(rawTasks.map((r, i) => cleanTask(r, i, ctx)), "tasks"),
+      notes: unique(rawNotes.map((r, i) => cleanNote(r, i, ctx)), "notes"),
+      meetings: unique(rawMeetings.map((r, i) => cleanMeeting(r, i, ctx)), "meetings"),
+      settings: {
+        dateFormat: isDateFormat(settings.dateFormat) ? settings.dateFormat : null,
+        // null: keep this device's
+        priorities,
+        labels: tagsOf(settings.labels)
+      }
+    };
+  }
+  function readDocument(doc, now = Date.now()) {
+    if (!isObj(doc) || doc.app !== FILE_APP || !Number.isInteger(doc.format)) {
+      throw new ImportError("not_stackd", "This is not a Stack'd file.");
+    }
+    if (doc.format > FILE_FORMAT) {
+      throw new ImportError("newer", "This file comes from a newer version of Stack'd. Update the app, then import it.");
+    }
+    return cleanRecords(doc.records, now);
+  }
+  async function importFile(file, { confirm } = {}) {
+    if (!canImport()) throw new ImportError("signed_in", "Sign out on this device before importing a file.");
+    if (file.size > MAX_FILE_BYTES) throw new ImportError("too_large", "This file is too large to import.");
+    let doc;
+    try {
+      doc = JSON.parse(await file.text());
+    } catch {
+      throw new ImportError("not_stackd", "This is not a Stack'd file.");
+    }
+    const records = readDocument(doc);
+    const counts = countsOf(records);
+    if (confirm) {
+      const incoming = new Set(records.meetings.map((m) => m.id));
+      const ok = await confirm({
+        counts,
+        current: countsOf(S),
+        recordingsLost: S.meetings.filter((m) => m.recording && !incoming.has(m.id)).length,
+        exportedAt: time(doc.exportedAt)
+      });
+      if (!ok) return null;
+    }
+    try {
+      replaceRecords(records);
+    } catch {
+      throw new ImportError("storage", "There is not enough room on this device for the file. Nothing was changed.");
+    }
+    return { counts };
+  }
+
   // src/ui/settings.js
   var THEME_LABEL = { light: "Light", dark: "Dark", system: "System" };
   var THEME_ICON = { light: "sun", dark: "moon", system: "monitor" };
@@ -3401,6 +3752,39 @@
     <span class="lrow-icon dashed">${icon("plus", 18)}</span>
     <input class="set-input" ${attr} placeholder="${label}" maxlength="32" autocomplete="off" aria-label="${label}">
   </div>`;
+  var showImport = () => canImport() && !isLegacyOrigin();
+  function dataSectionHTML() {
+    if (!showImport()) return "";
+    return `
+      <span class="section-title list-label" id="settings-data">Your data</span>
+      <div class="card list-card">
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon("upload", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Import a Stack'd file</span>
+            <span class="set-sub set-long">Brings in the boards, tasks, notes and meetings from a file made with Download my data.</span>
+          </div>
+          <button class="btn btn-sm btn-secondary" data-import>Choose file</button>
+          <input type="file" class="visually-hidden-input" data-import-file accept=".json,application/json" tabindex="-1" aria-hidden="true">
+        </div>
+      </div>
+      <p class="hint set-hint">The file replaces what is on this device. Recordings are not in the file; transcripts, minutes and actions are.</p>`;
+  }
+  var countLine = (c) => [plural(c.boards, "board"), plural(c.tasks, "task"), plural(c.notes, "note"), plural(c.meetings, "meeting")].join(", ");
+  async function runImport(file) {
+    try {
+      const done2 = await importFile(file, {
+        confirm: ({ counts, current, recordingsLost }) => confirmDialog(
+          "Replace what is on this device?",
+          `The file has ${countLine(counts)}. They replace the ${countLine(current)} on this device, which cannot be undone.${recordingsLost ? ` ${plural(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
+          { confirmLabel: "Replace", danger: true }
+        )
+      });
+      if (done2) toast(`Imported ${countLine(done2.counts)}`);
+    } catch (e) {
+      toast(e?.code ? e.message : "The file could not be imported. Nothing was changed.", { ms: 8e3 });
+    }
+  }
   function settingsHTML() {
     const labels = allTags().sort((a, b) => a.localeCompare(b, void 0, { sensitivity: "base" }));
     const n = S.priorities.length;
@@ -3495,6 +3879,8 @@
         <p class="hint set-hint">Proxy URL override, https only (http://localhost for a local Worker). Leave empty for the default.</p>
       </details>
 
+      ${dataSectionHTML()}
+
       <span class="section-title list-label" id="settings-automations">Automations</span>
       <div class="card list-card">
         <div class="set-row">
@@ -3587,6 +3973,15 @@
       });
     });
     bindAdd("[data-add-label]", addLabel);
+    const pick2 = app.querySelector("[data-import-file]");
+    if (pick2) {
+      app.querySelector("[data-import]").addEventListener("click", () => pick2.click());
+      pick2.addEventListener("change", () => {
+        const file = pick2.files[0];
+        pick2.value = "";
+        if (file) runImport(file);
+      });
+    }
     bindPlanSection(app);
     app.querySelector("[data-copy-sub]")?.addEventListener("click", async () => {
       try {
@@ -3826,7 +4221,7 @@
   }
   function mobileListHTML() {
     boardKey();
-    const list2 = listById(S.currentList);
+    const list3 = listById(S.currentList);
     const ts = visibleTasks(S.currentList);
     const total = tasksOf(S.currentList).length;
     const headCount = UI.query ? `${ts.length} of ${total} task${total === 1 ? "" : "s"}` : S.view === "kanban" ? `${total} tasks` : `${openCount(S.currentList)} open`;
@@ -3853,7 +4248,7 @@
   <div class="screen">
     <header class="page-head">
       <div class="page-title-row">
-        <button class="page-title" data-lists aria-label="Switch board"><span>${esc(list2.name)}</span>${icon("chevronDown")}</button>
+        <button class="page-title" data-lists aria-label="Switch board"><span>${esc(list3.name)}</span>${icon("chevronDown")}</button>
         <span class="head-right"><span class="kicker">${headCount}</span>${searchToggleHTML()}</span>
       </div>
       ${viewbarHTML()}
@@ -4274,7 +4669,7 @@
 
   // src/ui/movecopy.js
   function openMoveCopy({ mode, task = null, listId = null, lane = null, title = null, onConfirm }) {
-    const pick = task ? { listId: task.listId, lane: task.lane } : { listId: listId || S.currentList, lane: lane || firstLane(listId || S.currentList) };
+    const pick2 = task ? { listId: task.listId, lane: task.lane } : { listId: listId || S.currentList, lane: lane || firstLane(listId || S.currentList) };
     const isMove = mode === "move";
     const label = title || (isMove ? "Move to" : mode === "copy" ? "Copy to" : "Add to board");
     const confirmLabel = isMove ? "Move" : mode === "copy" ? "Copy" : "Choose";
@@ -4290,7 +4685,7 @@
     <div class="chip-group">
       <span class="microlabel">Board</span>
       <div class="chip-row" data-board>
-        ${S.lists.map((l) => `<button class="chip ${l.id === pick.listId ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("")}
+        ${S.lists.map((l) => `<button class="chip ${l.id === pick2.listId ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("")}
       </div>
     </div>
     <div class="chip-group">
@@ -4315,16 +4710,16 @@
     q("[data-close]").addEventListener("click", close);
     const confirmBtn = q("[data-confirm]");
     const refresh2 = () => {
-      if (isMove && task) confirmBtn.disabled = pick.listId === task.listId && pick.lane === task.lane;
+      if (isMove && task) confirmBtn.disabled = pick2.listId === task.listId && pick2.lane === task.lane;
     };
     const renderLanes = () => {
-      pick.lane = validLane(pick.listId, pick.lane);
-      q("[data-lane]").innerHTML = lanesOf(pick.listId).map((l) => `<button class="chip ${l.id === pick.lane ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("");
+      pick2.lane = validLane(pick2.listId, pick2.lane);
+      q("[data-lane]").innerHTML = lanesOf(pick2.listId).map((l) => `<button class="chip ${l.id === pick2.lane ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("");
     };
     const group = (sel, key, after) => q(sel).addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
       if (!chip) return;
-      pick[key] = chip.dataset.val;
+      pick2[key] = chip.dataset.val;
       q(sel).querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === chip));
       after?.();
       refresh2();
@@ -4335,7 +4730,7 @@
     refresh2();
     confirmBtn.addEventListener("click", () => {
       close();
-      onConfirm(pick.listId, pick.lane);
+      onConfirm(pick2.listId, pick2.lane);
     });
   }
 
@@ -4800,9 +5195,9 @@
       if (m.transcript && !await confirmDialog("Transcribe again?", "The transcript, the minutes and the actions not yet added to a board are replaced.", { confirmLabel: "Transcribe" })) return;
       stopPlayback();
       transcribe(m.id, { onProgress: (pct) => {
-        const fill = root.querySelector("[data-upload-fill]"), text = root.querySelector("[data-upload-text]");
+        const fill = root.querySelector("[data-upload-fill]"), text2 = root.querySelector("[data-upload-text]");
         if (fill) fill.style.width = `${pct}%`;
-        if (text) text.textContent = `Uploading ${pct} %`;
+        if (text2) text2.textContent = `Uploading ${pct} %`;
       } });
     });
     root.querySelector("[data-cancel-upload]")?.addEventListener("click", () => {
@@ -4851,30 +5246,30 @@
     const speakers = {};
     const segments = [];
     items.forEach((it) => {
-      const text = String(it.text ?? "").replace(/[ \t]+\n/g, "\n").trim();
-      if (!text) return;
+      const text2 = String(it.text ?? "").replace(/[ \t]+\n/g, "\n").trim();
+      if (!text2) return;
       const key = (it.who || "").trim();
       if (!labels.has(key)) {
         const label = `S${labels.size + 1}`;
         labels.set(key, label);
         speakers[label] = key || null;
       }
-      segments.push({ id: uid2(), speaker: labels.get(key), startMs: it.startMs ?? null, text });
+      segments.push({ id: uid2(), speaker: labels.get(key), startMs: it.startMs ?? null, text: text2 });
     });
     if (segments.length && Object.keys(speakers).length === 1 && speakers.S1 === null) speakers.S1 = "Transcript";
     return { segments, speakers };
   }
   var stripTags = (s) => s.replace(/<\/?[^>]+>/g, "");
-  function parseVTT(text) {
-    const blocks = String(text ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+  function parseVTT(text2) {
+    const blocks = String(text2 ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
     const items = [];
     blocks.forEach((block) => {
-      const lines = block.split("\n").filter((l) => l.trim() !== "");
-      if (!lines.length || /^(WEBVTT|NOTE|STYLE|REGION)\b/.test(lines[0]) && !lines.some((l) => l.includes("-->"))) return;
-      const ti = lines.findIndex((l) => l.includes("-->"));
+      const lines2 = block.split("\n").filter((l) => l.trim() !== "");
+      if (!lines2.length || /^(WEBVTT|NOTE|STYLE|REGION)\b/.test(lines2[0]) && !lines2.some((l) => l.includes("-->"))) return;
+      const ti = lines2.findIndex((l) => l.includes("-->"));
       if (ti === -1) return;
-      const startMs = parseTime(lines[ti].split("-->")[0].trim().split(/\s+/)[0]);
-      const body = lines.slice(ti + 1).join("\n");
+      const startMs = parseTime(lines2[ti].split("-->")[0].trim().split(/\s+/)[0]);
+      const body = lines2.slice(ti + 1).join("\n");
       const voice = /<v(?:\.[^\s>]*)?\s+([^>]*)>/.exec(body);
       const who = voice ? voice[1].trim() : null;
       const plain = stripTags(body);
@@ -4884,15 +5279,15 @@
     });
     return assemble(items);
   }
-  function parseSRT(text) {
-    const blocks = String(text ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+  function parseSRT(text2) {
+    const blocks = String(text2 ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
     const items = [];
     blocks.forEach((block) => {
-      const lines = block.split("\n").filter((l) => l.trim() !== "");
-      const ti = lines.findIndex((l) => l.includes("-->"));
+      const lines2 = block.split("\n").filter((l) => l.trim() !== "");
+      const ti = lines2.findIndex((l) => l.includes("-->"));
       if (ti === -1) return;
-      const startMs = parseTime(lines[ti].split("-->")[0].trim());
-      const plain = stripTags(lines.slice(ti + 1).join("\n"));
+      const startMs = parseTime(lines2[ti].split("-->")[0].trim());
+      const plain = stripTags(lines2.slice(ti + 1).join("\n"));
       const named = /^([^:\n]{1,40}):\s+(.+)/s.exec(plain);
       if (named) items.push({ who: named[1].trim(), startMs, text: named[2] });
       else items.push({ who: null, startMs, text: plain });
@@ -4905,15 +5300,15 @@
   var NAMED = new RegExp(`^${NAME}:\\s+(.*)$`);
   var HEADER = new RegExp(`^${NAME}\\s{2,}(\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[AP]M)?)\\s*$`, "i");
   var isName = (s) => s && !/^(https?|mailto|tel|note|nb|ps|todo|re)$/i.test(s.trim());
-  function parsePasted(text) {
-    const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+  function parsePasted(text2) {
+    const lines2 = String(text2 ?? "").replace(/\r\n?/g, "\n").split("\n");
     const items = [];
     let cur = null;
     const start = (who, startMs, first) => {
       cur = { who, startMs, text: first };
       items.push(cur);
     };
-    lines.forEach((raw) => {
+    lines2.forEach((raw) => {
       const line = raw.trim();
       if (!line) {
         if (cur) cur.text += "\n";
@@ -4940,7 +5335,7 @@
       else start(null, null, line);
     });
     const anyNamed = items.some((it) => it.who);
-    if (!anyNamed) return assemble([{ who: null, startMs: null, text: lines.join("\n") }]);
+    if (!anyNamed) return assemble([{ who: null, startMs: null, text: lines2.join("\n") }]);
     return assemble(items);
   }
   function parseDocxXml(xml) {
@@ -4950,16 +5345,16 @@
     let m;
     while (m = re.exec(s)) {
       const p = m[0];
-      const text = p.replace(/<w:tab\/>/g, "	").replace(/<w:br[^>]*\/>|<w:cr\/>/g, "\n").replace(/<w:delText[^>]*>[\s\S]*?<\/w:delText>/g, "").replace(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g, "$1").replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)));
-      paragraphs.push(text);
+      const text2 = p.replace(/<w:tab\/>/g, "	").replace(/<w:br[^>]*\/>|<w:cr\/>/g, "\n").replace(/<w:delText[^>]*>[\s\S]*?<\/w:delText>/g, "").replace(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g, "$1").replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)));
+      paragraphs.push(text2);
     }
     return paragraphs.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
-  function parseByName(fileName, text) {
+  function parseByName(fileName, text2) {
     const ext = String(fileName ?? "").toLowerCase().split(".").pop();
-    if (ext === "vtt") return parseVTT(text);
-    if (ext === "srt") return parseSRT(text);
-    return parsePasted(text);
+    if (ext === "vtt") return parseVTT(text2);
+    if (ext === "srt") return parseSRT(text2);
+    return parsePasted(text2);
   }
   function speakerName(t, label) {
     const name = t?.speakers?.[label];
@@ -5046,9 +5441,9 @@
         }
       });
       p.addEventListener("blur", () => {
-        const text = p.textContent.trim();
-        if (text === original.trim()) return;
-        if (!text) {
+        const text2 = p.textContent.trim();
+        if (text2 === original.trim()) return;
+        if (!text2) {
           p.textContent = original;
           return;
         }
@@ -5059,7 +5454,7 @@
         while (last + 1 < segs.length && segs[last + 1].speaker === segs[first].speaker) last += 1;
         if (last > first) m.transcript.segments.splice(first + 1, last - first);
         const wasStale = !!m.minutes && m.transcript.updatedAt > m.minutes.transcriptUpdatedAt;
-        editSegment(m.id, p.dataset.edit, text);
+        editSegment(m.id, p.dataset.edit, text2);
         if (m.minutes && !wasStale) rerender();
       });
     });
@@ -5235,10 +5630,10 @@
       }
     }
     if (eocd === -1) throw new Error("not a zip file");
-    const count = v.getUint16(eocd + 10, true);
+    const count2 = v.getUint16(eocd + 10, true);
     let p = v.getUint32(eocd + 16, true);
     const out = [];
-    for (let n = 0; n < count; n++) {
+    for (let n = 0; n < count2; n++) {
       if (v.getUint32(p, true) !== SIG_CENTRAL) throw new Error("bad central directory");
       const method = v.getUint16(p + 10, true);
       const compressedSize = v.getUint32(p + 20, true);
@@ -5340,8 +5735,8 @@
         onError("That file is too large to be a transcript.");
         return;
       }
-      const finish3 = (text) => {
-        const parsed = parseByName(ext === "docx" ? "x.txt" : file.name, text);
+      const finish3 = (text2) => {
+        const parsed = parseByName(ext === "docx" ? "x.txt" : file.name, text2);
         if (!parsed.segments.length) {
           onError("Couldn't read this file: it has no text.");
           return;
@@ -5599,14 +5994,14 @@
       return mobileListHTML();
     }
     if (t.status !== "active") return readOnlyHTML2(t);
-    const list2 = listById(t.listId);
+    const list3 = listById(t.listId);
     const dueTone = t.due ? fmtDue(t.due, { dueTime: t.dueTime }).cls : "";
     const note = scheduleNote(t);
     return `
   <div class="screen detail-screen">
     <header class="page-head detail-top">
-      <button class="icon-btn" data-back aria-label="Back to ${esc(list2.name)}">${icon("chevronLeft")}</button>
-      <span class="kicker">${esc(list2.name)}</span>
+      <button class="icon-btn" data-back aria-label="Back to ${esc(list3.name)}">${icon("chevronLeft")}</button>
+      <span class="kicker">${esc(list3.name)}</span>
       <button class="icon-btn" data-more aria-label="More actions" aria-haspopup="menu">${icon("more")}</button>
     </header>
     <div class="scroll-area">
@@ -5646,7 +6041,7 @@
         </div>
         <div class="kv-row">
           <span class="kv-label">${icon("move", 16)}Move</span>
-          <button class="kv-val" data-move>${esc(list2.name)} · ${esc(laneName(t.listId, t.lane))}${icon("chevronRight", 16)}</button>
+          <button class="kv-val" data-move>${esc(list3.name)} · ${esc(laneName(t.listId, t.lane))}${icon("chevronRight", 16)}</button>
         </div>
         <div class="kv-row">
           <span class="kv-label">Reminder</span>
@@ -5851,8 +6246,8 @@
   var colorBarHTML = (color) => color ? `<span class="cbar pc-${color}" aria-hidden="true"></span>` : "";
   function draftPreview(d) {
     if (noteIsEmpty(d)) return "";
-    const text = d.title.trim() || firstLine(d.body) || (d.checklist || []).map((c) => c.text.trim()).find(Boolean) || "";
-    return `Draft: ${text}`;
+    const text2 = d.title.trim() || firstLine(d.body) || (d.checklist || []).map((c) => c.text.trim()).find(Boolean) || "";
+    return `Draft: ${text2}`;
   }
   function collapsedHTML(d) {
     const preview = draftPreview(d);
@@ -6003,12 +6398,12 @@
       body.addEventListener("paste", (e) => {
         e.preventDefault();
         const html = e.clipboardData.getData("text/html");
-        const text = e.clipboardData.getData("text/plain");
-        const ins = html ? sanitize(html) : fromPlain(text);
-        if (!document.execCommand("insertHTML", false, ins)) document.execCommand("insertText", false, text);
+        const text2 = e.clipboardData.getData("text/plain");
+        const ins = html ? sanitize(html) : fromPlain(text2);
+        if (!document.execCommand("insertHTML", false, ins)) document.execCommand("insertText", false, text2);
       });
       const items = () => get().checklist || [];
-      const setItems = (list2) => set({ checklist: list2 });
+      const setItems = (list3) => set({ checklist: list3 });
       qa("[data-ci]").forEach((input) => {
         const id = input.dataset.ci;
         const item = () => items().find((c) => c.id === id);
@@ -6019,18 +6414,18 @@
           updateAdd();
         });
         input.addEventListener("keydown", (e) => {
-          const list2 = items(), i = list2.findIndex((c) => c.id === id);
+          const list3 = items(), i = list3.findIndex((c) => c.id === id);
           if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
             e.preventDefault();
             const n = newItem();
-            list2.splice(i + 1, 0, n);
-            setItems(list2);
+            list3.splice(i + 1, 0, n);
+            setItems(list3);
             render2(`ci:${n.id}`);
-          } else if (e.key === "Backspace" && input.value === "" && list2.length) {
+          } else if (e.key === "Backspace" && input.value === "" && list3.length) {
             e.preventDefault();
-            list2.splice(i, 1);
-            setItems(list2.length ? list2 : list2);
-            render2(i > 0 ? `ci:${list2[i - 1].id}` : "body");
+            list3.splice(i, 1);
+            setItems(list3.length ? list3 : list3);
+            render2(i > 0 ? `ci:${list3[i - 1].id}` : "body");
           }
         });
       });
@@ -6046,10 +6441,10 @@
         cb.closest(".ne-ci-row").classList.toggle("done", cb.checked);
       }));
       qa("[data-ci-del]").forEach((b) => b.addEventListener("click", () => {
-        const list2 = items(), i = list2.findIndex((c) => c.id === b.dataset.ciDel);
-        list2.splice(i, 1);
-        setItems(list2);
-        render2(list2[i] ? `ci:${list2[i].id}` : list2[i - 1] ? `ci:${list2[i - 1].id}` : "body");
+        const list3 = items(), i = list3.findIndex((c) => c.id === b.dataset.ciDel);
+        list3.splice(i, 1);
+        setItems(list3);
+        render2(list3[i] ? `ci:${list3[i].id}` : list3[i - 1] ? `ci:${list3[i - 1].id}` : "body");
       }));
       qa("[data-tag-remove]").forEach((b) => b.addEventListener("click", () => {
         const name = b.dataset.tagRemove.toLowerCase();
@@ -6064,24 +6459,24 @@
       });
       q('[data-tool="color"]').addEventListener("click", (e) => {
         const current = get().color;
-        const pick = (color) => {
+        const pick2 = (color) => {
           set({ color });
           render2("body");
         };
         openMenu(e.currentTarget, [
-          { label: "None", swatch: "none", checked: !current, onClick: () => pick(null) },
-          ...NOTE_COLORS.map((c) => ({ label: COLOR_NAME2[c], swatch: c, checked: current === c, onClick: () => pick(c) }))
+          { label: "None", swatch: "none", checked: !current, onClick: () => pick2(null) },
+          ...NOTE_COLORS.map((c) => ({ label: COLOR_NAME2[c], swatch: c, checked: current === c, onClick: () => pick2(c) }))
         ]);
       });
       q('[data-tool="checklist"]').addEventListener("click", async () => {
-        const list2 = get().checklist;
-        if (!list2) {
+        const list3 = get().checklist;
+        if (!list3) {
           const n = newItem();
           setItems([n]);
           render2(`ci:${n.id}`);
           return;
         }
-        if (list2.some((c) => c.text.trim())) {
+        if (list3.some((c) => c.text.trim())) {
           const ok = await confirmDialog("Remove checklist?", "Its items are removed from this note.", { confirmLabel: "Remove", danger: true });
           if (!ok) return;
         }
@@ -6732,6 +7127,23 @@
   }
 
   // src/ui/shell.js
+  function moveBannerHTML() {
+    if (!isLegacyOrigin()) return "";
+    return `
+  <div class="notice move-banner" role="region" aria-label="Stack'd has moved">
+    ${icon("move", 18)}
+    <span><strong>Stack'd has moved to <a href="${APP_ORIGIN}" target="_blank" rel="noopener">${APP_HOST}</a>.</strong>
+      Download your data here, then import it there in Settings. Recordings cannot travel in the file; their transcripts and minutes do.</span>
+    <button class="btn btn-sm btn-secondary" data-download-data>${icon("download", 16)}Download my data</button>
+  </div>`;
+  }
+  function bindMoveBanner() {
+    app.querySelector("[data-download-data]")?.addEventListener("click", () => {
+      const name = exportFileName();
+      downloadFile(exportFile(), name);
+      toast(`Saved ${name}. Open ${APP_HOST}, then Settings › Import a Stack'd file.`, { ms: 1e4 });
+    });
+  }
   function onboardingHTML() {
     return `
   <div class="screen">
@@ -6868,11 +7280,11 @@
     app.querySelector(".nav-fab")?.addEventListener("click", () => UI.screen === "notes" ? focusComposer() : UI.screen === "meetings" ? addMeeting() : openSheet());
   }
   function desktopHTML() {
-    const list2 = listById(S.currentList);
+    const list3 = listById(S.currentList);
     if (!["detail", "folders", "settings", "notes", "note", "meetings", "meeting"].includes(UI.screen)) boardKey();
     const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meetings" ? meetingsHTML() : UI.screen === "meeting" ? meetingHTML() : `
     <header class="main-head">
-      <h1 class="page-title-text">${esc(list2.name)}</h1>
+      <h1 class="page-title-text">${esc(list3.name)}</h1>
       ${searchFieldHTML({ placeholder: "Search tasks" })}
       ${viewbarHTML()}
       ${S.view === "kanban" ? `<button class="btn btn-primary btn-sm" data-add>${icon("plus", 18)}Add task</button>` : ""}
@@ -6990,18 +7402,20 @@
       toast("Stop the recording first");
     }
     const focusAddsub = document.activeElement?.classList?.contains("addsub-input");
+    const banner = moveBannerHTML();
     if (!S.onboarded) {
-      app.innerHTML = onboardingHTML();
+      app.innerHTML = banner + onboardingHTML();
       bindOnboarding();
+      bindMoveBanner();
       return;
     }
     if (isDesktop.matches) {
-      app.innerHTML = desktopHTML();
+      app.innerHTML = banner + desktopHTML();
       bindDesktop();
     } else {
       const screen = UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meetings" ? meetingsHTML() : UI.screen === "meeting" ? meetingHTML() : mobileListHTML();
       const withNav = !["detail", "note", "meeting"].includes(UI.screen) && !(UI.screen === "notes" && UI.composer.expanded);
-      app.innerHTML = screen + (withNav ? mobileNavHTML() : "");
+      app.innerHTML = banner + screen + (withNav ? mobileNavHTML() : "");
       if (UI.screen === "lists") bindListsMenu();
       else if (UI.screen === "detail") bindDetail();
       else if (UI.screen === "folders") bindFolders();
@@ -7013,6 +7427,7 @@
       else bindMobileList();
       if (withNav) bindMobileNav();
     }
+    bindMoveBanner();
     if (focusAddsub || UI.refocusAddsub) {
       UI.refocusAddsub = false;
       document.querySelector(".addsub-input")?.focus();

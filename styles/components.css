@@ -278,6 +278,17 @@
 .notice > svg { width: 18px; height: 18px; flex: none; }
 .notice > span { flex: 1; min-width: 180px; }
 .notice .btn { margin-left: auto; color: var(--color-warning-text); }
+/* the move banner on the old address: a strip above every screen (1.6.0) */
+.move-banner { flex: none; margin: 0; border-radius: 0; padding: var(--space-2) var(--space-4); gap: var(--space-2); font-size: var(--text-xs); }
+.move-banner > svg { display: none; }
+.move-banner a { color: inherit; text-underline-offset: 3px; }
+.move-banner .btn { flex: none; width: 100%; min-height: 36px; background: var(--bg-surface); }
+.move-banner .btn svg { width: 16px; height: 16px; }
+@media (min-width: 900px) {
+  .move-banner { padding: var(--space-3) var(--space-4); gap: var(--space-3); font-size: var(--text-sm); }
+  .move-banner > svg { display: block; }
+  .move-banner .btn { width: auto; min-height: 40px; }
+}
 
 /* ── Field rows (detail) ─────────────────────────────────────────────── */
 .kv-label { display: inline-flex; align-items: center; gap: 8px; }

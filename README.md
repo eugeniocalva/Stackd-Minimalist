@@ -82,6 +82,15 @@ It runs:
   error mapping, the allowance cache, the proxy URL rule.
 - `scripts/check-bundle.mjs` — `app.bundle.js` still matches the modules, so
   a double-clicked `index.html` never runs old code.
+- `scripts/check-backup.mjs` — the export file and its import (1.6.0): a
+  round trip keeps every board, task, note and meeting; damaged, hostile
+  and oversized files are refused or made harmless; the device keeps its
+  subscriber id, AI settings and recordings.
+- `scripts/check-origins.mjs` — no third-party requests (1.6.0): every URL
+  in the app shell is on an allow-list (the app's address, the proxy, the
+  store subscription pages, XML namespaces); `_headers`, the proxy's
+  origin list and the legal page versions agree with `src/legal.js`; no
+  string shaped like a provider key anywhere in the tracked code.
 
 The Worker has its own `npm test` in `proxy/` (plans, pools, schema,
 entitlement, the request pipeline with a stubbed model and a stub
@@ -337,10 +346,16 @@ is enough; HTTPS is required for install + service worker on real devices.
 - `styles/` — `variables.css` (Finance tokens, light + dark), `base.css`,
   `components.css`, `screens.css`, `fonts.css`
 - `fonts/` — self-hosted Inter + Manrope (woff2)
-- `scripts/` — `build-www.mjs` (Capacitor copy), `check-dates.mjs`,
-  `check-reminders.mjs`, `check-store.mjs`, `check-text.mjs`,
-  `check-transcript.mjs`, `check-ai.mjs`, `check-shell.mjs`, `bundle.mjs`
-  + `bundle-lib.mjs` (build `app.bundle.js`), `check-bundle.mjs`
+- `scripts/` — `build-www.mjs` (Capacitor copy; `--site` for the web host),
+  `check-dates.mjs`, `check-reminders.mjs`, `check-store.mjs`,
+  `check-text.mjs`, `check-transcript.mjs`, `check-ai.mjs`,
+  `check-backup.mjs`, `check-origins.mjs`, `check-shell.mjs`, `bundle.mjs`
+  + `bundle-lib.mjs` (build `app.bundle.js`), `check-bundle.mjs`,
+  `serve.mjs` (local server that applies `_headers` or plays the old
+  address, for checking the 1.6.0 move by hand)
+- `_headers` — the Content-Security-Policy and security headers of the web
+  host (Cloudflare); `.github/workflows/site.yml` deploys the
+  `npm run build -- --site` tree there on every push to `main`
 - `proxy/` — the Cloudflare Worker behind the AI steps (its own README)
 - `plugins/recording-service/` — the local Capacitor plugin that keeps a
   recording alive on Android (foreground service); a no-op on iOS and web

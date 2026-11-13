@@ -17,6 +17,8 @@ import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import { bindScrollShadow } from './board.js';
 import { confirmDialog, openMenu } from './primitives.js';
+import { canImport, importFile } from '../backup.js';
+import { isLegacyOrigin } from '../legal.js';
 
 const THEME_LABEL = { light: 'Light', dark: 'Dark', system: 'System' };
 const THEME_ICON = { light: 'sun', dark: 'moon', system: 'monitor' };
@@ -24,7 +26,7 @@ const COLOR_NAME = { red: 'Red', amber: 'Amber', green: 'Green', blue: 'Blue', v
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
 
-/** section: 'appearance' | 'dates' | 'priorities' | 'labels' | 'plan' | 'ai' | 'automations' */
+/** section: 'appearance' | 'dates' | 'priorities' | 'labels' | 'plan' | 'ai' | 'data' | 'automations' */
 export function openSettings(section) {
   UI.screen = 'settings';
   rerender();
@@ -74,6 +76,47 @@ const addRowHTML = (attr, label) => `
     <span class="lrow-icon dashed">${icon('plus', 18)}</span>
     <input class="set-input" ${attr} placeholder="${label}" maxlength="32" autocomplete="off" aria-label="${label}">
   </div>`;
+
+/* Your data (PRD-accounts AC-12.2): the way in for a file made by "Download
+   my data". Signed-out devices only: with an account, the account is the
+   copy. Not on the old address, which is for leaving. */
+const showImport = () => canImport() && !isLegacyOrigin();
+
+function dataSectionHTML() {
+  if (!showImport()) return '';
+  return `
+      <span class="section-title list-label" id="settings-data">Your data</span>
+      <div class="card list-card">
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon('upload', 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Import a Stack'd file</span>
+            <span class="set-sub set-long">Brings in the boards, tasks, notes and meetings from a file made with Download my data.</span>
+          </div>
+          <button class="btn btn-sm btn-secondary" data-import>Choose file</button>
+          <input type="file" class="visually-hidden-input" data-import-file accept=".json,application/json" tabindex="-1" aria-hidden="true">
+        </div>
+      </div>
+      <p class="hint set-hint">The file replaces what is on this device. Recordings are not in the file; transcripts, minutes and actions are.</p>`;
+}
+
+const countLine = (c) => [plural(c.boards, 'board'), plural(c.tasks, 'task'), plural(c.notes, 'note'), plural(c.meetings, 'meeting')].join(', ');
+
+async function runImport(file) {
+  try {
+    const done = await importFile(file, {
+      confirm: ({ counts, current, recordingsLost }) => confirmDialog(
+        'Replace what is on this device?',
+        `The file has ${countLine(counts)}. They replace the ${countLine(current)} on this device, which cannot be undone.${
+          recordingsLost ? ` ${plural(recordingsLost, 'recording')} on this device will be deleted with ${recordingsLost === 1 ? 'its meeting' : 'their meetings'}.` : ''}`,
+        { confirmLabel: 'Replace', danger: true },
+      ),
+    });
+    if (done) toast(`Imported ${countLine(done.counts)}`);
+  } catch (e) {
+    toast(e?.code ? e.message : 'The file could not be imported. Nothing was changed.', { ms: 8000 });
+  }
+}
 
 /* — screen — */
 
@@ -171,6 +214,8 @@ export function settingsHTML() {
         <p class="hint set-hint">Proxy URL override, https only (http://localhost for a local Worker). Leave empty for the default.</p>
       </details>
 
+      ${dataSectionHTML()}
+
       <span class="section-title list-label" id="settings-automations">Automations</span>
       <div class="card list-card">
         <div class="set-row">
@@ -265,6 +310,13 @@ export function bindSettings() {
     });
   });
   bindAdd('[data-add-label]', addLabel);
+
+  /* Your data: Import a Stack'd file */
+  const pick = app.querySelector('[data-import-file]');
+  if (pick) {
+    app.querySelector('[data-import]').addEventListener('click', () => pick.click());
+    pick.addEventListener('change', () => { const file = pick.files[0]; pick.value = ''; if (file) runImport(file); });
+  }
 
   /* Plan (PRD-meetings US-12) and Meetings & AI (AC-11.1) */
   bindPlanSection(app);

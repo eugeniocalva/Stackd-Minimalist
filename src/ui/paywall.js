@@ -12,9 +12,7 @@ import { icon } from './icons.js';
 import { toast, pinToViewport } from './primitives.js';
 import { allowance, errorFor } from '../ai.js';
 import { available, offerings, buy, restore, manageUrl, PAID_TIERS } from '../purchases.js';
-
-export const TERMS_URL = 'https://eugeniocalva.github.io/Stackd-Minimalist/terms.html';
-export const PRIVACY_URL = 'https://eugeniocalva.github.io/Stackd-Minimalist/privacy.html';
+import { TERMS_URL, PRIVACY_URL } from '../legal.js';
 
 const BLURB = {
   plus: 'A 30-minute call most working days',

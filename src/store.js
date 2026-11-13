@@ -1179,3 +1179,58 @@ export function purgeDeleted(now = Date.now()) {
   if (removed) save();
   return removed;
 }
+
+/* ── Records in and out (1.6.0: the export file; sync from Phase 26) ──── */
+
+/** A deep copy of what the person made: boards, tasks, notes, meetings and
+    the settings that travel with them. Nothing that belongs to the device
+    (theme, sorts, the plan cache, the AI switches) is in it. */
+export function exportRecords() {
+  return JSON.parse(JSON.stringify({
+    lists: S.lists, tasks: S.tasks, notes: S.notes, meetings: S.meetings,
+    settings: { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels },
+  }));
+}
+
+/** Puts a set of records in place of the ones on this device. The caller
+    has validated them (backup.js cleanRecords). What the device owns stays:
+    a meeting that is already here keeps its recording, open jobs and last
+    error; recordings of meetings that go are removed, but only once the
+    new document is saved. A reminder whose moment has passed is marked
+    used rather than fired on the spot. Throws when storage refuses the
+    document, leaving everything as it was. */
+export function replaceRecords({ lists, tasks, notes, meetings, settings }) {
+  const before = {
+    lists: S.lists, tasks: S.tasks, notes: S.notes, meetings: S.meetings,
+    dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels, currentList: S.currentList,
+  };
+  const mine = new Map(S.meetings.map((m) => [m.id, m]));
+  const now = Date.now();
+  S.lists = lists;
+  S.tasks = tasks;
+  S.tasks.forEach((t) => { if (t.reminderFiredAt === null) armReminder(t, now); });
+  S.notes = notes;
+  S.meetings = meetings.map((m) => {
+    const local = mine.get(m.id);
+    return {
+      ...m,
+      recording: local?.recording ?? null,
+      jobs: local?.jobs ?? { transcribe: null, summarise: null },
+      lastError: local?.lastError ?? null,
+    };
+  });
+  if (isDateFormat(settings.dateFormat)) S.dateFormat = settings.dateFormat;   // else this device keeps its own
+  S.priorities = settings.priorities; S.labels = settings.labels;
+  withSettings(S);
+  if (!listById(S.currentList)) S.currentList = S.lists[0].id;
+  try { save(); } catch (e) {
+    Object.assign(S, before);
+    withSettings(S);
+    throw e;
+  }
+  const kept = new Set(S.meetings.map((m) => m.id));
+  dropMedia(before.meetings.filter((m) => !kept.has(m.id)));
+  if (['detail', 'note', 'meeting'].includes(UI.screen)) UI.screen = 'list';
+  UI.detailId = null; UI.query = ''; UI.queryKey = null; UI.tagFilter = null;
+  renderer(); afterCommit();
+}
