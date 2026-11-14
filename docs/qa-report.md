@@ -438,3 +438,26 @@ the release is ready.
 - **Not covered by this review:** the proxy's own test suite fails on a
   test this phase did not touch (an assertion expecting the `pro` tier);
   it blocks the proxy deploy workflow and is tracked separately.
+
+## Security review: 2026-11-14, inline lane rename, before the TestFlight build
+
+- **Reviewed:** the change on top of `release/1.6.0` at `0e936c4`: three
+  files (`src/ui/board.js`, `styles/screens.css`, the rebuilt
+  `app.bundle.js`). Tapping a kanban lane's name now edits it in place.
+  `VERSION` is unchanged (`stackd-v1.5.0`); this is a test build.
+- **How:** the diff (about 45 lines of source) was read line by line
+  against the `/security-review` criteria. The full multi-agent run was
+  not repeated for a change this small; Phase 23 underneath it was
+  reviewed in the entry above.
+- **Result: no finding.**
+- **Looked at and cleared:**
+  - *Lane name → page.* The name is drawn through `esc()` both as the
+    button's text and inside its `aria-label`; `esc()` covers both quote
+    characters, so a name cannot leave the attribute.
+  - *Edit field.* Built with `createElement` and filled through `.value`,
+    so the name is never parsed as HTML. The typed name goes to the
+    existing `renameLane()`, unchanged.
+  - *Lane id in `data-lane-rename`.* Same pattern as the existing
+    `data-lane` and `data-lane-menu`; ids are made by the app, and an
+    imported file's ids must match the strict pattern in `src/backup.js`.
+  - No new request, stored key, permission or dependency.

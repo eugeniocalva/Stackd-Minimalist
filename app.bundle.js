@@ -4190,7 +4190,7 @@
       return `
     <div class="lane" data-lane="${lane.id}">
       <div class="lane-head ${headCls}">
-        <span class="lane-name">${esc(lane.name)}</span>
+        <button class="lane-name" data-lane-rename="${lane.id}" title="Rename" aria-label="Rename lane ${esc(lane.name)}">${esc(lane.name)}</button>
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
         <button class="lane-menu" data-lane-menu="${lane.id}" aria-label="${esc(lane.name)} lane options" aria-haspopup="menu">${icon("more", 16)}</button>
       </div>
@@ -4350,24 +4350,55 @@
     });
     app.querySelectorAll("[data-lane-add]").forEach((b) => b.addEventListener("click", () => openSheet({ lane: b.dataset.laneAdd })));
     app.querySelectorAll("[data-lane-menu]").forEach((b) => b.addEventListener("click", (e) => openLaneMenu(e.currentTarget, b.dataset.laneMenu)));
+    app.querySelectorAll("[data-lane-rename]").forEach((b) => b.addEventListener("click", () => editLaneName(b.dataset.laneRename)));
     app.querySelector("[data-lane-new]")?.addEventListener("click", async () => {
       const name = await promptDialog("New lane", { placeholder: "Lane name", confirmLabel: "Add" });
       if (name) addLane(S.currentList, name);
     });
     app.querySelector("[data-editrules]")?.addEventListener("click", () => openSettings("automations"));
   }
+  function editLaneName(laneId) {
+    const listId = S.currentList;
+    const lane = lanesOf(listId).find((l) => l.id === laneId);
+    const btn = [...app.querySelectorAll("[data-lane-rename]")].find((b) => b.dataset.laneRename === laneId);
+    if (!lane || !btn) return;
+    const input = document.createElement("input");
+    input.className = "lane-name lane-name-input";
+    input.value = lane.name;
+    input.autocomplete = "off";
+    input.enterKeyHint = "done";
+    input.setAttribute("aria-label", "Lane name");
+    btn.replaceWith(input);
+    let closed = false;
+    const finish3 = (save2) => {
+      if (closed) return;
+      closed = true;
+      const name = input.value.trim();
+      if (!save2 || !name || name === lane.name) {
+        input.replaceWith(btn);
+        return;
+      }
+      const x = app.querySelector(".board")?.scrollLeft || 0;
+      renameLane(listId, laneId, name);
+      const board = app.querySelector(".board");
+      if (board) board.scrollLeft = x;
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") finish3(true);
+      else if (e.key === "Escape") {
+        e.stopPropagation();
+        finish3(false);
+      }
+    });
+    input.addEventListener("blur", () => finish3(true));
+    input.focus();
+    input.select();
+  }
   function openLaneMenu(anchor, laneId) {
     const listId = S.currentList;
     const lanes = lanesOf(listId), i = lanes.findIndex((l) => l.id === laneId), lane = lanes[i];
     if (!lane) return;
-    const items = [{
-      label: "Rename",
-      icon: "text",
-      onClick: async () => {
-        const name = await promptDialog("Rename lane", { value: lane.name, confirmLabel: "Rename" });
-        if (name) renameLane(listId, laneId, name);
-      }
-    }];
+    const items = [{ label: "Rename", icon: "text", onClick: () => editLaneName(laneId) }];
     if (i > 0) items.push({ label: "Move left", icon: "chevronLeft", onClick: () => moveLane(listId, laneId, -1) });
     if (i < lanes.length - 1) items.push({ label: "Move right", icon: "chevronRight", onClick: () => moveLane(listId, laneId, 1) });
     if (canDeleteLane(listId, laneId)) {

@@ -73,6 +73,15 @@
 .lane.dropover { outline: 2px dashed var(--color-accent); outline-offset: 2px; }
 .lane-head { display: flex; align-items: center; gap: 6px; padding: 0 var(--space-1); flex: none; }
 .lane-head .lane-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the name is a button: tap it to rename the lane in place */
+.lane-head button.lane-name { position: relative; text-align: left; padding: 4px 6px; margin: -4px 0 -4px -6px; border-radius: var(--radius-sm); }
+.lane-head button.lane-name::after { content: ''; position: absolute; inset: -8px 0; } /* taller touch target */
+.lane-head button.lane-name:hover { background: var(--bg-surface); }
+.lane-head .lane-name-input {
+  padding: 4px 6px; margin: -4px 0 -4px -6px; border: none; border-radius: var(--radius-sm);
+  background: var(--bg-surface); color: var(--text-primary); caret-color: var(--color-accent);
+  outline: 2px solid var(--color-accent); text-overflow: clip;
+}
 .lane-menu {
   position: relative; width: 28px; height: 28px; margin-right: -6px; border-radius: 50%; color: var(--text-tertiary);
   display: inline-flex; align-items: center; justify-content: center;
