@@ -125,6 +125,10 @@ for (const page of present(['index.html', 'privacy.html', 'terms.html', 'account
 /* the proxy answers the new address */
 const allowedOrigins = ((read('proxy/wrangler.toml').match(/^ALLOWED_ORIGINS = "([^"]*)"/m) || [])[1] || '').split(',');
 if (!allowedOrigins.includes(APP_ORIGIN)) problems.push(`proxy/wrangler.toml: ALLOWED_ORIGINS does not include ${APP_ORIGIN}`);
+/* the shells: iOS sends capacitor://localhost, Android (Capacitor 6+) https://localhost */
+for (const o of ['capacitor://localhost', 'https://localhost']) if (!allowedOrigins.includes(o)) problems.push(`proxy/wrangler.toml: ALLOWED_ORIGINS does not include ${o} (the apps)`);
+/* development servers belong in wrangler.dev.toml, never in the deployed list */
+for (const o of allowedOrigins) if (/^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(o.trim())) problems.push(`proxy/wrangler.toml: ALLOWED_ORIGINS lists the development origin ${o.trim()}`);
 
 /* ── 3. Nothing shaped like a provider key ───────────────────────────── */
 

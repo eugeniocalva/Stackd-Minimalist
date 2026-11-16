@@ -42,9 +42,12 @@ id = "5db8ec1359f04d0281e126e1d0948147"
 [vars]
 # Origins the web app is served from: the new address (1.6.0) and the old
 # GitHub Pages one, which keeps working for one release (PRD-accounts
-# AC-12.2). The shells send capacitor:// (iOS) and http://localhost
-# (Android). Comma-separated.
-ALLOWED_ORIGINS = "https://app.stackdplatform.com,https://eugeniocalva.github.io,capacitor://localhost,ionic://localhost,http://localhost,http://localhost:8123,http://localhost:8124"
+# AC-12.2). The shells send capacitor://localhost (iOS) and
+# https://localhost (Android: Capacitor 6 and later; http://localhost is
+# what builds before 6 sent). Comma-separated. No localhost ports: a
+# local server runs the Worker from wrangler.dev.toml, which lists its own
+# (security review of 2026-11-16, docs/qa-report.md).
+ALLOWED_ORIGINS = "https://app.stackdplatform.com,https://eugeniocalva.github.io,capacitor://localhost,ionic://localhost,https://localhost,http://localhost"
 # Minutes model (PRD-meetings Q15: the Phase 16 benchmark picks between the
 # small and mid tiers; the mid tier is the fallback).
 SUMMARY_MODEL = "claude-sonnet-5-5"

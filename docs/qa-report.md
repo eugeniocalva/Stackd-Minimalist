@@ -676,10 +676,12 @@ Not the QA walk and not the release gate; nothing deployed;
     `firstBoard` fallback in `cleanTask`). This lets someone put content
     on the board but not read anything. Follow-up: hold such cards until
     their board arrives.
-  - The production `ALLOWED_ORIGINS` still lists `http://localhost` ports.
-    This cannot be exploited, because the cookie is `SameSite=Strict` and
-    the shells send a bearer token. Remove the ports when the proxy is
-    next deployed.
+  - The production `ALLOWED_ORIGINS` listed `http://localhost:8123` and
+    `:8124`. This could not be exploited, because the cookie is
+    `SameSite=Strict` and the shells send a bearer token. *Fixed
+    afterwards:* the ports are gone from `proxy/wrangler.toml` (local runs
+    use `wrangler.dev.toml`), and `check-origins` fails if a localhost
+    port comes back.
 - **Not covered by this review:** the iOS and Android shells with the
   secure-storage and biometric plugins, which are not chosen yet. They
   need their own review before the shells offer sign-in.

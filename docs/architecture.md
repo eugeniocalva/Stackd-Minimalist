@@ -1070,7 +1070,7 @@ Stackd Minimalist/
 │  └─ screens.css              + meetings list, meeting detail blocks (≤ 120 lines)
 ├─ proxy/                      NEW  Cloudflare Worker
 │  ├─ package.json, wrangler.toml, README.md
-│  ├─ src/index.js             router, auth, CORS (GitHub Pages origin + capacitor://localhost + http://localhost)
+│  ├─ src/index.js             router, auth, CORS (GitHub Pages origin + capacitor://localhost + https://localhost)
 │  ├─ src/plans.js             tier limits, tester limits, period maths (pure, shared with the client checks)
 │  ├─ src/entitlement.js       RevenueCat lookup + KV cache + webhook handler
 │  ├─ src/pool.js              reservation / charge / release on KV
@@ -1535,7 +1535,7 @@ without a hole; release (22) last.
 | Store review rejects the subscription screens | AC-12.9 checklist in `paywall.js`: price, period, renewal text, terms and privacy links, Restore visible; no mention of other platforms' prices; the web variant never says "buy". |
 | Provider prices or quality change after the benchmark | One adapter interface; tier limits and model id are config; §11 of the PRD is re-run with the benchmark's numbers before 1.5.0 ships. |
 | Claude returns something outside the schema (dates, priorities) | Structured output with a strict schema on the proxy; dates re-validated as ISO within −30…+365 days of the meeting; priorities validated against the list sent; invalid items dropped, never shown. |
-| CORS / origin drift between GitHub Pages, `capacitor://localhost` (iOS), `http://localhost` (Android) and `file://` | Allow-list in `proxy/src/index.js` from config; `file://` sends a `null` origin, so the bundle's AI buttons explain they need http(s) (AC-11.5). |
+| CORS / origin drift between GitHub Pages, `capacitor://localhost` (iOS), `https://localhost` (Android, Capacitor 6 and later; `http://localhost` before) and `file://` | Allow-list in `proxy/src/index.js` from config; `file://` sends a `null` origin, so the bundle's AI buttons explain they need http(s) (AC-11.5). |
 | `.docx` unzip without a dependency | Minimal reader behind one function; size cap ~120 lines or switch to `fflate`; both tested in `check-transcript.mjs` with a real Teams export. |
 | Three swipe behaviours drift (task rows, action cards, future note rows) | One `bindSwipe()`; task regression walk in Phase 17. |
 | Service-worker shell drift with twelve new files | `check-shell.mjs`; VERSION bump in Phase 22. |

@@ -40,6 +40,9 @@ as one classic script. From disk, these don't work:
 folder on http://localhost:8123 and opens the app in your default browser.
 Close the window to stop it. It needs [Node.js](https://nodejs.org); if
 port 8123 is taken, run it as `set STACKD_PORT=8124 & start-stackd.cmd`.
+From a local address the AI steps and the account answer only to a
+Worker run locally (`proxy/README.md`); the live one accepts the website
+and the apps, not `localhost` ports.
 
 Anywhere else, any static server works — no build step, no runtime
 dependencies:
