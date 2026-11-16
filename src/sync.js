@@ -279,16 +279,36 @@ async function once() {
 const pinRequired = new Set();
 export function onPinRequired(fn) { pinRequired.add(fn); }
 
+/** One change per record: the latest by the server's changedAt. */
+function latestByKey(changes) {
+  const out = new Map();
+  for (const c of changes) {
+    const key = `${c.kind}:${c.id}`;
+    if (!out.has(key) || (c.changedAt || 0) >= (out.get(key).changedAt || 0)) out.set(key, c);
+  }
+  return [...out.values()];
+}
+
 /** Pulled changes → the store, cleaned first; the shadow moves before the
     store does, so applying never looks like a local edit. */
 function applyInbound(changes, { space = null } = {}) {
+  /* a space's cards that came before its board wait for it (below) */
+  const sp = space ? spacesOf()[space] : null;
+  if (sp?.held) changes = latestByKey([...Object.values(sp.held), ...changes]);
   if (!changes.length) return;
   /* a space whose id is a personal board here is not that board: ignore it */
   if (space && S.lists.some((l) => l.id === space && !l.share)) return;
-  const shadow = space ? spacesOf()[space].shadow : doc.shadow;
+  const shadow = space ? sp.shadow : doc.shadow;
   const upserts = [], deletes = [];
   const incomingLists = changes.filter((c) => c.kind === 'list' && !c.deleted).map((c) => c.data);
   const lists = [...S.lists.filter((l) => !incomingLists.some((x) => x?.id === l.id)), ...incomingLists];
+  /* Without its board, a card would be cleaned onto the first board here, a
+     personal one, and sync from there as personal. It happens when the
+     board record is on a later page (renamed after many cards were added)
+     or was never sent. Such cards are kept, unapplied and out of the
+     shadow, until the board arrives; the space going drops them. */
+  const boardHere = !space || lists.some((l) => l?.id === space);
+  const held = {};
   const settings = changes.find((c) => c.kind === 'settings' && !c.deleted)?.data;
   const priorities = Array.isArray(settings?.priorities) ? settings.priorities : S.priorities;
   const order = { settings: 0, list: 1, task: 2, note: 3, meeting: 4 };
@@ -302,16 +322,19 @@ function applyInbound(changes, { space = null } = {}) {
     const foreign = !!mine && (c.kind === 'list' ? !mine.share : mine.listId !== space);
     if (c.deleted) { shadow[key] = [null, c.changedAt]; if (!foreign) deletes.push({ kind: c.kind, id: c.id }); continue; }
     if (foreign) continue;
+    if (!boardHere) { held[key] = c; continue; }
     /* another person's priority level may not exist here: shown as none, kept as it is (AC-12.10) */
     const prios = space && c.kind === 'task' && typeof c.data?.priority === 'string' && !priorities.some((p) => p.id === c.data.priority)
       ? [...priorities, { id: c.data.priority }] : priorities;
     let clean;
     try { clean = cleanRemote(c.kind, c.data, { lists, priorities: prios }); } catch { continue; }   // unreadable: skip, keep ours
+    if (space && c.kind === 'task' && clean.listId !== space) continue;                               // never onto another board
     const local = c.kind === 'settings' ? null : (S[plural[c.kind]] || []).find((x) => x.id === c.id);
     const record = c.kind === 'settings' ? clean : fromWire(c.kind, clean, local);
     if (space && c.kind === 'list') record.share = { role: share.role, ownerEmail: share.ownerEmail, members: share.members || [] };
     upserts.push({ kind: c.kind, record, key, changedAt: c.changedAt });
   }
+  if (sp) { if (Object.keys(held).length) sp.held = held; else delete sp.held; }
   applyRemote({ upserts, deletes });
   /* the shadow takes what the store now holds, so the next diff sees no change */
   const now = collect(S, { space });

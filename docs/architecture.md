@@ -2620,7 +2620,9 @@ The space id is the board's id on every device, and the server makes it
 cannot be opened under a board that already exists (security review of
 2026-11-16, docs/qa-report.md). A device attaches a space only to a board
 it created through `createShared` or pulled from that space, never to a
-personal board. The outcome table of §30 applies per space with
+personal board. A space card that arrives before its board (the board on
+a later page, or never sent) waits in `spaces[id].held` until the board
+comes, so it never falls back to a personal board. The outcome table of §30 applies per space with
 `spaces.rev` as the counter. Limits: 10 members per space, 20 pending invitations per space,
 20 invitations per account per day.
 

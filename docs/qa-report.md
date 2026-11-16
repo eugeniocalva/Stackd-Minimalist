@@ -674,8 +674,10 @@ Not the QA walk and not the release gate; nothing deployed;
   - A space's card can land on the first personal board of a member whose
     device has not received the space's board record yet (the
     `firstBoard` fallback in `cleanTask`). This lets someone put content
-    on the board but not read anything. Follow-up: hold such cards until
-    their board arrives.
+    on the board but not read anything. *Fixed afterwards:* such cards wait
+    on the device, unapplied, until their board arrives (`applyInbound`,
+    `src/sync.js`), and a space card is never applied to another board;
+    `check-sync` sends cards before their board and fails without the fix.
   - The production `ALLOWED_ORIGINS` listed `http://localhost:8123` and
     `:8124`. This could not be exploited, because the cookie is
     `SameSite=Strict` and the shells send a bearer token. *Fixed

@@ -248,6 +248,34 @@ assert.equal(sync.mergePlan(local, { counts: (await B('/v1/sync/summary', undefi
   assert.equal(store.listById(PAL), undefined, 'gone from this device when its owner deletes it');
   assert.deepEqual(gone, ['Pal board']);
 
+  /* cards that come before their board wait for it: never onto a personal board */
+  {
+    const LATE = (await B('/v1/spaces', { boardName: 'Late board', emails: [EMAIL] }, pal)).id;
+    const card = (id, title) => ({ kind: 'task', id, changedAt: Date.now(), deleted: false, data: { ...sync.toWire('task', store.blankTask(LATE, title)), id } });
+    let s = await B('/v1/sync', { cursor: 0, changes: [], spaces: { [LATE]: { cursor: 0, changes: [card('latecard1', 'Early card'), card('latecard2', 'Another')] } } }, pal);
+    await sync.now();
+    await share.answer(sync.shared().invites.find((i) => i.boardName === 'Late board').id, true);
+    await sync.now();
+    const personalBefore = db.raw.prepare("SELECT COUNT(*) AS n FROM records WHERE kind = 'task' AND id LIKE 'latecard%'").get().n;
+    assert.equal(store.taskById('latecard1'), undefined, 'a card without its board is not shown anywhere yet');
+    assert.equal(personalBefore, 0, 'and never synced as a personal card');
+    assert.equal(store.listById(LATE), undefined);
+    /* the board arrives: the waiting cards go onto it */
+    s = await B('/v1/sync', { cursor: 0, changes: [], spaces: { [LATE]: { cursor: s.spaces[LATE].cursor, changes: [
+      { kind: 'list', id: LATE, changedAt: Date.now(), deleted: false, data: { id: LATE, name: 'Late board', lanes: store.defaultLanes(), status: 'active' } },
+    ] } } }, pal);
+    await sync.now();
+    assert.equal(store.listById(LATE)?.share?.role, 'member');
+    assert.deepEqual(['latecard1', 'latecard2'].map((id) => store.taskById(id)?.listId), [LATE, LATE], 'the waiting cards land on the shared board');
+    assert.equal(db.raw.prepare("SELECT COUNT(*) AS n FROM records WHERE kind = 'task' AND id LIKE 'latecard%'").get().n, 0, 'still not personal');
+    pushes = [];
+    await sync.now();
+    assert.ok(pushes.at(-1) === 0, 'nothing echoes back once they land');
+    await worker.fetch(new Request(`https://proxy.test/v1/spaces/${LATE}`, { method: 'DELETE', headers: { 'X-Stackd-App': store.APP_TOKEN, 'X-Stackd-Client': 'android', Authorization: `Bearer ${pal}` } }), env);
+    await sync.now();
+    gone.length = 0;
+  }
+
   /* a space that somehow has the id of a personal board here (the server
      no longer allows it; forced in the database) takes nothing from it and
      puts nothing on it */

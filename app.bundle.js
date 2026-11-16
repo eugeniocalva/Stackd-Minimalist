@@ -3902,13 +3902,25 @@
   function onPinRequired(fn) {
     pinRequired.add(fn);
   }
+  function latestByKey(changes) {
+    const out = /* @__PURE__ */ new Map();
+    for (const c of changes) {
+      const key = `${c.kind}:${c.id}`;
+      if (!out.has(key) || (c.changedAt || 0) >= (out.get(key).changedAt || 0)) out.set(key, c);
+    }
+    return [...out.values()];
+  }
   function applyInbound(changes, { space = null } = {}) {
+    const sp = space ? spacesOf()[space] : null;
+    if (sp?.held) changes = latestByKey([...Object.values(sp.held), ...changes]);
     if (!changes.length) return;
     if (space && S.lists.some((l) => l.id === space && !l.share)) return;
-    const shadow = space ? spacesOf()[space].shadow : doc.shadow;
+    const shadow = space ? sp.shadow : doc.shadow;
     const upserts = [], deletes = [];
     const incomingLists = changes.filter((c) => c.kind === "list" && !c.deleted).map((c) => c.data);
     const lists = [...S.lists.filter((l) => !incomingLists.some((x) => x?.id === l.id)), ...incomingLists];
+    const boardHere = !space || lists.some((l) => l?.id === space);
+    const held = {};
     const settings2 = changes.find((c) => c.kind === "settings" && !c.deleted)?.data;
     const priorities = Array.isArray(settings2?.priorities) ? settings2.priorities : S.priorities;
     const order = { settings: 0, list: 1, task: 2, note: 3, meeting: 4 };
@@ -3924,6 +3936,10 @@
         continue;
       }
       if (foreign) continue;
+      if (!boardHere) {
+        held[key] = c;
+        continue;
+      }
       const prios = space && c.kind === "task" && typeof c.data?.priority === "string" && !priorities.some((p) => p.id === c.data.priority) ? [...priorities, { id: c.data.priority }] : priorities;
       let clean;
       try {
@@ -3931,10 +3947,15 @@
       } catch {
         continue;
       }
+      if (space && c.kind === "task" && clean.listId !== space) continue;
       const local = c.kind === "settings" ? null : (S[plural[c.kind]] || []).find((x) => x.id === c.id);
       const record2 = c.kind === "settings" ? clean : fromWire(c.kind, clean, local);
       if (space && c.kind === "list") record2.share = { role: share.role, ownerEmail: share.ownerEmail, members: share.members || [] };
       upserts.push({ kind: c.kind, record: record2, key, changedAt: c.changedAt });
+    }
+    if (sp) {
+      if (Object.keys(held).length) sp.held = held;
+      else delete sp.held;
     }
     applyRemote({ upserts, deletes });
     const now2 = collect(S, { space });
