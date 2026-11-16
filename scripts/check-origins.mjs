@@ -88,6 +88,18 @@ for (const [page, version] of [['terms.html', TERMS_VERSION], ['privacy.html', P
   if (printed !== version) problems.push(`${page}: effective date ${printed} does not match src/legal.js (${version})`);
 }
 
+/* the legal pages carry [OWNER: …] where the owner's own details go; no
+   release (a VERSION past 1.5) may ship them (PRD-accounts §09) */
+{
+  const version = (read('sw.js').match(/const VERSION = 'stackd-v(\d+)\.(\d+)/) || []).slice(1).map(Number);
+  const releasing = version.length === 2 && (version[0] > 1 || version[1] >= 6);
+  for (const page of present(['privacy.html', 'terms.html', 'account-deletion.html'])) {
+    const n = (read(page).match(/\[OWNER:/g) || []).length;
+    if (n && releasing) problems.push(`${page}: ${n} [OWNER: …] placeholder(s) left; fill them before the release`);
+    else if (n) console.log(`check-origins: ${page} has ${n} [OWNER: …] placeholder(s) to fill before 1.6.0`);
+  }
+}
+
 /* _headers: the policy of §30, with the proxy as the only outside origin */
 const headers = read('_headers');
 const csp = (headers.match(/^\s*Content-Security-Policy:\s*(.+)$/m) || [])[1] || '';

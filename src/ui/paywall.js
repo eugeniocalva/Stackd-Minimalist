@@ -11,7 +11,7 @@ import { esc } from '../util.js';
 import { icon } from './icons.js';
 import { toast, pinToViewport } from './primitives.js';
 import { allowance, errorFor } from '../ai.js';
-import { available, offerings, buy, restore, manageUrl, PAID_TIERS } from '../purchases.js';
+import { available, offerings, buy, restore, manageUrl, PAID_TIERS, platform } from '../purchases.js';
 import { TERMS_URL, PRIVACY_URL } from '../legal.js';
 
 const BLURB = {
@@ -36,6 +36,11 @@ export function aiButtonState(step) {
 
 let prices = {};   // tier → store price string, once offerings answered
 
+/* PRD-accounts AC-11.5: the renewal terms sit directly above each button,
+   not only in the paragraph under the cards. */
+const storeName = () => ({ ios: 'App Store', android: 'Google Play' }[platform()] || 'App Store or Google Play');
+export const renewalLine = (price) => `${price} per month, renews automatically every month. Cancel any time in ${storeName()} settings.`;
+
 function cardHTML(tier, current) {
   const price = prices[tier] || PLAN_PRICES[tier];
   const isCurrent = current === tier;
@@ -50,6 +55,7 @@ function cardHTML(tier, current) {
     </div>
     <span class="plan-pool">${esc(poolLine(tier))}</span>
     <span class="hint">${esc(BLURB[tier])}</span>
+    <span class="plan-renew">${esc(renewalLine(price))}</span>
     ${action}
   </div>`;
 }

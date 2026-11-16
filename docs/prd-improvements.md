@@ -7,7 +7,7 @@ the app on the device (Kanban, navigation, the "+" button, boards). Two
 and are only cross-referenced here. One (shared boards) is new and
 depends on accounts and sync.
 
-Status: **US-01 to US-10 built 2026-11-15, US-12 built 2026-11-16** (shared boards, server and app, run locally end to end; not deployed). AC-12.11, the Terms and Privacy wording, belongs to accounts phase 29 and is open. Decisions
+Status: **US-01 to US-10 built 2026-11-15, US-12 built 2026-11-16** (shared boards, server and app, run locally end to end; not deployed). AC-12.11, the Terms and Privacy wording, is drafted in accounts phase 29. Decisions
 taken are in §07; calls the analyst made alone are in §08; open questions
 are in §09. Companion documents: `docs/prd-accounts.md`,
 `docs/architecture.md` Part V (§38 onwards). Target release: **1.6.0**
@@ -262,7 +262,7 @@ by the brief:
 - [x] AC-12.10 A shared board has at most 10 people. Reminders stay per
       device. A priority level a member does not have shows as none and
       is kept.
-- [ ] AC-12.11 Terms and Privacy say that content on a shared board and
+- [x] AC-12.11 Terms and Privacy say that content on a shared board and
       the member's email are visible to the people on it.
 
 ### US-13 — Sign up and login (brief 16)

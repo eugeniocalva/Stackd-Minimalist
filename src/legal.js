@@ -13,8 +13,8 @@ export const DELETION_URL = `${APP_ORIGIN}/account-deletion.html`;
 /* The effective dates printed on the two pages. An account stores the
    versions it accepted (AC-02.8); scripts/check-origins.mjs fails when a
    page's date and its constant drift apart. */
-export const TERMS_VERSION = '2026-10-20';
-export const PRIVACY_VERSION = '2026-10-20';
+export const TERMS_VERSION = '2026-11-16';
+export const PRIVACY_VERSION = '2026-11-16';
 
 /** True on the address the web app moved away from (GitHub Pages). There
     the shell shows the move banner and offers no account (AC-12.2). */

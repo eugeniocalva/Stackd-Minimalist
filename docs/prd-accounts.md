@@ -10,8 +10,10 @@ Using the app without an account stays exactly as shipped in 1.5.0.
 Status: **phases 24 to 28 built, 2026-11-16** (server, sign-in UI, sync,
 plan on the account, app lock) and run locally end to end; not deployed,
 waiting on the owner tasks of §09, and the shells wait on the
-secure-storage and biometric plugins (architecture §45). Phases 29 and 30
-(legal surface, QA, release) are not started. Decisions taken
+secure-storage and biometric plugins (architecture §45). Phase 29 (legal
+surface) drafted 2026-11-16 with [OWNER: …] placeholders for the owner's
+details and a lawyer's read still to come (architecture §47); phase 30
+(QA, release) not started. Decisions taken
 are in §07; calls the analyst made alone are in §08; open questions are
 in §09. Companion documents: `docs/plan-accounts.md` (the design this PRD
 was written from), `docs/architecture.md` Part IV (§28 onwards, which
@@ -388,7 +390,7 @@ all of it.*
       The purchase service is told to forget the subscriber. A final
       account email confirms it. The same email can register again later
       as a new, empty account.
-- [ ] AC-10.5 A public page, `account-deletion.html`, explains the same
+- [x] AC-10.5 A public page, `account-deletion.html`, explains the same
       steps and gives the contact address for someone who cannot open the
       app. Its URL is the one given to Google Play.
 - [ ] AC-10.6 Every other signed-in device signs itself out at its next
@@ -399,7 +401,7 @@ all of it.*
 *As the owner, I want registration to launch without the exposures listed
 in §11, and as a user I want what the app says about my data to be true.*
 
-- [ ] AC-11.1 `privacy.html` is rewritten and dated: who is responsible
+- [x] AC-11.1 `privacy.html` is rewritten and dated: who is responsible
       and how to reach them; what is stored for an account (email, synced
       content, device list, accepted versions, 18+ confirmation time);
       why; that it is stored in the EU; how long (AC-11.3); which
@@ -408,30 +410,30 @@ in §11, and as a user I want what the app says about my data to be true.*
       to a data protection authority; that signed-out use stores nothing
       on the server. The sentences "It has no accounts" and "There is no
       sync and no backup" are gone.
-- [ ] AC-11.2 The Meetings paragraph still says that Transcribe and
+- [x] AC-11.2 The Meetings paragraph still says that Transcribe and
       Summarise keep nothing on the server, and now also says that a
       signed-in user's transcripts and minutes are stored by sync.
       `terms.html` says the user is responsible for having the right to
       store what other people said, that accounts are for people aged 18
       or over, and gives a contact for copyright complaints.
-- [ ] AC-11.3 Retention as stated and as built: codes 10 minutes; a
+- [x] AC-11.3 Retention as stated and as built: codes 10 minutes; a
       session unused for 90 days is removed; a record deleted forever
       leaves a marker for 90 days so other devices learn of it, then
       nothing; a deleted account is removed at once.
-- [ ] AC-11.4 The in-app disclosure (Settings › Meetings & AI) and the
+- [x] AC-11.4 The in-app disclosure (Settings › Meetings & AI) and the
       Account section link to the same policy and agree with it.
-- [ ] AC-11.5 **Renewal terms next to the button.** Every plan card, in
+- [x] AC-11.5 **Renewal terms next to the button.** Every plan card, in
       Settings and in the "This needs a plan" sheet, shows directly above
       its Subscribe button: the price per month, "renews automatically
       every month", and "cancel any time in App Store / Google Play
       settings". The paragraph below the cards may stay; it no longer
       carries this alone.
-- [ ] AC-11.6 **No third-party requests.** Loading and using the app
+- [x] AC-11.6 **No third-party requests.** Loading and using the app
       contacts only the app's own domain and the proxy. `npm run check`
       fails when an HTML, CSS or JS file under the shell references any
       other origin (fonts, scripts, images, analytics). A
       Content-Security-Policy on the web app enforces the same list.
-- [ ] AC-11.7 Server logs contain no email address, PIN, code, network
+- [x] AC-11.7 Server logs contain no email address, PIN, code, network
       address or user content.
 - [ ] AC-11.8 The App Store privacy labels and the Google Play Data
       safety form state: email address and user content, linked to the

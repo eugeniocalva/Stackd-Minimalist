@@ -565,3 +565,22 @@ Not the QA walk and not the release gate; nothing deployed;
 - **Not verified:** screenshots (still unavailable), dark mode, two real
   people on two devices, the phones (no sign-in there yet), the
   signed-out "Sharing needs an account" path in the browser.
+
+## Engineer's check: 2026-11-16, phase 29 (legal surface, draft)
+
+- **Automated:** `npm run check` green; `check-origins` reports 5
+  placeholders in `privacy.html` and 3 in `terms.html` and would fail at
+  `VERSION` 1.6.0; the effective dates match `src/legal.js`; no inline
+  script in the three pages; `npm run build -- --site` copies the deletion
+  page.
+- **In the preview, 375 px:** the three pages load with no console error
+  and no sideways scroll; the plan cards show the renewal line above the
+  button; the Meetings & AI disclosure reads the signed-in variant with
+  the policy link; Settings › Account shows the two links. The new dates
+  made the existing local account show "The Terms or the Privacy Policy
+  changed", sync paused with that reason, and Read and accept resumed it.
+- **Found on the way:** after an edit, a browser that had the service
+  worker kept running the old files until it was cleared. Expected with
+  stale-while-revalidate and a `VERSION` that has not changed; the release
+  bump handles it, nothing to fix.
+- **Not verified:** the pages in dark mode by eye; a lawyer's read.

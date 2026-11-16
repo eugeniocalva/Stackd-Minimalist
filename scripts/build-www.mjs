@@ -20,9 +20,8 @@ const ASSETS = [
   'icons',
 ];
 /* web host only */
-const SITE_ASSETS = ['privacy.html', 'terms.html', '_headers'];
-/* copied when present: the page arrives in a later phase (AC-10.5) */
-const SITE_OPTIONAL = ['account-deletion.html'];
+const SITE_ASSETS = ['privacy.html', 'terms.html', 'account-deletion.html', '_headers'];
+const SITE_OPTIONAL = [];
 
 const wanted = SITE ? [...ASSETS, ...SITE_ASSETS, ...SITE_OPTIONAL.filter(existsSync)] : ASSETS;
 

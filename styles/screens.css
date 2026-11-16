@@ -469,6 +469,7 @@ textarea.input.paste-area { width: 100%; min-height: 220px; resize: vertical; fo
 .plan-card { display: flex; flex-direction: column; gap: 6px; padding: var(--space-4); border-radius: var(--radius-lg); background: var(--bg-surface); border: 1px solid var(--color-border); }
 .plan-card.is-current { border-color: var(--color-accent); }
 .plan-pool { font-size: var(--text-sm); font-weight: 600; }
+.plan-renew { font-size: var(--text-xs); color: var(--text-secondary); }
 .plan-card .btn, .plan-card .tag { align-self: flex-start; margin-top: var(--space-1); }
 .plan-intro { margin: 0 0 var(--space-2); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; }
 .sheet .plan-cards { margin-top: 0; }

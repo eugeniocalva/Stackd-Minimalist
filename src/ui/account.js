@@ -16,7 +16,10 @@ import * as backup from '../backup.js';
 import * as media from '../media.js';
 import { replaceRecords } from '../store.js';
 import { client } from '../net.js';
-import { APP_HOST, DELETION_URL } from '../legal.js';
+import { APP_HOST, DELETION_URL, PRIVACY_URL, TERMS_URL } from '../legal.js';
+
+/* the same policy the disclosure links to (PRD-accounts AC-11.4) */
+const legalLinks = () => `<p class="hint set-hint">What the account stores, where and for how long: <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy Policy</a> · <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a></p>`;
 
 const STORE_LINKS = 'Cancel a subscription in the App Store (Settings › your name › Subscriptions) or Google Play (Play Store › Payments & subscriptions) separately.';
 
@@ -60,7 +63,8 @@ export function accountSectionHTML() {
       <div class="card list-card">
         ${row('lock', 'Sign in to sync across your devices', why || 'Optional. Without an account, everything stays on this device, as now.',
           avail.ok ? '<button class="btn btn-sm btn-primary" data-signin>Sign in</button>' : '')}
-      </div>`;
+      </div>
+      ${legalLinks()}`;
   }
   const s = sync.state();
   const info = backup.info();
@@ -105,7 +109,8 @@ export function accountSectionHTML() {
         ${row('download', 'Export my data', 'One file with your account details and everything synced to it.', '<button class="btn btn-sm btn-secondary" data-export>Export</button>')}
         ${row('trash', 'Delete account', 'Removes the account and everything synced to it.', '<button class="btn btn-sm btn-ghost danger" data-delete-account>Delete</button>')}
       </div>
-      <button class="btn btn-secondary btn-block set-under" data-signout>Sign out of this device</button>`;
+      <button class="btn btn-secondary btn-block set-under" data-signout>Sign out of this device</button>
+      ${legalLinks()}`;
 }
 
 /* — a sheet with the PIN pad that asks once and checks with `check(pin)` —

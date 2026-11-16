@@ -18,7 +18,7 @@ import { icon } from './icons.js';
 import { bindScrollShadow } from './board.js';
 import { confirmDialog, openMenu } from './primitives.js';
 import { canImport, importFile } from '../backup.js';
-import { isLegacyOrigin } from '../legal.js';
+import { isLegacyOrigin, PRIVACY_URL } from '../legal.js';
 import { accountSectionHTML, bindAccountSection } from './account.js';
 import { sharedSectionHTML, bindSharedSection } from './sharing.js';
 import * as account from '../account.js';
@@ -189,7 +189,9 @@ export function settingsHTML() {
           <span class="lrow-icon">${icon('lock', 18)}</span>
           <div class="set-text">
             <span class="set-title">What leaves your device</span>
-            <span class="set-sub set-long">${esc(DISCLOSURE)} Recordings, transcripts, minutes and actions stay on this device otherwise.</span>
+            <span class="set-sub set-long">${esc(DISCLOSURE)} ${account.signedIn()
+              ? 'Signed in, transcripts, minutes and actions are also kept in your account by sync; recordings stay on this device.'
+              : 'Recordings, transcripts, minutes and actions stay on this device otherwise.'} <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy Policy</a></span>
           </div>
         </div>
         ${account.signedIn() ? `

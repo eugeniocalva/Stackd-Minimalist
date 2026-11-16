@@ -2773,3 +2773,30 @@ second person over HTTP).
 
 Not built: email to the invited person (Could), opening an archived board
 read-only (Could), members inviting others (open question, now: owner only).
+
+---
+
+## 47. As built: phase 29, the legal surface (2026-11-16, draft)
+
+- `privacy.html` and `terms.html` rewritten for accounts, sync and shared
+  boards; effective 2026-11-16, which is now `TERMS_VERSION` /
+  `PRIVACY_VERSION` in `src/legal.js` (and in `proxy/wrangler.dev.toml`).
+  Re-date both pages and the constants, and set the same values in the
+  Worker's `[vars]`, on the day they are published: every account is
+  asked to accept again when they change.
+- `account-deletion.html` is new and is now a required page of the site
+  build (`scripts/build-www.mjs --site`); its URL (`DELETION_URL`) is the
+  one for Google Play (AC-10.5).
+- Each plan card shows the price per month, "renews automatically every
+  month" and where to cancel, directly above its button (AC-11.5).
+- Settings › Meetings & AI says what changes when signed in and links to
+  the policy; Settings › Account links to both documents (AC-11.4).
+- **Placeholders.** The pages carry `[OWNER: …]` where only the owner can
+  write: legal name, postal address, the email provider and its region,
+  the supervisory authority, and the copyright agent line.
+  `check-origins.mjs` lists them on every run and fails once `VERSION` in
+  `sw.js` is 1.6.0 or later, so no release ships them.
+- Promises the pages make that the owner must keep: answering a deletion
+  request by email within 30 days; reading copyright complaints at
+  hi@stackdplatform.com.
+- Not legal advice: a lawyer reads both pages before publishing (PRD §06).

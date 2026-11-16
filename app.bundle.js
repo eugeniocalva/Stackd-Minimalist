@@ -3159,8 +3159,8 @@
   var TERMS_URL = `${APP_ORIGIN}/terms.html`;
   var PRIVACY_URL = `${APP_ORIGIN}/privacy.html`;
   var DELETION_URL = `${APP_ORIGIN}/account-deletion.html`;
-  var TERMS_VERSION = "2026-10-20";
-  var PRIVACY_VERSION = "2026-10-20";
+  var TERMS_VERSION = "2026-11-16";
+  var PRIVACY_VERSION = "2026-11-16";
   function isLegacyOrigin(host = globalThis.location?.hostname || "") {
     return /(^|\.)github\.io$/i.test(host);
   }
@@ -5173,6 +5173,8 @@
     return { locked: false, hint: `${fmtDuration(p.audioSecondsLeft * 1e3)} of audio left` };
   }
   var prices = {};
+  var storeName = () => ({ ios: "App Store", android: "Google Play" })[platform()] || "App Store or Google Play";
+  var renewalLine = (price) => `${price} per month, renews automatically every month. Cancel any time in ${storeName()} settings.`;
   function cardHTML(tier, current2) {
     const price = prices[tier] || PLAN_PRICES[tier];
     const isCurrent = current2 === tier;
@@ -5185,6 +5187,7 @@
     </div>
     <span class="plan-pool">${esc(poolLine(tier))}</span>
     <span class="hint">${esc(BLURB[tier])}</span>
+    <span class="plan-renew">${esc(renewalLine(price))}</span>
     ${action}
   </div>`;
   }
@@ -5615,6 +5618,7 @@
   }
 
   // src/ui/account.js
+  var legalLinks = () => `<p class="hint set-hint">What the account stores, where and for how long: <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy Policy</a> · <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a></p>`;
   var STORE_LINKS = "Cancel a subscription in the App Store (Settings › your name › Subscriptions) or Google Play (Play Store › Payments & subscriptions) separately.";
   function ago(at, now2 = Date.now()) {
     const m = Math.floor((now2 - at) / 6e4);
@@ -5653,7 +5657,8 @@
         why || "Optional. Without an account, everything stays on this device, as now.",
         avail.ok ? '<button class="btn btn-sm btn-primary" data-signin>Sign in</button>' : ""
       )}
-      </div>`;
+      </div>
+      ${legalLinks()}`;
     }
     const s = state2();
     const info2 = info();
@@ -5700,7 +5705,8 @@
         ${row("download", "Export my data", "One file with your account details and everything synced to it.", '<button class="btn btn-sm btn-secondary" data-export>Export</button>')}
         ${row("trash", "Delete account", "Removes the account and everything synced to it.", '<button class="btn btn-sm btn-ghost danger" data-delete-account>Delete</button>')}
       </div>
-      <button class="btn btn-secondary btn-block set-under" data-signout>Sign out of this device</button>`;
+      <button class="btn btn-secondary btn-block set-under" data-signout>Sign out of this device</button>
+      ${legalLinks()}`;
   }
   function askPin(title, { text: text2 = "", check }) {
     return new Promise((resolve) => {
@@ -6032,7 +6038,7 @@
           <span class="lrow-icon">${icon("lock", 18)}</span>
           <div class="set-text">
             <span class="set-title">What leaves your device</span>
-            <span class="set-sub set-long">${esc(DISCLOSURE)} Recordings, transcripts, minutes and actions stay on this device otherwise.</span>
+            <span class="set-sub set-long">${esc(DISCLOSURE)} ${signedIn() ? "Signed in, transcripts, minutes and actions are also kept in your account by sync; recordings stay on this device." : "Recordings, transcripts, minutes and actions stay on this device otherwise."} <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy Policy</a></span>
           </div>
         </div>
         ${signedIn() ? `
