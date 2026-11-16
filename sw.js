@@ -52,6 +52,8 @@ const SHELL = [
   'src/sync.js',
   'src/lock.js',
   'src/webcrypto.js',
+  'src/share.js',
+  'src/ui/sharing.js',
   'src/ui/gestures.js',
   'src/ui/icons.js',
   'src/ui/primitives.js',

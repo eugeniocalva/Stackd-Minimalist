@@ -1026,11 +1026,12 @@ export function copyTask(id, listId, lane) {
 
 /* — boards: add, reorder, archive, delete, restore (PRD-improvements US-10) — */
 
-/** A new board, opened at once. Returns it, or null for an empty name. */
-export function addList(name) {
+/** A new board, opened at once. Returns it, or null for an empty name.
+    id / share: a shared board, made on the server first (PRD-improvements US-12). */
+export function addList(name, { id = uid(), share = null } = {}) {
   const n = String(name ?? '').trim();
   if (!n) return null;
-  const list = { id: uid(), name: n, lanes: defaultLanes(), status: 'active', archivedAt: null, deletedAt: null };
+  const list = { id, name: n, lanes: defaultLanes(), status: 'active', archivedAt: null, deletedAt: null, ...(share ? { share } : {}) };
   S.lists.push(list);
   S.currentList = list.id;
   UI.screen = 'list';
@@ -1045,6 +1046,39 @@ export function reorderList(id, beforeId = null) {
   const [l] = S.lists.splice(i, 1);
   const j = beforeId ? S.lists.findIndex((x) => x.id === beforeId) : -1;
   S.lists.splice(j === -1 ? S.lists.length : j, 0, l);
+  commit();
+}
+
+/* — shared boards: who a board is shared with is the server's answer,
+   copied onto the board as `share` (never synced as part of it) — */
+
+/** shares: { [boardId]: { role, ownerEmail, members } }. Redraws only on a change. */
+export function setShares(shares) {
+  let changed = false;
+  for (const l of S.lists) {
+    const next = shares[l.id];
+    if (next && JSON.stringify(next) !== JSON.stringify(l.share)) { l.share = next; changed = true; }
+  }
+  if (changed) commit();
+}
+
+/** The board and its cards leave this device: removed from the board, left,
+    or deleted by its owner (AC-12.9). Returns whether there was one. */
+export function removeSharedBoard(id) {
+  const l = listById(id); if (!l) return false;
+  S.tasks = S.tasks.filter((t) => t.listId !== id);
+  S.lists = S.lists.filter((x) => x.id !== id);
+  if (!S.lists.length) S.lists.push({ id: uid(), name: 'Board', lanes: defaultLanes(), status: 'active', archivedAt: null, deletedAt: null });
+  if (S.currentList === id) S.currentList = activeLists()[0].id;
+  if (UI.screen === 'detail' && !taskById(UI.detailId)) { UI.detailId = null; UI.screen = 'list'; }
+  commit();
+  return true;
+}
+
+/** The owner stopped sharing: the board is personal again on this device. */
+export function unshare(id) {
+  const l = listById(id); if (!l?.share) return;
+  delete l.share;
   commit();
 }
 

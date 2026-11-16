@@ -1460,10 +1460,10 @@
     commit();
     return copy;
   }
-  function addList(name) {
+  function addList(name, { id = uid(), share = null } = {}) {
     const n = String(name ?? "").trim();
     if (!n) return null;
-    const list3 = { id: uid(), name: n, lanes: defaultLanes(), status: "active", archivedAt: null, deletedAt: null };
+    const list3 = { id, name: n, lanes: defaultLanes(), status: "active", archivedAt: null, deletedAt: null, ...share ? { share } : {} };
     S.lists.push(list3);
     S.currentList = list3.id;
     UI.screen = "list";
@@ -1476,6 +1476,37 @@
     const [l] = S.lists.splice(i, 1);
     const j = beforeId ? S.lists.findIndex((x) => x.id === beforeId) : -1;
     S.lists.splice(j === -1 ? S.lists.length : j, 0, l);
+    commit();
+  }
+  function setShares(shares) {
+    let changed = false;
+    for (const l of S.lists) {
+      const next = shares[l.id];
+      if (next && JSON.stringify(next) !== JSON.stringify(l.share)) {
+        l.share = next;
+        changed = true;
+      }
+    }
+    if (changed) commit();
+  }
+  function removeSharedBoard(id) {
+    const l = listById(id);
+    if (!l) return false;
+    S.tasks = S.tasks.filter((t) => t.listId !== id);
+    S.lists = S.lists.filter((x) => x.id !== id);
+    if (!S.lists.length) S.lists.push({ id: uid(), name: "Board", lanes: defaultLanes(), status: "active", archivedAt: null, deletedAt: null });
+    if (S.currentList === id) S.currentList = activeLists()[0].id;
+    if (UI.screen === "detail" && !taskById(UI.detailId)) {
+      UI.detailId = null;
+      UI.screen = "list";
+    }
+    commit();
+    return true;
+  }
+  function unshare(id) {
+    const l = listById(id);
+    if (!l?.share) return;
+    delete l.share;
     commit();
   }
   var canRemoveList = (id) => activeLists().some((l) => l.id !== id);
@@ -2943,1315 +2974,6 @@
     });
   }
 
-  // src/ui/actions.js
-  var where = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
-  var isRecurring = (t) => t.recur !== "none" && !!t.due;
-  function archiveWithUndo(id) {
-    archiveTask(id);
-    toast("Archived", { action: { label: "Undo", onClick: () => restoreTask(id, { keepPosition: true }) } });
-  }
-  function deleteWithUndo(id) {
-    const prev = softDelete(id);
-    if (!prev) return;
-    const onClick = prev.status === "archived" ? () => returnToArchive(id, prev.archivedAt) : () => restoreTask(id, { keepPosition: true });
-    toast("Deleted", { action: { label: "Undo", onClick } });
-  }
-  function restoreWithToast(id) {
-    const r = restoreTask(id);
-    if (!r) return;
-    toast(r.fellBack ? `Board no longer exists — restored to ${where(r.listId, r.lane)}` : `Restored to ${where(r.listId, r.lane)}`);
-  }
-  function moveWithFeedback(id, listId, lane) {
-    const t = taskById(id);
-    if (!t) return;
-    if (lane === "done" && isRecurring(t) && !t.done) {
-      if (listId !== t.listId) moveTask(id, listId, t.lane);
-      completeTask(id);
-      return;
-    }
-    moveTask(id, listId, lane);
-    toast(`Moved to ${where(listId, lane)}`);
-  }
-  function archiveNoteWithUndo(id) {
-    archiveNote(id);
-    toast("Archived", { action: { label: "Undo", onClick: () => restoreNote(id) } });
-  }
-  function deleteNoteWithUndo(id) {
-    const prev = softDeleteNote(id);
-    if (!prev) return;
-    const onClick = prev.status === "archived" ? () => returnNoteToArchive(id, prev.archivedAt) : () => restoreNote(id);
-    toast("Deleted", { action: { label: "Undo", onClick } });
-  }
-  function restoreNoteWithToast(id) {
-    restoreNote(id);
-    toast("Restored to Notes");
-  }
-  function archiveMeetingWithUndo(id) {
-    archiveMeeting(id);
-    toast("Archived", { action: { label: "Undo", onClick: () => restoreMeeting(id) } });
-  }
-  function deleteMeetingWithUndo(id) {
-    const prev = softDeleteMeeting(id);
-    if (!prev) return;
-    const onClick = prev.status === "archived" ? () => returnMeetingToArchive(id, prev.archivedAt) : () => restoreMeeting(id);
-    toast("Deleted", { action: { label: "Undo", onClick } });
-  }
-  function restoreMeetingWithToast(id) {
-    restoreMeeting(id);
-    toast("Restored to Meetings");
-  }
-  function removeBoardWithUndo(id, how) {
-    const prev = how === "archive" ? archiveList(id) : softDeleteList(id);
-    if (!prev) return;
-    const onClick = prev.status === "archived" ? () => restoreList(id, { toArchive: prev.archivedAt }) : () => restoreList(id);
-    toast(how === "archive" ? "Board archived" : "Board deleted", { action: { label: "Undo", onClick } });
-  }
-  function restoreBoardWithToast(id) {
-    const name = listById(id)?.name;
-    restoreList(id);
-    toast(`${name} is back in Boards`);
-  }
-  async function askRemoveBoard(id) {
-    const l = listById(id);
-    if (!l) return;
-    if (!canRemoveList(id)) {
-      toast("This is your only board. Add another one before removing it.");
-      return;
-    }
-    const n = boardCardCount(id);
-    const cards = n === 0 ? "It has no cards." : n === 1 ? "Its 1 card goes with it." : `Its ${n} cards go with it.`;
-    const how = await choiceDialog(
-      `Remove “${l.name}”?`,
-      `${cards} Archive keeps the board until you restore it. Delete removes it for good after ${RETENTION_DAYS} days.`,
-      [{ id: "archive", label: "Archive" }, { id: "delete", label: "Delete", danger: true }]
-    );
-    if (how) removeBoardWithUndo(id, how);
-  }
-  var rolling = /* @__PURE__ */ new Set();
-  function completeTask(id, el = null) {
-    const t = taskById(id);
-    if (!t || rolling.has(id)) return;
-    if (t.done || !isRecurring(t)) {
-      toggleDone(id);
-      return;
-    }
-    rolling.add(id);
-    el?.classList.add("done");
-    const check = el?.querySelector(".check");
-    if (check) check.checked = true;
-    setTimeout(() => {
-      rolling.delete(id);
-      const r = rollForward(id);
-      if (!r) return;
-      toast(`Done · next ${fmtDateLong(r.next.due)}`, { action: { label: "Undo", onClick: () => undoRollForward(id, r.prev) } });
-    }, 400);
-  }
-
-  // src/media.js
-  var DB = "stackd-media";
-  var VERSION = 1;
-  var RECS = "recordings";
-  var CHUNKS = "chunks";
-  var available = () => typeof indexedDB !== "undefined";
-  var keyFor = (meetingId) => `rec-${meetingId}`;
-  var dbPromise = null;
-  function open() {
-    if (!available()) return Promise.reject(new Error("IndexedDB is not available"));
-    if (dbPromise) return dbPromise;
-    dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB, VERSION);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(RECS)) db.createObjectStore(RECS, { keyPath: "key" });
-        if (!db.objectStoreNames.contains(CHUNKS)) db.createObjectStore(CHUNKS, { keyPath: ["key", "i"] });
-      };
-      req.onsuccess = () => {
-        req.result.onversionchange = () => {
-          req.result.close();
-          dbPromise = null;
-        };
-        resolve(req.result);
-      };
-      req.onerror = () => {
-        dbPromise = null;
-        reject(req.error);
-      };
-      req.onblocked = () => reject(new Error("IndexedDB is blocked"));
-    });
-    return dbPromise;
-  }
-  var done = (tx) => new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
-  var result = (req) => new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-  var range = (key) => IDBKeyRange.bound([key, 0], [key, Number.MAX_SAFE_INTEGER]);
-  async function begin(key, { meetingId, mimeType }) {
-    const db = await open();
-    const tx = db.transaction([RECS, CHUNKS], "readwrite");
-    tx.objectStore(RECS).put({ key, meetingId, mimeType, durationMs: 0, sizeBytes: 0, chunks: 0, updatedAt: Date.now() });
-    tx.objectStore(CHUNKS).delete(range(key));
-    await done(tx);
-  }
-  async function append(key, chunk, durationMs) {
-    const db = await open();
-    const tx = db.transaction([RECS, CHUNKS], "readwrite");
-    const recs = tx.objectStore(RECS);
-    const row2 = await result(recs.get(key));
-    if (!row2) throw new Error("recording row missing");
-    tx.objectStore(CHUNKS).put({ key, i: row2.chunks, blob: chunk });
-    recs.put({ ...row2, chunks: row2.chunks + 1, sizeBytes: row2.sizeBytes + chunk.size, durationMs, updatedAt: Date.now() });
-    await done(tx);
-    return { chunks: row2.chunks + 1, sizeBytes: row2.sizeBytes + chunk.size };
-  }
-  async function finish(key, durationMs) {
-    const db = await open();
-    const tx = db.transaction(RECS, "readwrite");
-    const row2 = await result(tx.objectStore(RECS).get(key));
-    if (row2) tx.objectStore(RECS).put({ ...row2, durationMs, updatedAt: Date.now() });
-    await done(tx);
-    return row2 ? { ...row2, durationMs } : null;
-  }
-  async function list() {
-    const db = await open();
-    return result(db.transaction(RECS).objectStore(RECS).getAll()) || [];
-  }
-  async function blob(key) {
-    const db = await open();
-    const tx = db.transaction([RECS, CHUNKS]);
-    const row2 = await result(tx.objectStore(RECS).get(key));
-    if (!row2) return null;
-    const rows = await result(tx.objectStore(CHUNKS).getAll(range(key)));
-    rows.sort((a, b) => a.i - b.i);
-    return new Blob(rows.map((r) => r.blob), { type: row2.mimeType });
-  }
-  async function remove(key) {
-    if (!available()) return;
-    const db = await open();
-    const tx = db.transaction([RECS, CHUNKS], "readwrite");
-    tx.objectStore(RECS).delete(key);
-    tx.objectStore(CHUNKS).delete(range(key));
-    await done(tx);
-  }
-  async function orphans(referenced) {
-    const keep2 = new Set(referenced);
-    return (await list()).filter((r) => !keep2.has(r.key));
-  }
-  var persisted = null;
-  async function persist() {
-    if (persisted !== null) return persisted;
-    try {
-      persisted = navigator.storage?.persist ? await navigator.storage.persist() : false;
-    } catch {
-      persisted = false;
-    }
-    return persisted;
-  }
-  async function estimate() {
-    try {
-      const e = await navigator.storage?.estimate?.();
-      if (!e || typeof e.quota !== "number") return null;
-      return { usage: e.usage || 0, quota: e.quota, free: Math.max(0, e.quota - (e.usage || 0)) };
-    } catch {
-      return null;
-    }
-  }
-  var fmtBytes = (n) => n >= 1024 * 1024 ? `${Math.round(n / 1024 / 1024 * 10) / 10} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
-
-  // src/net.js
-  var TIMEOUT_MS = 2e4;
-  var client = () => {
-    const p = globalThis.Capacitor?.isNativePlatform?.() ? globalThis.Capacitor.getPlatform?.() : "web";
-    return p === "ios" || p === "android" ? p : "web";
-  };
-  var bearer = null;
-  function setBearer(t) {
-    bearer = t || null;
-  }
-  function authHeaders() {
-    const h = { "X-Stackd-Client": client() };
-    if (bearer) h.Authorization = `Bearer ${bearer}`;
-    return h;
-  }
-  var fetchImpl = (...args) => globalThis.fetch(...args);
-  var signedOutHandlers = /* @__PURE__ */ new Set();
-  function onSignedOut(fn) {
-    signedOutHandlers.add(fn);
-  }
-  function signedOut() {
-    signedOutHandlers.forEach((fn) => fn());
-  }
-  async function request(path, { method = "GET", body, signal, timeout = TIMEOUT_MS, raw = false } = {}) {
-    const ctl = new AbortController();
-    const timer2 = setTimeout(() => ctl.abort(), timeout);
-    signal?.addEventListener("abort", () => ctl.abort());
-    let res;
-    try {
-      res = await fetchImpl(proxyUrl() + path, {
-        method,
-        headers: { "X-Stackd-App": APP_TOKEN, ...authHeaders(), ...body === void 0 ? {} : { "Content-Type": "application/json" } },
-        body: body === void 0 ? void 0 : JSON.stringify(body),
-        credentials: "include",
-        signal: ctl.signal
-      });
-    } catch (e) {
-      clearTimeout(timer2);
-      const err = new Error(e?.name === "AbortError" ? "That took too long. Try again." : "No connection. Try again when you are back online.");
-      err.code = e?.name === "AbortError" ? "timeout" : "offline";
-      throw err;
-    }
-    clearTimeout(timer2);
-    if (res.status === 204) return { ok: true };
-    if (raw && res.ok) return res;
-    let data = null;
-    try {
-      data = await res.json();
-    } catch {
-    }
-    if (!res.ok || data?.ok === false) {
-      const { ok, message, code, ...extra } = data || {};
-      const err = Object.assign(new Error(message || `The service answered ${res.status}.`), extra);
-      err.code = code || "provider_unavailable";
-      err.status = res.status;
-      if (err.code === "signed_out") signedOut();
-      throw err;
-    }
-    return data;
-  }
-
-  // src/ai.js
-  var STEPS = ["transcribe", "summarise"];
-  var REQUEST_TIMEOUT_MS = 15e4;
-  var ALLOWANCE_TTL_MS = 10 * 60 * 1e3;
-  var POLL_MS = 4e3;
-  var JOB_TTL_MS = 2 * 3600 * 1e3;
-  var MESSAGES = {
-    offline: "No connection. Try again when you are back online.",
-    from_file: "The AI steps need the app opened from the website (or start-stackd.cmd), not from a file on disk.",
-    unauthorized: "This build cannot reach the service. Update the app.",
-    plan_required: "This needs a plan.",
-    allowance_exhausted: "You've used this period's summaries.",
-    too_large: "This is too large to send.",
-    too_quiet: "The recording was too quiet to transcribe.",
-    invalid_audio: "The recording could not be read.",
-    refused: "The service declined to summarise this transcript.",
-    provider_unavailable: "The service is unavailable right now. Try again in a minute.",
-    timeout: "That took too long. Try again.",
-    interrupted: "Summarising was interrupted. Try again.",
-    bad_output: "The minutes came back unreadable. Try again.",
-    bad_request: "Something went wrong with the request. Try again.",
-    misconfigured: "The service is not set up yet.",
-    not_implemented: "This step arrives in a later build."
-  };
-  var CLIENT_WORDING = /* @__PURE__ */ new Set(["plan_required"]);
-  var isOnline = () => globalThis.navigator?.onLine !== false;
-  var fromFile = () => globalThis.location?.protocol === "file:";
-  function errorFor(x) {
-    const code = x && typeof x === "object" ? x.code : null;
-    if (code && MESSAGES[code]) return { code, message: !CLIENT_WORDING.has(code) && x.message ? x.message : MESSAGES[code], resetsAt: x.resetsAt ?? null };
-    if (x?.name === "AbortError") return { code: "timeout", message: MESSAGES.timeout };
-    if (fromFile()) return { code: "from_file", message: MESSAGES.from_file };
-    if (!isOnline()) return { code: "offline", message: MESSAGES.offline };
-    return { code: "provider_unavailable", message: MESSAGES.provider_unavailable };
-  }
-  var fetchImpl2 = (...args) => globalThis.fetch(...args);
-  var uploadImpl = (url, formData, { headers, onProgress, signal }) => new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", url);
-    xhr.withCredentials = true;
-    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
-    xhr.responseType = "text";
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress?.(Math.round(100 * e.loaded / e.total));
-    };
-    xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, json: async () => JSON.parse(xhr.responseText) });
-    xhr.onerror = () => reject(new TypeError("Network request failed"));
-    xhr.onabort = () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
-    signal?.addEventListener("abort", () => xhr.abort());
-    xhr.send(formData);
-  });
-  var blobImpl = (key) => blob(key);
-  var headersFor = () => ({ "X-Stackd-App": APP_TOKEN, "X-Stackd-Subscriber": S.plan.subscriberId, ...authHeaders() });
-  async function call(path, { method = "GET", body, signal } = {}) {
-    const res = await fetchImpl2(proxyUrl() + path, {
-      method,
-      headers: { "Content-Type": "application/json", ...headersFor() },
-      body: body === void 0 ? void 0 : JSON.stringify(body),
-      credentials: "include",
-      signal
-    });
-    let data = null;
-    try {
-      data = await res.json();
-    } catch {
-    }
-    if (data?.allowance) setPlanCache(data.allowance);
-    if (!res.ok || !data?.ok) {
-      const err = new Error(data?.message || `The service answered ${res.status}.`);
-      err.code = data?.code || (res.status === 401 ? "unauthorized" : "provider_unavailable");
-      err.resetsAt = data?.resetsAt ?? null;
-      if (err.code === "signed_out") signedOut();
-      throw err;
-    }
-    return data;
-  }
-  function reduce(m, ev) {
-    const jobs = { transcribe: null, summarise: null, ...m.jobs || {} };
-    switch (ev.type) {
-      case "start":
-        return { jobs: { ...jobs, [ev.step]: { id: ev.id, startedAt: ev.at, phase: ev.phase || "wait" } }, lastError: null };
-      case "phase":
-        return jobs[ev.step] ? { jobs: { ...jobs, [ev.step]: { ...jobs[ev.step], phase: ev.phase, ...ev.id ? { id: ev.id } : {} } } } : null;
-      case "done":
-        return { jobs: { ...jobs, [ev.step]: null }, lastError: null };
-      case "error":
-        return { jobs: { ...jobs, [ev.step]: null }, lastError: { step: ev.step, code: ev.code, message: ev.message, at: ev.at, ...ev.resetsAt ? { resetsAt: ev.resetsAt } : {} } };
-      case "resume": {
-        const resumable = (s) => s === "transcribe" && jobs[s]?.phase === "wait" && /^job_/.test(jobs[s].id || "") && ev.at - (jobs[s].startedAt || 0) < JOB_TTL_MS;
-        const lost = STEPS.filter((s) => jobs[s] && !ev.inflight.includes(s) && !resumable(s));
-        if (!lost.length) return null;
-        const next = { ...jobs };
-        lost.forEach((s) => {
-          next[s] = null;
-        });
-        const step = lost[0];
-        const message = step === "transcribe" ? "Transcribing was interrupted. Try again." : MESSAGES.interrupted;
-        return { jobs: next, lastError: { step, code: "interrupted", message, at: ev.at } };
-      }
-      default:
-        return null;
-    }
-  }
-  var inflight = /* @__PURE__ */ new Map();
-  var onPlanError = null;
-  function setPlanErrorHandler(fn) {
-    onPlanError = fn;
-  }
-  var isRunning = (meetingId, step) => inflight.has(`${meetingId}:${step}`);
-  function apply(meetingId, patch2) {
-    if (patch2) setJobState(meetingId, patch2);
-  }
-  async function summarise(meetingId) {
-    const m = meetingById(meetingId);
-    const key = `${meetingId}:summarise`;
-    if (!m || m.status !== "active" || !m.transcript || inflight.has(key)) return;
-    const now2 = Date.now();
-    if (!isOnline()) {
-      apply(meetingId, reduce(m, { type: "error", step: "summarise", code: "offline", message: MESSAGES.offline, at: now2 }));
-      return;
-    }
-    const ac = new AbortController();
-    inflight.set(key, ac);
-    const timer2 = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
-    apply(meetingId, reduce(m, { type: "start", step: "summarise", id: uid(), at: now2 }));
-    try {
-      const t = m.transcript;
-      const data = await call("/v1/summarise", {
-        method: "POST",
-        signal: ac.signal,
-        body: {
-          transcript: { segments: t.segments.map((s) => ({ speaker: s.speaker, startMs: s.startMs, text: s.text })), speakers: t.speakers },
-          meetingDate: toISO(new Date(m.createdAt)),
-          priorities: S.priorities.map((p) => p.name)
-        }
-      });
-      settle();
-      const cur = meetingById(meetingId);
-      if (!cur) return;
-      apply(meetingId, reduce(cur, { type: "done", step: "summarise" }));
-      setMinutes(meetingId, data.minutes, data.actions);
-    } catch (e) {
-      settle();
-      const cur = meetingById(meetingId);
-      if (cur) {
-        const { code, message, resetsAt } = errorFor(e);
-        apply(meetingId, reduce(cur, { type: "error", step: "summarise", code, message, resetsAt, at: Date.now() }));
-        onPlanError?.(code, { step: "summarise", resetsAt });
-      }
-    } finally {
-      settle();
-    }
-    function settle() {
-      clearTimeout(timer2);
-      inflight.delete(key);
-    }
-  }
-  var progress = /* @__PURE__ */ new Map();
-  var uploadProgress = (meetingId) => progress.get(meetingId)?.pct ?? null;
-  async function transcribe(meetingId, { onProgress = null } = {}) {
-    const m = meetingById(meetingId);
-    const key = `${meetingId}:transcribe`;
-    if (!m || m.status !== "active" || !m.recording || inflight.has(key)) return;
-    const now2 = Date.now();
-    if (!isOnline()) {
-      apply(meetingId, reduce(m, { type: "error", step: "transcribe", code: "offline", message: MESSAGES.offline, at: now2 }));
-      return;
-    }
-    const ac = new AbortController();
-    inflight.set(key, ac);
-    progress.set(meetingId, { pct: 0, onProgress });
-    apply(meetingId, reduce(m, { type: "start", step: "transcribe", id: uid(), at: now2, phase: "upload" }));
-    try {
-      const blob2 = await blobImpl(m.recording.key);
-      if (!blob2 || !blob2.size) throw Object.assign(new Error("The recording is missing from this device."), { code: "invalid_audio" });
-      const fd = new FormData();
-      fd.append("audio", blob2, `recording.${blob2.type.includes("mp4") ? "m4a" : "webm"}`);
-      fd.append("durationMs", String(m.recording.durationMs));
-      const res = await uploadImpl(proxyUrl() + "/v1/transcribe", fd, {
-        headers: headersFor(),
-        signal: ac.signal,
-        onProgress: (pct) => {
-          const p = progress.get(meetingId);
-          if (p) {
-            p.pct = pct;
-            p.onProgress?.(pct);
-          }
-        }
-      });
-      let data = null;
-      try {
-        data = await res.json();
-      } catch {
-      }
-      if (data?.allowance) setPlanCache(data.allowance);
-      if (!res.ok || !data?.ok) {
-        const err = new Error(data?.message || `The service answered ${res.status}.`);
-        err.code = data?.code || (res.status === 401 ? "unauthorized" : "provider_unavailable");
-        err.resetsAt = data?.resetsAt ?? null;
-        throw err;
-      }
-      const cur = meetingById(meetingId);
-      if (!cur) return;
-      apply(meetingId, reduce(cur, { type: "phase", step: "transcribe", phase: "wait", id: data.jobId }));
-      inflight.delete(key);
-      await pollTranscription(meetingId, data.jobId);
-    } catch (e) {
-      inflight.delete(key);
-      const cur = meetingById(meetingId);
-      if (cur) {
-        const { code, message, resetsAt } = errorFor(e);
-        const cancelled2 = e?.name === "AbortError" && ac.signal.aborted && progress.get(meetingId)?.cancelled;
-        if (cancelled2) apply(meetingId, reduce(cur, { type: "done", step: "transcribe" }));
-        else {
-          apply(meetingId, reduce(cur, { type: "error", step: "transcribe", code, message, resetsAt, at: Date.now() }));
-          onPlanError?.(code, { step: "transcribe", resetsAt });
-        }
-      }
-    } finally {
-      inflight.delete(key);
-      progress.delete(meetingId);
-    }
-  }
-  function cancelUpload(meetingId) {
-    const key = `${meetingId}:transcribe`;
-    const ac = inflight.get(key);
-    const p = progress.get(meetingId);
-    if (!ac || !p) return false;
-    p.cancelled = true;
-    ac.abort();
-    return true;
-  }
-  var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  async function pollTranscription(meetingId, jobId) {
-    const key = `${meetingId}:transcribe:poll`;
-    if (inflight.has(key)) return;
-    inflight.set(key, new AbortController());
-    try {
-      for (; ; ) {
-        const m = meetingById(meetingId);
-        if (!m || !m.jobs?.transcribe || m.jobs.transcribe.id !== jobId) return;
-        if (Date.now() - (m.jobs.transcribe.startedAt || 0) > JOB_TTL_MS) {
-          apply(meetingId, reduce(m, { type: "error", step: "transcribe", code: "timeout", message: MESSAGES.timeout, at: Date.now() }));
-          return;
-        }
-        let data;
-        try {
-          data = await call(`/v1/transcribe/${encodeURIComponent(jobId)}`);
-        } catch (e) {
-          if (e?.code && e.code !== "provider_unavailable" && e.code !== "offline") {
-            const { code, message, resetsAt } = errorFor(e);
-            apply(meetingId, reduce(m, { type: "error", step: "transcribe", code, message, resetsAt, at: Date.now() }));
-            onPlanError?.(code, { step: "transcribe", resetsAt });
-            return;
-          }
-          await sleep(POLL_MS * 2);
-          continue;
-        }
-        if (data.state === "done") {
-          const cur = meetingById(meetingId);
-          if (!cur) return;
-          apply(meetingId, reduce(cur, { type: "done", step: "transcribe" }));
-          setTranscript(meetingId, { source: "recording", segments: data.transcript.segments, speakers: data.transcript.speakers });
-          onTranscribed?.(meetingId);
-          return;
-        }
-        await sleep(POLL_MS);
-      }
-    } finally {
-      inflight.delete(key);
-    }
-  }
-  var onTranscribed = null;
-  function setTranscribedHandler(fn) {
-    onTranscribed = fn;
-  }
-  async function allowance({ force = false } = {}) {
-    if (!force && Date.now() - (S.plan.checkedAt || 0) < ALLOWANCE_TTL_MS) return S.plan;
-    await call("/v1/allowance");
-    return S.plan;
-  }
-  function resumeJobs(now2 = Date.now()) {
-    S.meetings.forEach((m) => {
-      const running2 = STEPS.filter((s) => inflight.has(`${m.id}:${s}`) || inflight.has(`${m.id}:${s}:poll`));
-      apply(m.id, reduce(m, { type: "resume", inflight: running2, at: now2 }));
-      const t = m.jobs?.transcribe;
-      if (t && t.phase === "wait" && /^job_/.test(t.id || "") && !running2.includes("transcribe") && isOnline()) pollTranscription(m.id, t.id);
-    });
-  }
-
-  // src/purchases.js
-  var RC_KEYS = { ios: "appl_REPLACE_ME", android: "goog_REPLACE_ME" };
-  var PAID_TIERS = ["plus", "pro", "max"];
-  var PRODUCT_IDS = { plus: "plus_monthly", pro: "pro_monthly", max: "max_monthly" };
-  var plugin3 = () => globalThis.Capacitor?.Plugins?.Purchases;
-  var platform = () => globalThis.Capacitor?.getPlatform?.() || "web";
-  var available2 = () => !!(globalThis.Capacitor?.isNativePlatform?.() && typeof plugin3()?.configure === "function" && RC_KEYS[platform()] && !RC_KEYS[platform()].includes("REPLACE_ME"));
-  var configured = false;
-  var offeringsCache = null;
-  async function configure(subscriberId) {
-    if (!available2() || configured) return false;
-    try {
-      await plugin3().configure({ apiKey: RC_KEYS[platform()], appUserID: subscriberId });
-      configured = true;
-    } catch (e) {
-      console.warn("purchases: configure failed", e?.message || e);
-    }
-    return configured;
-  }
-  async function identify(userId) {
-    if (!configured) return;
-    try {
-      await plugin3().logIn({ appUserID: userId });
-      await plugin3().syncPurchases();
-      offeringsCache = null;
-    } catch (e) {
-      console.warn("purchases: identify failed", e?.message || e);
-    }
-  }
-  async function anonymous(subscriberId) {
-    if (!configured) return;
-    try {
-      await plugin3().logIn({ appUserID: subscriberId });
-      offeringsCache = null;
-    } catch (e) {
-      console.warn("purchases: anonymous failed", e?.message || e);
-    }
-  }
-  async function offerings({ force = false } = {}) {
-    if (!configured) return {};
-    if (offeringsCache && !force) return offeringsCache;
-    try {
-      const res = await plugin3().getOfferings();
-      const packages = res?.current?.availablePackages || [];
-      const out = {};
-      PAID_TIERS.forEach((tier) => {
-        const pkg = packages.find((p) => p.identifier === tier || p.product?.identifier === PRODUCT_IDS[tier] || p.product?.identifier?.startsWith(`${tier}_`));
-        if (pkg) out[tier] = { price: pkg.product?.priceString || "", package: pkg };
-      });
-      offeringsCache = out;
-      return out;
-    } catch (e) {
-      console.warn("purchases: offerings failed", e?.message || e);
-      return {};
-    }
-  }
-  function tierOf(customerInfo) {
-    const active2 = customerInfo?.entitlements?.active || {};
-    for (const tier of [...PAID_TIERS].reverse()) if (active2[tier]) return tier;
-    return "free";
-  }
-  var cancelled = (e) => e?.userCancelled === true || String(e?.code) === "1" || /cancel/i.test(String(e?.message || ""));
-  async function buy(tier) {
-    if (!PAID_TIERS.includes(tier) || !PLAN_TIERS.includes(tier)) throw new Error("Unknown plan");
-    const offer = (await offerings())[tier];
-    if (!offer) throw new Error("This plan is not available in the store right now.");
-    try {
-      const res = await plugin3().purchasePackage({ aPackage: offer.package });
-      return { tier: tierOf(res?.customerInfo), customerInfo: res?.customerInfo };
-    } catch (e) {
-      if (cancelled(e)) return { cancelled: true };
-      throw new Error(e?.message || "The purchase did not go through.");
-    }
-  }
-  async function restore() {
-    const res = await plugin3().restorePurchases();
-    return { tier: tierOf(res?.customerInfo), customerInfo: res?.customerInfo };
-  }
-  async function manageUrl() {
-    try {
-      const res = await plugin3().getCustomerInfo();
-      return res?.customerInfo?.managementURL || null;
-    } catch {
-      return null;
-    }
-  }
-
-  // src/legal.js
-  var APP_ORIGIN = "https://app.stackdplatform.com";
-  var APP_HOST = new URL(APP_ORIGIN).host;
-  var TERMS_URL = `${APP_ORIGIN}/terms.html`;
-  var PRIVACY_URL = `${APP_ORIGIN}/privacy.html`;
-  var DELETION_URL = `${APP_ORIGIN}/account-deletion.html`;
-  var TERMS_VERSION = "2026-10-20";
-  var PRIVACY_VERSION = "2026-10-20";
-  function isLegacyOrigin(host = globalThis.location?.hostname || "") {
-    return /(^|\.)github\.io$/i.test(host);
-  }
-
-  // src/ui/paywall.js
-  var BLURB = {
-    plus: "A 30-minute call most working days",
-    pro: "Two 30-minute calls every working day",
-    max: "About an hour of meetings every working day"
-  };
-  var poolLine = (tier) => `${PLAN_POOLS[tier].hours} h of audio · ${PLAN_POOLS[tier].summaries} summaries a month`;
-  function aiButtonState(step) {
-    const p = S.plan;
-    if (p.tier === "free" && p.checkedAt) return { locked: true, hint: `from ${PLAN_PRICES.plus} / month` };
-    if (!p.checkedAt) return { locked: false, hint: "" };
-    if (step === "summarise") return { locked: false, hint: `1 of ${p.summariesLeft} summar${p.summariesLeft === 1 ? "y" : "ies"} left` };
-    return { locked: false, hint: `${fmtDuration(p.audioSecondsLeft * 1e3)} of audio left` };
-  }
-  var prices = {};
-  function cardHTML(tier, current2) {
-    const price = prices[tier] || PLAN_PRICES[tier];
-    const isCurrent = current2 === tier;
-    const action = !available2() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : `<button type="button" class="btn ${current2 === "free" || current2 === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current2 === "free" || current2 === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current2) ? "Upgrade" : "Switch"}</button>`;
-    return `
-  <div class="plan-card ${isCurrent ? "is-current" : ""}">
-    <div class="plan-head">
-      <span class="plan-name">${planName(tier)}</span>
-      <span class="plan-price num">${esc(price)}<span class="hint"> / month</span></span>
-    </div>
-    <span class="plan-pool">${esc(poolLine(tier))}</span>
-    <span class="hint">${esc(BLURB[tier])}</span>
-    ${action}
-  </div>`;
-  }
-  var bar = (label, left, total, text2) => `
-  <div class="plan-bar" role="group" aria-label="${esc(label)}">
-    <div class="plan-bar-line"><span>${esc(label)}</span><span class="num">${esc(text2)}</span></div>
-    <div class="plan-track"><div class="plan-fill" style="width:${total ? Math.round(100 * Math.max(0, Math.min(1, left / total))) : 0}%"></div></div>
-  </div>`;
-  function planSectionHTML() {
-    const p = S.plan;
-    const current2 = p.tier;
-    const paid = PAID_TIERS.includes(current2);
-    const status2 = !p.checkedAt ? "Not checked yet" : current2 === "free" ? "Free · the AI steps need a plan" : current2 === "tester" ? "Tester · allowance resets daily" : `Renews ${p.renewsAt ? fmtDate(p.renewsAt, S.dateFormat) : "monthly"}`;
-    const bars = p.checkedAt && current2 !== "free" ? `
-    ${bar("Audio", p.audioSecondsLeft, p.audioSecondsTotal, `${fmtDuration(p.audioSecondsLeft * 1e3)} of ${fmtDuration(p.audioSecondsTotal * 1e3)}`)}
-    ${bar("Summaries", p.summariesLeft, p.summariesTotal, `${p.summariesLeft} of ${p.summariesTotal}`)}` : "";
-    return `
-  <span class="section-title list-label" id="settings-plan">Plan</span>
-  <div class="card plan-current">
-    <div class="plan-head">
-      <span class="plan-name">${planName(current2)}</span>
-      <span class="hint">${esc(status2)}</span>
-    </div>
-    ${bars}
-    <div class="plan-actions">
-      <button type="button" class="btn btn-sm btn-secondary" data-plan-check>${icon("undo", 16)}Refresh</button>
-      ${available2() ? '<button type="button" class="btn btn-sm btn-secondary" data-plan-restore>Restore purchases</button>' : ""}
-      ${available2() && paid ? '<button type="button" class="btn btn-sm btn-ghost" data-plan-manage>Manage subscription</button>' : ""}
-    </div>
-  </div>
-  <div class="plan-cards">
-    ${PAID_TIERS.map((t) => cardHTML(t, current2)).join("")}
-  </div>
-  <p class="hint set-hint">${available2() ? "Monthly subscriptions renew automatically until cancelled in your store account. The allowance resets on the renewal date; unused minutes and summaries do not carry over." : "Subscribe in the Stack’d app on iPhone or Android; the plan then applies there. Monthly subscriptions renew until cancelled."}
-    <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>`;
-  }
-  async function refresh(btn) {
-    if (btn) btn.disabled = true;
-    try {
-      await allowance({ force: true });
-      rerender();
-    } catch (e) {
-      if (btn) btn.disabled = false;
-      toast(errorFor(e).message);
-    }
-  }
-  function bindPlanSection(root) {
-    root.querySelector("[data-plan-check]")?.addEventListener("click", (e) => refresh(e.currentTarget));
-    root.querySelector("[data-plan-restore]")?.addEventListener("click", async (e) => {
-      const b = e.currentTarget;
-      b.disabled = true;
-      try {
-        const r = await restore();
-        await allowance({ force: true }).catch(() => {
-        });
-        toast(r.tier === "free" ? "No purchases to restore" : `Restored: ${planName(r.tier)}`);
-        rerender();
-      } catch (err) {
-        b.disabled = false;
-        toast(err?.message || "Restore failed");
-      }
-    });
-    root.querySelector("[data-plan-manage]")?.addEventListener("click", async () => {
-      const url = await manageUrl();
-      if (url) window.open(url, "_blank");
-      else toast("Open your store account to manage the subscription");
-    });
-    root.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", () => purchase(b.dataset.buy, b)));
-    if (available2() && !Object.keys(prices).length) {
-      offerings().then((o) => {
-        const next = Object.fromEntries(Object.entries(o).map(([t, v]) => [t, v.price]).filter(([, v]) => v));
-        if (Object.keys(next).length) {
-          prices = next;
-          rerender();
-        }
-      });
-    }
-  }
-  async function purchase(tier, btn) {
-    if (btn) btn.disabled = true;
-    try {
-      const r = await buy(tier);
-      if (r.cancelled) {
-        if (btn) btn.disabled = false;
-        return;
-      }
-      await allowance({ force: true }).catch(() => {
-      });
-      toast(`${planName(r.tier)} is active`);
-      commit();
-    } catch (e) {
-      if (btn) btn.disabled = false;
-      toast(e?.message || "The purchase did not go through.");
-    }
-  }
-  function sheet(html) {
-    const ov = document.createElement("div");
-    ov.className = "overlay";
-    ov.innerHTML = html;
-    document.body.appendChild(ov);
-    const unpin = pinToViewport(ov);
-    const close = () => {
-      unpin();
-      ov.remove();
-      document.removeEventListener("keydown", onKey);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    ov.addEventListener("click", (e) => {
-      if (e.target === ov) close();
-    });
-    ov.querySelector("[data-close]")?.addEventListener("click", close);
-    return { ov, close };
-  }
-  var STEP_TEXT = {
-    summarise: "Summarise turns a transcript into minutes, decisions, open questions and action cards you can send to a board.",
-    transcribe: "Transcribe turns a recording into text with speaker labels."
-  };
-  function openPlanRequired({ step }) {
-    const { ov, close } = sheet(`
-  <div class="sheet" role="dialog" aria-label="Choose a plan">
-    <div class="sheet-handle"></div>
-    <div class="sheet-head">
-      <span class="section-title">This needs a plan</span>
-      <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
-    </div>
-    <p class="plan-intro">${esc(STEP_TEXT[step] || "")}</p>
-    <div class="plan-cards">${PAID_TIERS.map((t) => cardHTML(t, S.plan.tier)).join("")}</div>
-    ${available2() ? "" : '<p class="hint">Subscribe in the Stack’d app on iPhone or Android.</p>'}
-    <p class="hint">Renews monthly until cancelled · <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>
-  </div>`);
-    ov.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", async () => {
-      await purchase(b.dataset.buy, b);
-      if (S.plan.tier !== "free") close();
-    }));
-  }
-  function openAllowanceUsed({ step, resetsAt }) {
-    const tier = S.plan.tier;
-    const next = PAID_TIERS[PAID_TIERS.indexOf(tier) + 1] || null;
-    const what = step === "summarise" ? "summaries" : "audio minutes";
-    const when = resetsAt || S.plan.renewsAt;
-    const { ov, close } = sheet(`
-  <div class="sheet" role="dialog" aria-label="Allowance used">
-    <div class="sheet-handle"></div>
-    <div class="sheet-head">
-      <span class="section-title">Allowance used</span>
-      <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
-    </div>
-    <p class="plan-intro">You've used this ${tier === "tester" ? "day's" : "month's"} ${what}.${when ? ` Resets ${esc(fmtDate(when, S.dateFormat))}.` : ""}</p>
-    ${next && available2() ? `<div class="plan-cards">${cardHTML(next, tier)}</div>` : ""}
-    <button type="button" class="btn btn-secondary btn-block" data-close>OK</button>
-  </div>`);
-    ov.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", async () => {
-      await purchase(b.dataset.buy, b);
-      close();
-    }));
-  }
-
-  // src/ui/minutesview.js
-  var DISCLOSURE = "The transcript, with the speaker names you gave, is sent to our server and to an AI model provider to write the minutes and find the actions. Nothing is kept there after the result comes back, and nothing is sent until you press this button.";
-  function summariseCtaHTML(m) {
-    if (!m.transcript) return "";
-    const running2 = m.jobs?.summarise || isRunning(m.id, "summarise");
-    const err = m.lastError?.step === "summarise" ? m.lastError : null;
-    const offline = !isOnline();
-    const stale = minutesStale(m);
-    if (running2) {
-      return `
-    <div class="cta cta-running" role="status" aria-live="polite">
-      <span class="spin" aria-hidden="true"></span>
-      <span>Summarising…</span>
-      <span class="hint">keeps going if you leave this screen</span>
-    </div>`;
-    }
-    const state3 = aiButtonState("summarise");
-    const planErr = err && (err.code === "plan_required" || err.code === "allowance_exhausted");
-    const label = err && !planErr ? "Retry" : m.minutes ? "Regenerate" : "Summarise into minutes and actions";
-    return `
-  <div class="cta" data-cta="summarise">
-    ${err && !planErr ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
-    ${err?.code === "allowance_exhausted" ? `<div class="notice"><span>${esc(err.message)}</span><button type="button" class="btn btn-sm btn-ghost" data-plan-sheet="allowance_exhausted">Upgrade</button></div>` : ""}
-    <span class="cta-row">
-      <button type="button" class="btn ${m.minutes ? "btn-secondary" : "btn-primary"} ${state3.locked ? "is-locked" : ""}" data-summarise ${offline ? "disabled" : ""} ${state3.locked ? 'data-locked="1"' : ""}>
-        ${icon(state3.locked ? "lock" : "sparkle", 18)}${label}
-      </button>
-      ${state3.hint ? `<span class="hint cta-hint">${esc(state3.hint)}</span>` : ""}
-    </span>
-    ${stale && m.minutes ? '<span class="tag tag-soon">Transcript edited since</span>' : ""}
-    ${offline ? '<span class="hint">Needs a connection</span>' : ""}
-  </div>`;
-  }
-  function bindSummariseCta(root, m) {
-    root.querySelector("[data-plan-sheet]")?.addEventListener("click", () => openAllowanceUsed({ step: "summarise", resetsAt: m.lastError?.resetsAt || null }));
-    root.querySelector("[data-summarise]")?.addEventListener("click", async (e) => {
-      if (e.currentTarget.dataset.locked) {
-        openPlanRequired({ step: "summarise" });
-        return;
-      }
-      if (!S.ai.disclosed) {
-        if (!await confirmDialog("Before the first summary", DISCLOSURE, { confirmLabel: "Continue" })) return;
-        markDisclosed();
-      }
-      if (m.minutes && !await confirmDialog("Regenerate the minutes?", "The minutes and the actions not yet added to a board are replaced.", { confirmLabel: "Regenerate" })) return;
-      summarise(m.id);
-    });
-  }
-  function minutesToText(m) {
-    const mm = m.minutes;
-    const lines2 = [meetingTitle(m), `${fmtDate(m.createdAt, S.dateFormat)} ${fmtClock(m.createdAt)}`, ""];
-    lines2.push("Summary", mm.summary || "None noted", "");
-    lines2.push("Decisions", ...mm.decisions.length ? mm.decisions.map((d) => `- ${d}`) : ["None noted"], "");
-    lines2.push("Open questions", ...mm.openQuestions.length ? mm.openQuestions.map((q) => `- ${q}`) : ["None noted"], "");
-    const actions = m.actions.filter((a) => a.status !== "dismissed");
-    lines2.push("Actions", ...actions.length ? actions.map((a) => `- ${a.title}${a.due ? ` · due ${fmtDate(a.due, S.dateFormat)}` : ""}${a.priority !== "none" ? ` · ${priorityName(a.priority)}` : ""}${a.status === "added" ? " · on a board" : ""}`) : ["None"]);
-    lines2.push("", generatedLine(mm));
-    return lines2.join("\n");
-  }
-  var generatedLine = (mm) => `Generated by AI · ${fmtDate(mm.generatedAt, S.dateFormat)} ${fmtClock(mm.generatedAt)} · check before you rely on it.`;
-  function sectionHTML(key, title, value, { readOnly, list: list3 }) {
-    const text2 = list3 ? value.join("\n") : value;
-    const empty2 = !text2.trim();
-    if (readOnly) {
-      return `
-    <div class="min-section">
-      <span class="section-title">${title}</span>
-      ${empty2 ? '<p class="min-empty">None noted</p>' : list3 ? `<ul class="min-list">${value.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="min-text">${esc(text2)}</p>`}
-    </div>`;
-    }
-    return `
-  <div class="min-section">
-    <label class="section-title" for="min-${key}">${title}</label>
-    <textarea id="min-${key}" class="min-edit ${list3 ? "min-edit-list" : ""}" data-min="${key}" rows="1" placeholder="None noted" aria-label="${title}">${esc(text2)}</textarea>
-    ${list3 ? '<span class="hint">One per line</span>' : ""}
-  </div>`;
-  }
-  function minutesHTML(m, { readOnly = false } = {}) {
-    const mm = m.minutes;
-    if (!mm) return "";
-    return `
-  <section class="mblock" data-block="minutes" aria-label="Minutes">
-    <div class="mblock-head">
-      <span class="section-title">Minutes</span>
-      <span class="hint">${esc(generatedLine(mm))}</span>
-      <span class="mblock-actions"><button type="button" class="btn btn-ghost btn-sm" data-copy-minutes>${icon("copy", 16)}Copy</button></span>
-    </div>
-    <div class="card minutes">
-      ${sectionHTML("summary", "Summary", mm.summary, { readOnly, list: false })}
-      ${sectionHTML("decisions", "Decisions", mm.decisions, { readOnly, list: true })}
-      ${sectionHTML("openQuestions", "Open questions", mm.openQuestions, { readOnly, list: true })}
-    </div>
-  </section>`;
-  }
-  var grow = (ta) => {
-    ta.style.height = "auto";
-    ta.style.height = `${ta.scrollHeight}px`;
-  };
-  function bindMinutes(root, m, { readOnly = false } = {}) {
-    root.querySelector("[data-copy-minutes]")?.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(minutesToText(m));
-        toast("Minutes copied");
-      } catch {
-        toast("Couldn't copy on this device");
-      }
-    });
-    if (readOnly) return;
-    let timer2 = null;
-    const pending = {};
-    const flush = () => {
-      if (!timer2) return;
-      clearTimeout(timer2);
-      timer2 = null;
-      editMinutes(m.id, { ...pending });
-      Object.keys(pending).forEach((k) => delete pending[k]);
-    };
-    root.querySelectorAll("[data-min]").forEach((ta) => {
-      grow(ta);
-      ta.addEventListener("input", () => {
-        grow(ta);
-        const key = ta.dataset.min;
-        pending[key] = key === "summary" ? ta.value : ta.value.split("\n").map((s) => s.trim()).filter(Boolean);
-        clearTimeout(timer2);
-        timer2 = setTimeout(flush, 500);
-      });
-      ta.addEventListener("blur", flush);
-    });
-    window.addEventListener("pagehide", flush, { once: true });
-  }
-
-  // src/backup.js
-  var FILE_APP = "stackd";
-  var FILE_FORMAT = 1;
-  var MAX_FILE_BYTES = 12 * 1024 * 1024;
-  var MAX_RECORDS = 2e4;
-  var ACCOUNT_KEY = "stackd-account";
-  var ImportError = class extends Error {
-    constructor(code, message) {
-      super(message);
-      this.name = "ImportError";
-      this.code = code;
-    }
-  };
-  function canImport() {
-    try {
-      return localStorage.getItem(ACCOUNT_KEY) === null;
-    } catch {
-      return true;
-    }
-  }
-  var countsOf = (r) => ({ boards: r.lists.length, tasks: r.tasks.length, notes: r.notes.length, meetings: r.meetings.length });
-  function exportDocument(now2 = Date.now()) {
-    const records = exportRecords();
-    records.meetings = records.meetings.map(({ recording, jobs, lastError, ...m }) => m);
-    return { app: FILE_APP, format: FILE_FORMAT, exportedAt: now2, records };
-  }
-  var exportFileName = (now2 = Date.now()) => `stackd-export-${toISO(new Date(now2))}.json`;
-  function exportFile(now2 = Date.now()) {
-    return new Blob([JSON.stringify(exportDocument(now2))], { type: "application/json" });
-  }
-  var ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
-  var SPEAKER = /^[A-Za-z0-9][\w .-]{0,39}$/;
-  var ISO_DATE = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/;
-  var HHMM = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
-  var STATUSES = ["active", "archived", "deleted"];
-  var RECURS = RECUR_OPTIONS.map(([v]) => v);
-  var REMINDERS = REMINDER_OPTIONS.map(([v]) => v);
-  var SOURCES = ["recording", "pasted", "file"];
-  var ACTION_STATUSES = ["proposed", "added", "dismissed"];
-  var LONG = 2e6;
-  var bad = (what) => {
-    throw new ImportError("bad_file", `This file is damaged (${what}).`);
-  };
-  var isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-  var obj = (v, what) => isObj(v) ? v : bad(what);
-  var list2 = (v, what) => v === void 0 || v === null ? [] : Array.isArray(v) ? v : bad(what);
-  var idOf = (v, what) => typeof v === "string" && ID.test(v) ? v : bad(`${what} without a valid id`);
-  var text = (v, max = 2e3) => typeof v === "string" ? v.slice(0, max) : "";
-  var flag = (v) => v === true;
-  var time = (v) => Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
-  var num = (v, fallback) => Number.isFinite(v) ? v : fallback;
-  var count = (v) => Number.isInteger(v) && v >= 0 ? v : 0;
-  var date = (v) => typeof v === "string" && ISO_DATE.test(v) ? v : null;
-  var pick = (v, allowed, fallback) => allowed.includes(v) ? v : fallback;
-  var tagsOf = (v) => normalizeTags(list2(v, "labels that are not a list").filter((x) => typeof x === "string").map((x) => x.slice(0, 64)));
-  function unique(items, what) {
-    const seen = /* @__PURE__ */ new Set();
-    items.forEach((x) => {
-      if (seen.has(x.id)) bad(`two ${what} with the same id`);
-      seen.add(x.id);
-    });
-    return items;
-  }
-  function lifecycle(r, now2) {
-    const status2 = pick(r.status, STATUSES, "active");
-    return {
-      status: status2,
-      archivedAt: status2 === "archived" ? time(r.archivedAt) ?? now2 : null,
-      deletedAt: status2 === "deleted" ? time(r.deletedAt) ?? now2 : null
-      // never null: purgeDeleted() would drop it at once
-    };
-  }
-  function stamps(r, now2) {
-    const createdAt = time(r.createdAt) ?? now2;
-    return { createdAt, updatedAt: Math.max(createdAt, time(r.updatedAt) ?? createdAt) };
-  }
-  var checkItems = (v, field, what) => list2(v, what).map((c) => {
-    obj(c, what);
-    return { id: idOf(c.id, what), [field]: text(c[field]), done: flag(c.done) };
-  });
-  function cleanBoard(r, now2) {
-    obj(r, "a board that is not a record");
-    let lanes = unique(list2(r.lanes, "lanes that are not a list").map((l) => {
-      obj(l, "a lane that is not a record");
-      return { id: idOf(l.id, "a lane"), name: text(l.name, 80).trim() || "Lane" };
-    }), "lanes");
-    if (!lanes.length) lanes = defaultLanes();
-    if (!lanes.some((l) => l.id === DONE_LANE)) lanes.push({ id: DONE_LANE, name: "Done" });
-    if (lanes.length === 1) lanes.unshift({ id: "backlog", name: "Backlog" });
-    lanes = [...lanes.filter((l) => l.id !== DONE_LANE), lanes.find((l) => l.id === DONE_LANE)];
-    return { id: idOf(r.id, "a board"), name: text(r.name, 80).trim() || "Board", lanes, ...lifecycle(r, now2) };
-  }
-  function cleanPriority(r) {
-    obj(r, "a priority that is not a record");
-    const id = idOf(r.id, "a priority");
-    if (id === "none") bad("a priority called none");
-    return { id, name: text(r.name, 24).trim() || "Priority", color: pick(r.color, PRIORITY_COLORS, "gray") };
-  }
-  function cleanTask(r, i, ctx) {
-    obj(r, "a task that is not a record");
-    const board = ctx.boards.get(r.listId) || ctx.firstBoard;
-    const lane = board.lanes.some((l) => l.id === r.lane) ? r.lane : (board.lanes.find((l) => l.id !== DONE_LANE) || board.lanes[0]).id;
-    const due = date(r.due);
-    const start2 = date(r.start);
-    const o = r.origin;
-    const origin = isObj(o) && typeof o.listId === "string" && ID.test(o.listId) ? { listId: o.listId, lane: typeof o.lane === "string" && ID.test(o.lane) ? o.lane : lane, order: num(o.order, 0) } : null;
-    const f = r.from;
-    const from = isObj(f) && typeof f.meetingId === "string" && ID.test(f.meetingId) && typeof f.actionId === "string" && ID.test(f.actionId) ? { meetingId: f.meetingId, actionId: f.actionId } : null;
-    const life = lifecycle(r, ctx.now);
-    return {
-      id: idOf(r.id, "a task"),
-      listId: board.id,
-      lane,
-      title: text(r.title).trim() || "Untitled",
-      done: flag(r.done),
-      order: num(r.order, i),
-      priority: ctx.priorities.has(r.priority) ? r.priority : "none",
-      tags: tagsOf(r.tags),
-      subtasks: checkItems(r.subtasks, "title", "a subtask"),
-      start: start2 && (!due || start2 <= due) ? start2 : null,
-      due,
-      dueTime: due && typeof r.dueTime === "string" && HHMM.test(r.dueTime) ? r.dueTime : null,
-      recur: due ? pick(r.recur, RECURS, "none") : "none",
-      reminder: due ? pick(r.reminder, REMINDERS, null) : null,
-      reminderFiredAt: time(r.reminderFiredAt),
-      completedCount: count(r.completedCount),
-      lastCompletedAt: time(r.lastCompletedAt),
-      ...life,
-      origin: life.status === "active" ? null : origin,
-      from,
-      ...stamps(r, ctx.now)
-    };
-  }
-  function cleanNote(r, i, ctx) {
-    obj(r, "a note that is not a record");
-    return {
-      id: idOf(r.id, "a note"),
-      order: num(r.order, i),
-      title: text(r.title),
-      body: sanitize(text(r.body, LONG)),
-      color: pick(r.color, NOTE_COLORS, null),
-      tags: tagsOf(r.tags),
-      checklist: r.checklist === null || r.checklist === void 0 ? null : checkItems(r.checklist, "text", "a checklist item"),
-      ...lifecycle(r, ctx.now),
-      ...stamps(r, ctx.now)
-    };
-  }
-  function cleanTranscript(r, now2) {
-    const speakers = {};
-    Object.entries(isObj(r.speakers) ? r.speakers : {}).forEach(([label, name]) => {
-      if (!SPEAKER.test(label)) bad("a speaker label");
-      speakers[label] = typeof name === "string" && name.trim() ? name.trim().slice(0, 80) : null;
-    });
-    const segments = list2(r.segments, "a transcript that is not a list").map((s) => {
-      obj(s, "a transcript line that is not a record");
-      if (typeof s.speaker !== "string" || !SPEAKER.test(s.speaker)) bad("a speaker label");
-      if (!Object.hasOwn(speakers, s.speaker)) speakers[s.speaker] = null;
-      return { id: idOf(s.id, "a transcript line"), speaker: s.speaker, startMs: Number.isFinite(s.startMs) && s.startMs >= 0 ? s.startMs : null, text: text(s.text, LONG).trim() };
-    }).filter((s) => s.text);
-    return {
-      source: pick(r.source, SOURCES, "pasted"),
-      fileName: typeof r.fileName === "string" && r.fileName ? r.fileName.slice(0, 200) : null,
-      segments,
-      speakers,
-      ...stamps(r, now2)
-    };
-  }
-  var lines = (v) => list2(v, "minutes that are not a list").filter((x) => typeof x === "string").map((x) => x.slice(0, 4e3));
-  function cleanMeeting(r, i, ctx) {
-    obj(r, "a meeting that is not a record");
-    const transcript = isObj(r.transcript) ? cleanTranscript(r.transcript, ctx.now) : null;
-    const m = r.minutes;
-    const minutes = transcript && isObj(m) ? {
-      summary: text(m.summary, 2e4),
-      decisions: lines(m.decisions),
-      openQuestions: lines(m.openQuestions),
-      generatedAt: time(m.generatedAt) ?? ctx.now,
-      transcriptUpdatedAt: time(m.transcriptUpdatedAt) ?? 0
-      // unknown ⇒ shown as out of date
-    } : null;
-    const actions = unique(list2(r.actions, "actions that are not a list").map((a) => {
-      obj(a, "an action that is not a record");
-      return {
-        id: idOf(a.id, "an action"),
-        title: text(a.title).trim(),
-        due: date(a.due),
-        priority: ctx.priorities.has(a.priority) ? a.priority : "none",
-        excerpt: text(a.excerpt, 4e3),
-        status: pick(a.status, ACTION_STATUSES, "proposed"),
-        taskId: typeof a.taskId === "string" && ID.test(a.taskId) ? a.taskId : null
-      };
-    }).filter((a) => a.title), "actions");
-    return {
-      id: idOf(r.id, "a meeting"),
-      title: text(r.title),
-      ...stamps(r, ctx.now),
-      recording: null,
-      transcript,
-      minutes,
-      actions,
-      jobs: { transcribe: null, summarise: null },
-      lastError: null,
-      ...lifecycle(r, ctx.now)
-    };
-  }
-  function cleanRecords(raw, now2 = Date.now()) {
-    obj(raw, "no records");
-    const settings2 = obj(raw.settings, "no settings");
-    const lists = unique(list2(raw.lists, "boards that are not a list").map((r) => cleanBoard(r, now2)), "boards");
-    if (!lists.some((l) => l.status === "active")) bad("no boards");
-    const rawTasks = list2(raw.tasks, "tasks that are not a list");
-    const rawNotes = list2(raw.notes, "notes that are not a list");
-    const rawMeetings = list2(raw.meetings, "meetings that are not a list");
-    if (rawTasks.length + rawNotes.length + rawMeetings.length > MAX_RECORDS) bad("too many records");
-    const priorities = unique(list2(settings2.priorities, "priorities that are not a list").map(cleanPriority), "priorities");
-    const ctx = {
-      now: now2,
-      firstBoard: lists.find((l) => l.status === "active"),
-      boards: new Map(lists.map((l) => [l.id, l])),
-      priorities: new Set(priorities.map((p) => p.id))
-    };
-    return {
-      lists,
-      tasks: unique(rawTasks.map((r, i) => cleanTask(r, i, ctx)), "tasks"),
-      notes: unique(rawNotes.map((r, i) => cleanNote(r, i, ctx)), "notes"),
-      meetings: unique(rawMeetings.map((r, i) => cleanMeeting(r, i, ctx)), "meetings"),
-      settings: {
-        dateFormat: isDateFormat(settings2.dateFormat) ? settings2.dateFormat : null,
-        // null: keep this device's
-        priorities,
-        labels: tagsOf(settings2.labels)
-      }
-    };
-  }
-  function cleanRemote(kind, data, { lists, priorities, now: now2 = Date.now() }) {
-    obj(data, "a record that is not a record");
-    const ctx = {
-      now: now2,
-      firstBoard: lists.find((l) => (l.status ?? "active") === "active") || lists[0],
-      boards: new Map(lists.map((l) => [l.id, l])),
-      priorities: new Set(priorities.map((p) => p.id))
-    };
-    if (kind === "list") return cleanBoard(data, now2);
-    if (kind === "task") {
-      if (!ctx.firstBoard) bad("a task with no board");
-      return cleanTask(data, 0, ctx);
-    }
-    if (kind === "note") return cleanNote(data, 0, ctx);
-    if (kind === "meeting") return cleanMeeting(data, 0, ctx);
-    if (kind === "settings") {
-      return {
-        dateFormat: isDateFormat(data.dateFormat) ? data.dateFormat : null,
-        priorities: unique(list2(data.priorities, "priorities that are not a list").map(cleanPriority), "priorities"),
-        labels: tagsOf(data.labels)
-      };
-    }
-    return bad("an unknown kind");
-  }
-  var BACKUP_KEY = "stackd-v2-backup";
-  var BACKUP_DAYS = 30;
-  function keep(reason2, now2 = Date.now()) {
-    localStorage.setItem(BACKUP_KEY, JSON.stringify({ savedAt: now2, reason: reason2, doc: exportDocument(now2) }));
-  }
-  function slot() {
-    try {
-      const v = JSON.parse(localStorage.getItem(BACKUP_KEY));
-      return isObj(v) && isObj(v.doc) ? v : null;
-    } catch {
-      return null;
-    }
-  }
-  function info(now2 = Date.now()) {
-    const v = slot();
-    if (!v || now2 - v.savedAt > BACKUP_DAYS * 864e5) return null;
-    return { savedAt: v.savedAt, reason: v.reason, counts: countsOf(v.doc.records) };
-  }
-  function purgeOld(now2 = Date.now()) {
-    if (slot() && !info(now2)) localStorage.removeItem(BACKUP_KEY);
-  }
-  function backupRecords(now2 = Date.now()) {
-    const v = slot();
-    return v ? readDocument(v.doc, now2) : null;
-  }
-  var dropBackup = () => localStorage.removeItem(BACKUP_KEY);
-  function readDocument(doc2, now2 = Date.now()) {
-    if (!isObj(doc2) || doc2.app !== FILE_APP || !Number.isInteger(doc2.format)) {
-      throw new ImportError("not_stackd", "This is not a Stack'd file.");
-    }
-    if (doc2.format > FILE_FORMAT) {
-      throw new ImportError("newer", "This file comes from a newer version of Stack'd. Update the app, then import it.");
-    }
-    return cleanRecords(doc2.records, now2);
-  }
-  async function importFile(file, { confirm } = {}) {
-    if (!canImport()) throw new ImportError("signed_in", "Sign out on this device before importing a file.");
-    if (file.size > MAX_FILE_BYTES) throw new ImportError("too_large", "This file is too large to import.");
-    let doc2;
-    try {
-      doc2 = JSON.parse(await file.text());
-    } catch {
-      throw new ImportError("not_stackd", "This is not a Stack'd file.");
-    }
-    const records = readDocument(doc2);
-    const counts = countsOf(records);
-    if (confirm) {
-      const incoming = new Set(records.meetings.map((m) => m.id));
-      const ok = await confirm({
-        counts,
-        current: countsOf(S),
-        recordingsLost: S.meetings.filter((m) => m.recording && !incoming.has(m.id)).length,
-        exportedAt: time(doc2.exportedAt)
-      });
-      if (!ok) return null;
-    }
-    try {
-      replaceRecords(records);
-    } catch {
-      throw new ImportError("storage", "There is not enough room on this device for the file. Nothing was changed.");
-    }
-    return { counts };
-  }
-
   // src/ui/pinpad.js
   var PIN_LENGTH = 4;
   function pinpadHTML({ label = "Enter your PIN", error = "", disabled = false } = {}) {
@@ -4344,34 +3066,107 @@
     };
   }
 
+  // src/net.js
+  var TIMEOUT_MS = 2e4;
+  var client = () => {
+    const p = globalThis.Capacitor?.isNativePlatform?.() ? globalThis.Capacitor.getPlatform?.() : "web";
+    return p === "ios" || p === "android" ? p : "web";
+  };
+  var bearer = null;
+  function setBearer(t) {
+    bearer = t || null;
+  }
+  function authHeaders() {
+    const h = { "X-Stackd-Client": client() };
+    if (bearer) h.Authorization = `Bearer ${bearer}`;
+    return h;
+  }
+  var fetchImpl = (...args) => globalThis.fetch(...args);
+  var signedOutHandlers = /* @__PURE__ */ new Set();
+  function onSignedOut(fn) {
+    signedOutHandlers.add(fn);
+  }
+  function signedOut() {
+    signedOutHandlers.forEach((fn) => fn());
+  }
+  async function request(path, { method = "GET", body, signal, timeout = TIMEOUT_MS, raw = false } = {}) {
+    const ctl = new AbortController();
+    const timer2 = setTimeout(() => ctl.abort(), timeout);
+    signal?.addEventListener("abort", () => ctl.abort());
+    let res;
+    try {
+      res = await fetchImpl(proxyUrl() + path, {
+        method,
+        headers: { "X-Stackd-App": APP_TOKEN, ...authHeaders(), ...body === void 0 ? {} : { "Content-Type": "application/json" } },
+        body: body === void 0 ? void 0 : JSON.stringify(body),
+        credentials: "include",
+        signal: ctl.signal
+      });
+    } catch (e) {
+      clearTimeout(timer2);
+      const err = new Error(e?.name === "AbortError" ? "That took too long. Try again." : "No connection. Try again when you are back online.");
+      err.code = e?.name === "AbortError" ? "timeout" : "offline";
+      throw err;
+    }
+    clearTimeout(timer2);
+    if (res.status === 204) return { ok: true };
+    if (raw && res.ok) return res;
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+    }
+    if (!res.ok || data?.ok === false) {
+      const { ok, message, code, ...extra } = data || {};
+      const err = Object.assign(new Error(message || `The service answered ${res.status}.`), extra);
+      err.code = code || "provider_unavailable";
+      err.status = res.status;
+      if (err.code === "signed_out") signedOut();
+      throw err;
+    }
+    return data;
+  }
+
   // src/secure.js
-  var plugin4 = () => globalThis.Capacitor?.Plugins?.SecureStorage;
+  var plugin3 = () => globalThis.Capacitor?.Plugins?.SecureStorage;
   var native = () => !!globalThis.Capacitor?.isNativePlatform?.();
   var needed = () => native();
-  var available3 = () => native() && ["get", "set", "remove"].every((f) => typeof plugin4()?.[f] === "function");
+  var available = () => native() && ["get", "set", "remove"].every((f) => typeof plugin3()?.[f] === "function");
   async function get(key) {
-    if (!available3()) return null;
+    if (!available()) return null;
     try {
-      return (await plugin4().get({ key }))?.value ?? null;
+      return (await plugin3().get({ key }))?.value ?? null;
     } catch {
       return null;
     }
   }
   async function set(key, value) {
-    if (!available3()) return false;
-    await plugin4().set({ key, value: String(value) });
+    if (!available()) return false;
+    await plugin3().set({ key, value: String(value) });
     return true;
   }
-  async function remove2(key) {
-    if (!available3()) return;
+  async function remove(key) {
+    if (!available()) return;
     try {
-      await plugin4().remove({ key });
+      await plugin3().remove({ key });
     } catch {
     }
   }
 
+  // src/legal.js
+  var APP_ORIGIN = "https://app.stackdplatform.com";
+  var APP_HOST = new URL(APP_ORIGIN).host;
+  var TERMS_URL = `${APP_ORIGIN}/terms.html`;
+  var PRIVACY_URL = `${APP_ORIGIN}/privacy.html`;
+  var DELETION_URL = `${APP_ORIGIN}/account-deletion.html`;
+  var TERMS_VERSION = "2026-10-20";
+  var PRIVACY_VERSION = "2026-10-20";
+  function isLegacyOrigin(host = globalThis.location?.hostname || "") {
+    return /(^|\.)github\.io$/i.test(host);
+  }
+
   // src/account.js
-  var ACCOUNT_KEY2 = "stackd-account";
+  var ACCOUNT_KEY = "stackd-account";
   var AGE_KEY = "stackd-age-refused";
   var AGE_REFUSAL_MS = 24 * 36e5;
   var TOKEN_KEY = "stackd-session";
@@ -4379,7 +3174,7 @@
   var listeners = /* @__PURE__ */ new Set();
   function read2() {
     try {
-      const v = JSON.parse(localStorage.getItem(ACCOUNT_KEY2));
+      const v = JSON.parse(localStorage.getItem(ACCOUNT_KEY));
       return v && typeof v === "object" && v.userId ? v : null;
     } catch {
       return null;
@@ -4387,8 +3182,8 @@
   }
   function write(next, { quiet = false } = {}) {
     state = next;
-    if (next) localStorage.setItem(ACCOUNT_KEY2, JSON.stringify(next));
-    else localStorage.removeItem(ACCOUNT_KEY2);
+    if (next) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(next));
+    else localStorage.removeItem(ACCOUNT_KEY);
     if (!quiet) listeners.forEach((fn) => fn(state));
   }
   function patch(fields, { quiet = false } = {}) {
@@ -4414,7 +3209,7 @@
   function availability() {
     if (isLegacyOrigin()) return { ok: false, reason: "legacy" };
     if (globalThis.location?.protocol === "file:") return { ok: false, reason: "file" };
-    if (needed() && !available3()) return { ok: false, reason: "secure" };
+    if (needed() && !available()) return { ok: false, reason: "secure" };
     return { ok: true };
   }
   function ageRefusedUntil(now2 = Date.now()) {
@@ -4435,16 +3230,16 @@
   }
   var start = (email) => request("/v1/auth/start", { method: "POST", body: { email } });
   var verify = (email, code) => request("/v1/auth/verify", { method: "POST", body: { email, code } });
-  async function established(answer, pin) {
-    const a = answer.account;
-    if (answer.token) {
-      if (!await set(TOKEN_KEY, answer.token)) throw Object.assign(new Error("This device cannot keep a session safely."), { code: "misconfigured" });
-      setBearer(answer.token);
+  async function established(answer2, pin) {
+    const a = answer2.account;
+    if (answer2.token) {
+      if (!await set(TOKEN_KEY, answer2.token)) throw Object.assign(new Error("This device cannot keep a session safely."), { code: "misconfigured" });
+      setBearer(answer2.token);
     }
     write({
       userId: a.id,
       email: a.email,
-      sessionId: answer.sessionId,
+      sessionId: answer2.sessionId,
       platform: client(),
       pinVersion: a.pinVersion,
       accepted: a.accepted,
@@ -4491,7 +3286,7 @@
     await request("/v1/account/accept", { method: "POST", body: { termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION } });
     patch({ accepted: { terms: TERMS_VERSION, privacy: PRIVACY_VERSION }, needsAccept: false });
   }
-  async function refresh2() {
+  async function refresh() {
     const { account: a } = await request("/v1/account");
     patch({ email: a.email, pinVersion: a.pinVersion, accepted: a.accepted, needsAccept: !!a.needsAccept });
     return a;
@@ -4522,16 +3317,338 @@
     if (!state) return;
     const was = state;
     setBearer(null);
-    remove2(TOKEN_KEY);
+    remove(TOKEN_KEY);
     write(null);
     forgetHooks.forEach((fn) => fn({ keepData, reason: reason2, was }));
+  }
+
+  // src/backup.js
+  var FILE_APP = "stackd";
+  var FILE_FORMAT = 1;
+  var MAX_FILE_BYTES = 12 * 1024 * 1024;
+  var MAX_RECORDS = 2e4;
+  var ACCOUNT_KEY2 = "stackd-account";
+  var ImportError = class extends Error {
+    constructor(code, message) {
+      super(message);
+      this.name = "ImportError";
+      this.code = code;
+    }
+  };
+  function canImport() {
+    try {
+      return localStorage.getItem(ACCOUNT_KEY2) === null;
+    } catch {
+      return true;
+    }
+  }
+  var countsOf = (r) => ({ boards: r.lists.length, tasks: r.tasks.length, notes: r.notes.length, meetings: r.meetings.length });
+  function exportDocument(now2 = Date.now()) {
+    const records = exportRecords();
+    records.meetings = records.meetings.map(({ recording, jobs, lastError, ...m }) => m);
+    return { app: FILE_APP, format: FILE_FORMAT, exportedAt: now2, records };
+  }
+  var exportFileName = (now2 = Date.now()) => `stackd-export-${toISO(new Date(now2))}.json`;
+  function exportFile(now2 = Date.now()) {
+    return new Blob([JSON.stringify(exportDocument(now2))], { type: "application/json" });
+  }
+  var ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+  var SPEAKER = /^[A-Za-z0-9][\w .-]{0,39}$/;
+  var ISO_DATE = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/;
+  var HHMM = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  var STATUSES = ["active", "archived", "deleted"];
+  var RECURS = RECUR_OPTIONS.map(([v]) => v);
+  var REMINDERS = REMINDER_OPTIONS.map(([v]) => v);
+  var SOURCES = ["recording", "pasted", "file"];
+  var ACTION_STATUSES = ["proposed", "added", "dismissed"];
+  var LONG = 2e6;
+  var bad = (what) => {
+    throw new ImportError("bad_file", `This file is damaged (${what}).`);
+  };
+  var isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  var obj = (v, what) => isObj(v) ? v : bad(what);
+  var list = (v, what) => v === void 0 || v === null ? [] : Array.isArray(v) ? v : bad(what);
+  var idOf = (v, what) => typeof v === "string" && ID.test(v) ? v : bad(`${what} without a valid id`);
+  var text = (v, max = 2e3) => typeof v === "string" ? v.slice(0, max) : "";
+  var flag = (v) => v === true;
+  var time = (v) => Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
+  var num = (v, fallback) => Number.isFinite(v) ? v : fallback;
+  var count = (v) => Number.isInteger(v) && v >= 0 ? v : 0;
+  var date = (v) => typeof v === "string" && ISO_DATE.test(v) ? v : null;
+  var pick = (v, allowed, fallback) => allowed.includes(v) ? v : fallback;
+  var tagsOf = (v) => normalizeTags(list(v, "labels that are not a list").filter((x) => typeof x === "string").map((x) => x.slice(0, 64)));
+  function unique(items, what) {
+    const seen = /* @__PURE__ */ new Set();
+    items.forEach((x) => {
+      if (seen.has(x.id)) bad(`two ${what} with the same id`);
+      seen.add(x.id);
+    });
+    return items;
+  }
+  function lifecycle(r, now2) {
+    const status2 = pick(r.status, STATUSES, "active");
+    return {
+      status: status2,
+      archivedAt: status2 === "archived" ? time(r.archivedAt) ?? now2 : null,
+      deletedAt: status2 === "deleted" ? time(r.deletedAt) ?? now2 : null
+      // never null: purgeDeleted() would drop it at once
+    };
+  }
+  function stamps(r, now2) {
+    const createdAt = time(r.createdAt) ?? now2;
+    return { createdAt, updatedAt: Math.max(createdAt, time(r.updatedAt) ?? createdAt) };
+  }
+  var checkItems = (v, field, what) => list(v, what).map((c) => {
+    obj(c, what);
+    return { id: idOf(c.id, what), [field]: text(c[field]), done: flag(c.done) };
+  });
+  function cleanBoard(r, now2) {
+    obj(r, "a board that is not a record");
+    let lanes = unique(list(r.lanes, "lanes that are not a list").map((l) => {
+      obj(l, "a lane that is not a record");
+      return { id: idOf(l.id, "a lane"), name: text(l.name, 80).trim() || "Lane" };
+    }), "lanes");
+    if (!lanes.length) lanes = defaultLanes();
+    if (!lanes.some((l) => l.id === DONE_LANE)) lanes.push({ id: DONE_LANE, name: "Done" });
+    if (lanes.length === 1) lanes.unshift({ id: "backlog", name: "Backlog" });
+    lanes = [...lanes.filter((l) => l.id !== DONE_LANE), lanes.find((l) => l.id === DONE_LANE)];
+    return { id: idOf(r.id, "a board"), name: text(r.name, 80).trim() || "Board", lanes, ...lifecycle(r, now2) };
+  }
+  function cleanPriority(r) {
+    obj(r, "a priority that is not a record");
+    const id = idOf(r.id, "a priority");
+    if (id === "none") bad("a priority called none");
+    return { id, name: text(r.name, 24).trim() || "Priority", color: pick(r.color, PRIORITY_COLORS, "gray") };
+  }
+  function cleanTask(r, i, ctx) {
+    obj(r, "a task that is not a record");
+    const board = ctx.boards.get(r.listId) || ctx.firstBoard;
+    const lane = board.lanes.some((l) => l.id === r.lane) ? r.lane : (board.lanes.find((l) => l.id !== DONE_LANE) || board.lanes[0]).id;
+    const due = date(r.due);
+    const start2 = date(r.start);
+    const o = r.origin;
+    const origin = isObj(o) && typeof o.listId === "string" && ID.test(o.listId) ? { listId: o.listId, lane: typeof o.lane === "string" && ID.test(o.lane) ? o.lane : lane, order: num(o.order, 0) } : null;
+    const f = r.from;
+    const from = isObj(f) && typeof f.meetingId === "string" && ID.test(f.meetingId) && typeof f.actionId === "string" && ID.test(f.actionId) ? { meetingId: f.meetingId, actionId: f.actionId } : null;
+    const life = lifecycle(r, ctx.now);
+    return {
+      id: idOf(r.id, "a task"),
+      listId: board.id,
+      lane,
+      title: text(r.title).trim() || "Untitled",
+      done: flag(r.done),
+      order: num(r.order, i),
+      priority: ctx.priorities.has(r.priority) ? r.priority : "none",
+      tags: tagsOf(r.tags),
+      subtasks: checkItems(r.subtasks, "title", "a subtask"),
+      start: start2 && (!due || start2 <= due) ? start2 : null,
+      due,
+      dueTime: due && typeof r.dueTime === "string" && HHMM.test(r.dueTime) ? r.dueTime : null,
+      recur: due ? pick(r.recur, RECURS, "none") : "none",
+      reminder: due ? pick(r.reminder, REMINDERS, null) : null,
+      reminderFiredAt: time(r.reminderFiredAt),
+      completedCount: count(r.completedCount),
+      lastCompletedAt: time(r.lastCompletedAt),
+      ...life,
+      origin: life.status === "active" ? null : origin,
+      from,
+      ...stamps(r, ctx.now)
+    };
+  }
+  function cleanNote(r, i, ctx) {
+    obj(r, "a note that is not a record");
+    return {
+      id: idOf(r.id, "a note"),
+      order: num(r.order, i),
+      title: text(r.title),
+      body: sanitize(text(r.body, LONG)),
+      color: pick(r.color, NOTE_COLORS, null),
+      tags: tagsOf(r.tags),
+      checklist: r.checklist === null || r.checklist === void 0 ? null : checkItems(r.checklist, "text", "a checklist item"),
+      ...lifecycle(r, ctx.now),
+      ...stamps(r, ctx.now)
+    };
+  }
+  function cleanTranscript(r, now2) {
+    const speakers = {};
+    Object.entries(isObj(r.speakers) ? r.speakers : {}).forEach(([label, name]) => {
+      if (!SPEAKER.test(label)) bad("a speaker label");
+      speakers[label] = typeof name === "string" && name.trim() ? name.trim().slice(0, 80) : null;
+    });
+    const segments = list(r.segments, "a transcript that is not a list").map((s) => {
+      obj(s, "a transcript line that is not a record");
+      if (typeof s.speaker !== "string" || !SPEAKER.test(s.speaker)) bad("a speaker label");
+      if (!Object.hasOwn(speakers, s.speaker)) speakers[s.speaker] = null;
+      return { id: idOf(s.id, "a transcript line"), speaker: s.speaker, startMs: Number.isFinite(s.startMs) && s.startMs >= 0 ? s.startMs : null, text: text(s.text, LONG).trim() };
+    }).filter((s) => s.text);
+    return {
+      source: pick(r.source, SOURCES, "pasted"),
+      fileName: typeof r.fileName === "string" && r.fileName ? r.fileName.slice(0, 200) : null,
+      segments,
+      speakers,
+      ...stamps(r, now2)
+    };
+  }
+  var lines = (v) => list(v, "minutes that are not a list").filter((x) => typeof x === "string").map((x) => x.slice(0, 4e3));
+  function cleanMeeting(r, i, ctx) {
+    obj(r, "a meeting that is not a record");
+    const transcript = isObj(r.transcript) ? cleanTranscript(r.transcript, ctx.now) : null;
+    const m = r.minutes;
+    const minutes = transcript && isObj(m) ? {
+      summary: text(m.summary, 2e4),
+      decisions: lines(m.decisions),
+      openQuestions: lines(m.openQuestions),
+      generatedAt: time(m.generatedAt) ?? ctx.now,
+      transcriptUpdatedAt: time(m.transcriptUpdatedAt) ?? 0
+      // unknown ⇒ shown as out of date
+    } : null;
+    const actions = unique(list(r.actions, "actions that are not a list").map((a) => {
+      obj(a, "an action that is not a record");
+      return {
+        id: idOf(a.id, "an action"),
+        title: text(a.title).trim(),
+        due: date(a.due),
+        priority: ctx.priorities.has(a.priority) ? a.priority : "none",
+        excerpt: text(a.excerpt, 4e3),
+        status: pick(a.status, ACTION_STATUSES, "proposed"),
+        taskId: typeof a.taskId === "string" && ID.test(a.taskId) ? a.taskId : null
+      };
+    }).filter((a) => a.title), "actions");
+    return {
+      id: idOf(r.id, "a meeting"),
+      title: text(r.title),
+      ...stamps(r, ctx.now),
+      recording: null,
+      transcript,
+      minutes,
+      actions,
+      jobs: { transcribe: null, summarise: null },
+      lastError: null,
+      ...lifecycle(r, ctx.now)
+    };
+  }
+  function cleanRecords(raw, now2 = Date.now()) {
+    obj(raw, "no records");
+    const settings2 = obj(raw.settings, "no settings");
+    const lists = unique(list(raw.lists, "boards that are not a list").map((r) => cleanBoard(r, now2)), "boards");
+    if (!lists.some((l) => l.status === "active")) bad("no boards");
+    const rawTasks = list(raw.tasks, "tasks that are not a list");
+    const rawNotes = list(raw.notes, "notes that are not a list");
+    const rawMeetings = list(raw.meetings, "meetings that are not a list");
+    if (rawTasks.length + rawNotes.length + rawMeetings.length > MAX_RECORDS) bad("too many records");
+    const priorities = unique(list(settings2.priorities, "priorities that are not a list").map(cleanPriority), "priorities");
+    const ctx = {
+      now: now2,
+      firstBoard: lists.find((l) => l.status === "active"),
+      boards: new Map(lists.map((l) => [l.id, l])),
+      priorities: new Set(priorities.map((p) => p.id))
+    };
+    return {
+      lists,
+      tasks: unique(rawTasks.map((r, i) => cleanTask(r, i, ctx)), "tasks"),
+      notes: unique(rawNotes.map((r, i) => cleanNote(r, i, ctx)), "notes"),
+      meetings: unique(rawMeetings.map((r, i) => cleanMeeting(r, i, ctx)), "meetings"),
+      settings: {
+        dateFormat: isDateFormat(settings2.dateFormat) ? settings2.dateFormat : null,
+        // null: keep this device's
+        priorities,
+        labels: tagsOf(settings2.labels)
+      }
+    };
+  }
+  function cleanRemote(kind, data, { lists, priorities, now: now2 = Date.now() }) {
+    obj(data, "a record that is not a record");
+    const ctx = {
+      now: now2,
+      firstBoard: lists.find((l) => (l.status ?? "active") === "active") || lists[0],
+      boards: new Map(lists.map((l) => [l.id, l])),
+      priorities: new Set(priorities.map((p) => p.id))
+    };
+    if (kind === "list") return cleanBoard(data, now2);
+    if (kind === "task") {
+      if (!ctx.firstBoard) bad("a task with no board");
+      return cleanTask(data, 0, ctx);
+    }
+    if (kind === "note") return cleanNote(data, 0, ctx);
+    if (kind === "meeting") return cleanMeeting(data, 0, ctx);
+    if (kind === "settings") {
+      return {
+        dateFormat: isDateFormat(data.dateFormat) ? data.dateFormat : null,
+        priorities: unique(list(data.priorities, "priorities that are not a list").map(cleanPriority), "priorities"),
+        labels: tagsOf(data.labels)
+      };
+    }
+    return bad("an unknown kind");
+  }
+  var BACKUP_KEY = "stackd-v2-backup";
+  var BACKUP_DAYS = 30;
+  function keep(reason2, now2 = Date.now()) {
+    localStorage.setItem(BACKUP_KEY, JSON.stringify({ savedAt: now2, reason: reason2, doc: exportDocument(now2) }));
+  }
+  function slot() {
+    try {
+      const v = JSON.parse(localStorage.getItem(BACKUP_KEY));
+      return isObj(v) && isObj(v.doc) ? v : null;
+    } catch {
+      return null;
+    }
+  }
+  function info(now2 = Date.now()) {
+    const v = slot();
+    if (!v || now2 - v.savedAt > BACKUP_DAYS * 864e5) return null;
+    return { savedAt: v.savedAt, reason: v.reason, counts: countsOf(v.doc.records) };
+  }
+  function purgeOld(now2 = Date.now()) {
+    if (slot() && !info(now2)) localStorage.removeItem(BACKUP_KEY);
+  }
+  function backupRecords(now2 = Date.now()) {
+    const v = slot();
+    return v ? readDocument(v.doc, now2) : null;
+  }
+  var dropBackup = () => localStorage.removeItem(BACKUP_KEY);
+  function readDocument(doc2, now2 = Date.now()) {
+    if (!isObj(doc2) || doc2.app !== FILE_APP || !Number.isInteger(doc2.format)) {
+      throw new ImportError("not_stackd", "This is not a Stack'd file.");
+    }
+    if (doc2.format > FILE_FORMAT) {
+      throw new ImportError("newer", "This file comes from a newer version of Stack'd. Update the app, then import it.");
+    }
+    return cleanRecords(doc2.records, now2);
+  }
+  async function importFile(file, { confirm } = {}) {
+    if (!canImport()) throw new ImportError("signed_in", "Sign out on this device before importing a file.");
+    if (file.size > MAX_FILE_BYTES) throw new ImportError("too_large", "This file is too large to import.");
+    let doc2;
+    try {
+      doc2 = JSON.parse(await file.text());
+    } catch {
+      throw new ImportError("not_stackd", "This is not a Stack'd file.");
+    }
+    const records = readDocument(doc2);
+    const counts = countsOf(records);
+    if (confirm) {
+      const incoming = new Set(records.meetings.map((m) => m.id));
+      const ok = await confirm({
+        counts,
+        current: countsOf(S),
+        recordingsLost: S.meetings.filter((m) => m.recording && !incoming.has(m.id)).length,
+        exportedAt: time(doc2.exportedAt)
+      });
+      if (!ok) return null;
+    }
+    try {
+      replaceRecords(records);
+    } catch {
+      throw new ImportError("storage", "There is not enough room on this device for the file. Nothing was changed.");
+    }
+    return { counts };
   }
 
   // src/sync.js
   var SYNC_KEY = "stackd-sync";
   var BATCH = 200;
   var DEBOUNCE_MS = 2e3;
-  var POLL_MS2 = 3e4;
+  var POLL_MS = 3e4;
   function canonical(v) {
     if (v === null || typeof v !== "object") return JSON.stringify(v ?? null);
     if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
@@ -4558,6 +3675,10 @@
       return m;
     }
     if (kind === "settings") return { dateFormat: x.dateFormat, priorities: x.priorities, labels: x.labels };
+    if (kind === "list") {
+      const { share, ...l } = x;
+      return l;
+    }
     return { ...x };
   }
   function fromWire(kind, data, local) {
@@ -4568,12 +3689,17 @@
     return data;
   }
   var plural = { list: "lists", task: "tasks", note: "notes", meeting: "meetings" };
-  function collect(state3) {
+  function collect(state3, { space = null } = {}) {
     const out = /* @__PURE__ */ new Map();
-    for (const kind of ["list", "task", "note", "meeting"]) {
-      for (const x of state3[plural[kind]] || []) out.set(`${kind}:${x.id}`, { kind, id: x.id, data: toWire(kind, x) });
+    const shared2 = new Set((state3.lists || []).filter((l) => l.share).map((l) => l.id));
+    const inScope = (kind, x) => {
+      const board = kind === "list" ? x.id : kind === "task" ? x.listId : null;
+      return space ? board === space : !shared2.has(board);
+    };
+    for (const kind of space ? ["list", "task"] : ["list", "task", "note", "meeting"]) {
+      for (const x of state3[plural[kind]] || []) if (inScope(kind, x)) out.set(`${kind}:${x.id}`, { kind, id: x.id, data: toWire(kind, x) });
     }
-    out.set("settings:settings", { kind: "settings", id: "settings", data: toWire("settings", state3) });
+    if (!space) out.set("settings:settings", { kind: "settings", id: "settings", data: toWire("settings", state3) });
     return out;
   }
   var nextChangedAt = (now2, offset, previous = 0) => Math.max(Math.round(now2 + offset), previous + 1);
@@ -4664,10 +3790,56 @@
     })();
     return running;
   }
+  var spacesOf = () => doc.spaces ||= {};
+  var spaceDiff = (id) => diff(collect(S, { space: id }), spacesOf()[id].shadow, Date.now(), doc.serverOffset);
+  function pendingNow() {
+    if (!doc) return 0;
+    return diff(collect(S), doc.shadow, Date.now(), doc.serverOffset).length + Object.keys(spacesOf()).reduce((n, id) => n + spaceDiff(id).length, 0);
+  }
+  var sharedListeners = /* @__PURE__ */ new Set();
+  var shared = () => doc?.shared || { spaces: [], invites: [] };
+  function onShared(fn) {
+    sharedListeners.add(fn);
+  }
+  var goneListeners = /* @__PURE__ */ new Set();
+  function onGone(fn) {
+    goneListeners.add(fn);
+  }
+  function addSpace(id) {
+    if (!doc) return;
+    spacesOf()[id] ||= { cursor: 0, shadow: {} };
+    saveDoc();
+  }
+  function applyShared(sh) {
+    if (!doc || !sh) return;
+    doc.shared = { spaces: sh.spaces || [], invites: sh.invites || [] };
+    for (const s of doc.shared.spaces) spacesOf()[s.id] ||= { cursor: 0, shadow: {} };
+    setShares(Object.fromEntries(doc.shared.spaces.map((s) => [s.id, { role: s.role, ownerEmail: s.ownerEmail, members: s.members }])));
+    saveDoc();
+    sharedListeners.forEach((fn) => fn(doc.shared));
+  }
+  function spaceGone(id) {
+    const name = S.lists.find((l) => l.id === id)?.name;
+    delete spacesOf()[id];
+    if (doc.shared) doc.shared.spaces = doc.shared.spaces.filter((s) => s.id !== id);
+    if (name !== void 0 && removeSharedBoard(id)) goneListeners.forEach((fn) => fn(name));
+  }
+  function dropSpace(id) {
+    if (!doc) return;
+    delete spacesOf()[id];
+    if (doc.shared) doc.shared.spaces = doc.shared.spaces.filter((s) => s.id !== id);
+    saveDoc();
+  }
+  var leaveSpace = (id) => {
+    if (doc) {
+      spaceGone(id);
+      saveDoc();
+    }
+  };
   async function once() {
     if (!signedIn() || !doc || blocked()) return;
     if (globalThis.navigator?.onLine === false) {
-      setStatus({ state: "offline", pending: diff(collect(S), doc.shadow, Date.now(), doc.serverOffset).length });
+      setStatus({ state: "offline", pending: pendingNow() });
       return;
     }
     if (editing()) {
@@ -4681,10 +3853,13 @@
     setStatus({ state: "syncing" });
     try {
       let more = true;
+      const wire = (cs) => cs.map(({ key, hash: _h, ...c }) => c);
       while (more) {
         const changes = diff(collect(S), doc.shadow, Date.now(), doc.serverOffset).slice(0, BATCH);
+        const spaceChanges = Object.fromEntries(Object.keys(spacesOf()).map((id) => [id, spaceDiff(id).slice(0, BATCH)]));
+        const spaces = Object.fromEntries(Object.entries(spaceChanges).map(([id, cs]) => [id, { cursor: spacesOf()[id].cursor, changes: wire(cs) }]));
         const sent = performance.now?.() ?? 0;
-        const r = await request("/v1/sync", { method: "POST", body: { cursor: doc.cursor, changes: changes.map(({ key, hash: _h, ...c }) => c) }, timeout: 6e4 });
+        const r = await request("/v1/sync", { method: "POST", body: { cursor: doc.cursor, changes: wire(changes), spaces }, timeout: 6e4 });
         const rtt = (performance.now?.() ?? 0) - sent;
         doc.serverOffset = Math.round(r.serverTime + rtt / 2 - Date.now());
         const refused = new Set((r.rejected || []).map((x) => `${x.kind}:${x.id}`));
@@ -4693,6 +3868,22 @@
         applyInbound([...r.changes || [], ...gone]);
         doc.cursor = r.cursor;
         more = r.more || changes.length === BATCH;
+        for (const [id, res] of Object.entries(r.spaces || {})) {
+          if (!spacesOf()[id]) continue;
+          if (res.gone) {
+            spaceGone(id);
+            continue;
+          }
+          const sp = spacesOf()[id];
+          const no = new Set((res.rejected || []).map((x) => `${x.kind}:${x.id}`));
+          for (const c of spaceChanges[id] || []) if (!no.has(c.key)) sp.shadow[c.key] = [c.hash, c.changedAt];
+          const dead = (res.rejected || []).filter((x) => x.reason === "deleted").map((x) => ({ kind: x.kind, id: x.id, changedAt: 0, deleted: true, data: null }));
+          if ((res.rejected || []).some((x) => x.reason === "not_allowed")) sp.cursor = 0;
+          else sp.cursor = res.cursor;
+          applyInbound([...res.changes || [], ...dead], { space: id });
+          if (res.more || (spaceChanges[id] || []).length === BATCH) more = true;
+        }
+        applyShared(r.shared);
       }
       doc.lastSyncAt = Date.now();
       doc.paused = null;
@@ -4700,7 +3891,7 @@
       setStatus({ state: "synced", pending: 0, lastSyncAt: doc.lastSyncAt, paused: null });
     } catch (e) {
       saveDoc();
-      const pending = doc ? diff(collect(S), doc.shadow, Date.now(), doc.serverOffset).length : 0;
+      const pending = pendingNow();
       if (e.code === "offline" || e.code === "timeout") setStatus({ state: "offline", pending });
       else setStatus({ state: "paused", pending, paused: { code: e.code, message: e.message, at: Date.now() } });
       if (e.code === "pin_required") pinRequired.forEach((fn) => fn());
@@ -4711,35 +3902,41 @@
   function onPinRequired(fn) {
     pinRequired.add(fn);
   }
-  function applyInbound(changes) {
+  function applyInbound(changes, { space = null } = {}) {
     if (!changes.length) return;
+    const shadow = space ? spacesOf()[space].shadow : doc.shadow;
     const upserts = [], deletes = [];
     const incomingLists = changes.filter((c) => c.kind === "list" && !c.deleted).map((c) => c.data);
     const lists = [...S.lists.filter((l) => !incomingLists.some((x) => x?.id === l.id)), ...incomingLists];
     const settings2 = changes.find((c) => c.kind === "settings" && !c.deleted)?.data;
     const priorities = Array.isArray(settings2?.priorities) ? settings2.priorities : S.priorities;
     const order = { settings: 0, list: 1, task: 2, note: 3, meeting: 4 };
+    const share = space ? S.lists.find((l) => l.id === space)?.share || shared().spaces.find((s) => s.id === space) || { role: "member" } : null;
     for (const c of [...changes].sort((a, b) => order[a.kind] - order[b.kind])) {
       const key = `${c.kind}:${c.id}`;
+      if (space && !(c.kind === "list" ? c.id === space : c.kind === "task" && (c.deleted || c.data?.listId === space))) continue;
       if (c.deleted) {
-        doc.shadow[key] = [null, c.changedAt];
+        shadow[key] = [null, c.changedAt];
         deletes.push({ kind: c.kind, id: c.id });
         continue;
       }
+      const prios = space && c.kind === "task" && typeof c.data?.priority === "string" && !priorities.some((p) => p.id === c.data.priority) ? [...priorities, { id: c.data.priority }] : priorities;
       let clean;
       try {
-        clean = cleanRemote(c.kind, c.data, { lists, priorities });
+        clean = cleanRemote(c.kind, c.data, { lists, priorities: prios });
       } catch {
         continue;
       }
       const local = c.kind === "settings" ? null : (S[plural[c.kind]] || []).find((x) => x.id === c.id);
-      upserts.push({ kind: c.kind, record: c.kind === "settings" ? clean : fromWire(c.kind, clean, local), key, changedAt: c.changedAt });
+      const record2 = c.kind === "settings" ? clean : fromWire(c.kind, clean, local);
+      if (space && c.kind === "list") record2.share = { role: share.role, ownerEmail: share.ownerEmail, members: share.members || [] };
+      upserts.push({ kind: c.kind, record: record2, key, changedAt: c.changedAt });
     }
     applyRemote({ upserts, deletes });
-    const now2 = collect(S);
+    const now2 = collect(S, { space });
     for (const u of upserts) {
       const r = now2.get(u.key);
-      if (r) doc.shadow[u.key] = [hash(canonical(r.data)), u.changedAt];
+      if (r) shadow[u.key] = [hash(canonical(r.data)), u.changedAt];
     }
   }
   async function firstPlan() {
@@ -4750,7 +3947,7 @@
   async function firstSync(choice) {
     const a = current();
     if (!a) return;
-    doc = { userId: a.userId, cursor: 0, serverOffset: 0, shadow: {}, lastSyncAt: null, paused: null };
+    doc = { userId: a.userId, cursor: 0, serverOffset: 0, shadow: {}, lastSyncAt: null, paused: null, spaces: {}, shared: null };
     if (choice === "merge" || choice === "replace") keep(choice);
     if (choice === "download" || choice === "replace") {
       const all = [];
@@ -4795,7 +3992,7 @@
     setStatus({ state: "synced", pending: 0, lastSyncAt: null, paused: null });
   }
   onForget(reset);
-  var pendingCount = () => doc ? diff(collect(S), doc.shadow, Date.now(), doc.serverOffset).length : 0;
+  var pendingCount = () => pendingNow();
 
   // src/ui/signin.js
   var RESEND_S = 60;
@@ -5103,6 +4300,1182 @@
     return { keepData: r === "keep" };
   }
 
+  // src/share.js
+  var shareFrom = (shared2, id) => {
+    const s = shared2?.spaces?.find((x) => x.id === id);
+    return s ? { role: s.role, ownerEmail: s.ownerEmail, members: s.members } : null;
+  };
+  var canShare = () => started();
+  async function createShared(name, emails) {
+    const id = uid() + uid();
+    const r = await request("/v1/spaces", { method: "POST", body: { boardId: id, boardName: name, emails } });
+    addSpace(id);
+    addList(name, { id, share: shareFrom(r.shared, id) || { role: "owner", ownerEmail: "", members: [] } });
+    applyShared(r.shared);
+    request2("share");
+    return listById(id);
+  }
+  async function invite(id, emails) {
+    const r = await request(`/v1/spaces/${encodeURIComponent(id)}/invite`, { method: "POST", body: { emails, boardName: listById(id)?.name } });
+    applyShared(r.shared);
+  }
+  async function removePerson(id, email) {
+    const r = await request(`/v1/spaces/${encodeURIComponent(id)}/remove`, { method: "POST", body: { email } });
+    applyShared(r.shared);
+  }
+  async function leave(id) {
+    await request(`/v1/spaces/${encodeURIComponent(id)}/leave`, { method: "POST", body: {} });
+    leaveSpace(id);
+  }
+  async function deleteForEveryone(id) {
+    await request(`/v1/spaces/${encodeURIComponent(id)}`, { method: "DELETE" });
+    dropSpace(id);
+    unshare(id);
+    if (canRemoveList(id)) softDeleteList(id);
+    request2("share");
+  }
+  async function answer(inviteId, accept2) {
+    const r = await request(`/v1/invites/${encodeURIComponent(inviteId)}/${accept2 ? "accept" : "decline"}`, { method: "POST", body: {} });
+    applyShared(r.shared);
+    if (accept2) await now();
+  }
+  function parseEmails(text2, own = "") {
+    const parts = String(text2 ?? "").split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (!parts.length) return { error: "Add at least one email address." };
+    if (parts.length > 9) return { error: "A shared board has at most 10 people." };
+    const bad2 = parts.find((p) => !/^[^\s@<>()]+@[^\s@<>()]+\.[^\s@<>()]+$/.test(p));
+    if (bad2) return { error: `“${bad2}” is not an email address.` };
+    if (own && parts.some((p) => p.toLowerCase() === own.toLowerCase())) return { error: "You are already on this board." };
+    return { emails: [...new Set(parts.map((p) => p.toLowerCase()))] };
+  }
+  var sharedBoards = () => S.lists.filter((l) => l.share && (l.status ?? "active") === "active");
+
+  // src/ui/sharing.js
+  async function newBoardFlow() {
+    const kind = await choiceDialog(
+      "New board",
+      "Only for you, or shared with other people? People on a shared board see and change its cards.",
+      [{ id: "personal", label: "Personal" }, { id: "shared", label: "Shared" }]
+    );
+    if (!kind) return;
+    if (kind === "personal") {
+      const name2 = await promptDialog("New board", { placeholder: "Board name", confirmLabel: "Create" });
+      if (name2) addList(name2);
+      return;
+    }
+    if (!signedIn() || !canShare()) {
+      const ok = await confirmDialog(
+        "Sharing needs an account",
+        signedIn() ? "Wait for the first sync to finish, then try again." : "Sign in, or create an account, to share a board. Personal boards work without one.",
+        { confirmLabel: signedIn() ? "OK" : "Sign in" }
+      );
+      if (ok && !signedIn()) openSignIn();
+      return;
+    }
+    const name = await promptDialog("New shared board", { placeholder: "Board name", confirmLabel: "Next" });
+    if (!name) return;
+    await emailsSheet({
+      title: `Share “${name}” with`,
+      action: "Share",
+      submit: async (emails) => {
+        await createShared(name, emails);
+        toast(`“${name}” is shared. They see it once they accept.`, { ms: 6e3 });
+      }
+    });
+  }
+  function emailsSheet({ title, action, submit }) {
+    return new Promise((resolve) => {
+      const { ov, close } = overlay(`
+      <div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="share-title">
+        <div class="steps-head"><span></span><span></span><button type="button" class="icon-btn" data-close aria-label="Close">${icon("x")}</button></div>
+        <h2 id="share-title">${esc(title)}</h2>
+        <label class="sr-only" for="share-emails">Email addresses</label>
+        <textarea class="input share-emails" id="share-emails" rows="3" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="name@example.com, another@example.com"></textarea>
+        <p class="hint">They get an invitation in Stack'd when they sign in with that email. Nothing is sent by email.</p>
+        <p class="step-error" role="alert" data-err></p>
+        <button type="button" class="btn btn-primary btn-block" data-go>${esc(action)}</button>
+      </div>`, { onClose: (r) => resolve(r === true) });
+      const input = ov.querySelector("textarea"), err = ov.querySelector("[data-err]"), go = ov.querySelector("[data-go]");
+      ov.querySelector("[data-close]").addEventListener("click", () => close(false));
+      go.addEventListener("click", async () => {
+        const p = parseEmails(input.value, current()?.email);
+        if (p.error) {
+          err.textContent = p.error;
+          input.focus();
+          return;
+        }
+        go.disabled = true;
+        err.textContent = "";
+        try {
+          await submit(p.emails);
+          close(true);
+        } catch (e) {
+          err.textContent = e.message;
+          go.disabled = false;
+        }
+      });
+      input.focus();
+    });
+  }
+  function sharedChipHTML(list3) {
+    if (!list3?.share) return "";
+    const n = (list3.share.members || []).filter((m) => m.state === "active").length;
+    return `<button type="button" class="tag shared-chip" data-people="${esc(list3.id)}" aria-label="Shared with ${n} ${n === 1 ? "person" : "people"}. Show who">${icon("meeting", 12)}Shared${n > 1 ? ` · ${n}` : ""}</button>`;
+  }
+  function bindSharedChip(root = app) {
+    root.querySelector("[data-people]")?.addEventListener("click", (e) => openPeople(e.currentTarget.dataset.people));
+  }
+  function openPeople(id) {
+    const l = listById(id);
+    if (!l?.share) return;
+    const owner = l.share.role === "owner";
+    const people = l.share.members || [];
+    const { ov, close } = overlay(`
+    <div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="people-title">
+      <div class="steps-head"><span></span><span></span><button type="button" class="icon-btn" data-close aria-label="Close">${icon("x")}</button></div>
+      <h2 id="people-title">${esc(l.name)}</h2>
+      <p class="step-text">${owner ? "You share this board. Everyone here can add, move and complete cards and change lanes; only you rename or delete it." : `Shared with you by ${esc(l.share.ownerEmail)}.`}</p>
+      <div class="card list-card people-list">
+        ${people.map((p) => `
+        <div class="set-row">
+          <span class="lrow-icon">${icon("meeting", 18)}</span>
+          <div class="set-text"><span class="set-title">${esc(p.email)}</span><span class="set-sub">${p.role === "owner" ? "Owner" : p.state === "pending" ? "Invited, not accepted yet" : "Member"}</span></div>
+          ${owner && p.role !== "owner" ? `<button class="btn btn-sm btn-ghost danger" data-remove="${esc(p.email)}">${p.state === "pending" ? "Withdraw" : "Remove"}</button>` : ""}
+        </div>`).join("")}
+      </div>
+      ${owner ? '<button type="button" class="btn btn-secondary btn-block" data-invite>Invite people</button>' : '<button type="button" class="btn btn-ghost btn-block danger" data-leave>Leave this board</button>'}
+    </div>`);
+    ov.querySelector("[data-close]").addEventListener("click", () => close());
+    ov.querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", async () => {
+      const email = b.dataset.remove;
+      if (!await confirmDialog(`Remove ${email}?`, "The board leaves their devices at their next sync.", { confirmLabel: "Remove", danger: true })) return;
+      try {
+        await removePerson(id, email);
+        close();
+        openPeople(id);
+      } catch (e) {
+        toast(e.message);
+      }
+    }));
+    ov.querySelector("[data-invite]")?.addEventListener("click", async () => {
+      close();
+      await emailsSheet({ title: `Invite to “${l.name}”`, action: "Invite", submit: async (emails) => {
+        await invite(id, emails);
+        toast("Invited");
+      } });
+      rerender();
+    });
+    ov.querySelector("[data-leave]")?.addEventListener("click", async () => {
+      close();
+      await askLeave(id);
+    });
+  }
+  async function askLeave(id) {
+    const l = listById(id);
+    if (!l) return;
+    if (!await confirmDialog(`Leave “${l.name}”?`, "The board and its cards leave this device. The others keep them, and the owner can invite you again.", { confirmLabel: "Leave", danger: true })) return;
+    try {
+      await leave(id);
+      toast(`You left “${l.name}”`);
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+  async function askRemoveShared(id) {
+    const l = listById(id);
+    if (!l?.share) return;
+    if (l.share.role !== "owner") {
+      await askLeave(id);
+      return;
+    }
+    const ok = await confirmDialog(
+      `Delete “${l.name}” for everyone?`,
+      "It leaves every member's devices at their next sync. Here it goes to Deleted with its cards, for 30 days, as a personal board.",
+      { confirmLabel: "Delete for everyone", danger: true }
+    );
+    if (!ok) return;
+    try {
+      await deleteForEveryone(id);
+      toast(`“${l.name}” was deleted for everyone. It stays in Deleted here for 30 days.`, { ms: 6e3 });
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+  var invitations = () => signedIn() ? shared().invites : [];
+  function invitesHTML() {
+    const list3 = invitations();
+    if (!list3.length) return "";
+    return list3.map((i) => `
+    <div class="notice notice-neutral invite-card" role="region" aria-label="Invitation">
+      ${icon("meeting", 18)}
+      <span><strong>${esc(i.ownerEmail)}</strong> shared “${esc(i.boardName)}” with you.</span>
+      <span class="invite-actions">
+        <button class="btn btn-sm btn-primary" data-accept-invite="${esc(i.id)}">Accept</button>
+        <button class="btn btn-sm btn-ghost" data-decline-invite="${esc(i.id)}">Decline</button>
+      </span>
+    </div>`).join("");
+  }
+  function bindInvites(root = app) {
+    root.querySelectorAll("[data-accept-invite]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await answer(b.dataset.acceptInvite, true);
+        toast("Joined. The board is in your list.");
+      } catch (e) {
+        toast(e.message);
+        b.disabled = false;
+      }
+      rerender();
+    }));
+    root.querySelectorAll("[data-decline-invite]").forEach((b) => b.addEventListener("click", async () => {
+      try {
+        await answer(b.dataset.declineInvite, false);
+      } catch (e) {
+        toast(e.message);
+      }
+      rerender();
+    }));
+  }
+  function sharedSectionHTML() {
+    const boards = sharedBoards();
+    if (!signedIn() || !boards.length) return "";
+    return `
+      <span class="section-title list-label" id="settings-shared">Shared boards</span>
+      <div class="card list-card">
+        ${boards.map((l) => {
+      const me = current()?.email;
+      const ppl = (l.share.members || []).filter((m) => m.email !== me && m.role !== "owner").map((m) => `${m.email}${m.state === "pending" ? " (invited)" : ""}`).join(", ") || "nobody yet";
+      return `
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon("board", 18)}</span>
+          <div class="set-text"><span class="set-title">${esc(l.name)}</span><span class="set-sub set-long">${l.share.role === "owner" ? "You share it with" : `Shared by ${esc(l.share.ownerEmail)} ·`} ${esc(ppl)}</span></div>
+          <button class="btn btn-sm btn-secondary" data-people="${esc(l.id)}">People</button>
+        </div>`;
+    }).join("")}
+      </div>`;
+  }
+  function bindSharedSection(root = app) {
+    root.querySelectorAll("#settings-shared + .card [data-people]").forEach((b) => b.addEventListener("click", () => openPeople(b.dataset.people)));
+  }
+
+  // src/ui/actions.js
+  var where = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
+  var isRecurring = (t) => t.recur !== "none" && !!t.due;
+  function archiveWithUndo(id) {
+    archiveTask(id);
+    toast("Archived", { action: { label: "Undo", onClick: () => restoreTask(id, { keepPosition: true }) } });
+  }
+  function deleteWithUndo(id) {
+    const prev = softDelete(id);
+    if (!prev) return;
+    const onClick = prev.status === "archived" ? () => returnToArchive(id, prev.archivedAt) : () => restoreTask(id, { keepPosition: true });
+    toast("Deleted", { action: { label: "Undo", onClick } });
+  }
+  function restoreWithToast(id) {
+    const r = restoreTask(id);
+    if (!r) return;
+    toast(r.fellBack ? `Board no longer exists — restored to ${where(r.listId, r.lane)}` : `Restored to ${where(r.listId, r.lane)}`);
+  }
+  function moveWithFeedback(id, listId, lane) {
+    const t = taskById(id);
+    if (!t) return;
+    if (lane === "done" && isRecurring(t) && !t.done) {
+      if (listId !== t.listId) moveTask(id, listId, t.lane);
+      completeTask(id);
+      return;
+    }
+    moveTask(id, listId, lane);
+    toast(`Moved to ${where(listId, lane)}`);
+  }
+  function archiveNoteWithUndo(id) {
+    archiveNote(id);
+    toast("Archived", { action: { label: "Undo", onClick: () => restoreNote(id) } });
+  }
+  function deleteNoteWithUndo(id) {
+    const prev = softDeleteNote(id);
+    if (!prev) return;
+    const onClick = prev.status === "archived" ? () => returnNoteToArchive(id, prev.archivedAt) : () => restoreNote(id);
+    toast("Deleted", { action: { label: "Undo", onClick } });
+  }
+  function restoreNoteWithToast(id) {
+    restoreNote(id);
+    toast("Restored to Notes");
+  }
+  function archiveMeetingWithUndo(id) {
+    archiveMeeting(id);
+    toast("Archived", { action: { label: "Undo", onClick: () => restoreMeeting(id) } });
+  }
+  function deleteMeetingWithUndo(id) {
+    const prev = softDeleteMeeting(id);
+    if (!prev) return;
+    const onClick = prev.status === "archived" ? () => returnMeetingToArchive(id, prev.archivedAt) : () => restoreMeeting(id);
+    toast("Deleted", { action: { label: "Undo", onClick } });
+  }
+  function restoreMeetingWithToast(id) {
+    restoreMeeting(id);
+    toast("Restored to Meetings");
+  }
+  function removeBoardWithUndo(id, how) {
+    const prev = how === "archive" ? archiveList(id) : softDeleteList(id);
+    if (!prev) return;
+    const onClick = prev.status === "archived" ? () => restoreList(id, { toArchive: prev.archivedAt }) : () => restoreList(id);
+    toast(how === "archive" ? "Board archived" : "Board deleted", { action: { label: "Undo", onClick } });
+  }
+  function restoreBoardWithToast(id) {
+    const name = listById(id)?.name;
+    restoreList(id);
+    toast(`${name} is back in Boards`);
+  }
+  async function askRemoveBoard(id) {
+    const l = listById(id);
+    if (!l) return;
+    if (l.share) {
+      await askRemoveShared(id);
+      return;
+    }
+    if (!canRemoveList(id)) {
+      toast("This is your only board. Add another one before removing it.");
+      return;
+    }
+    const n = boardCardCount(id);
+    const cards = n === 0 ? "It has no cards." : n === 1 ? "Its 1 card goes with it." : `Its ${n} cards go with it.`;
+    const how = await choiceDialog(
+      `Remove “${l.name}”?`,
+      `${cards} Archive keeps the board until you restore it. Delete removes it for good after ${RETENTION_DAYS} days.`,
+      [{ id: "archive", label: "Archive" }, { id: "delete", label: "Delete", danger: true }]
+    );
+    if (how) removeBoardWithUndo(id, how);
+  }
+  var rolling = /* @__PURE__ */ new Set();
+  function completeTask(id, el = null) {
+    const t = taskById(id);
+    if (!t || rolling.has(id)) return;
+    if (t.done || !isRecurring(t)) {
+      toggleDone(id);
+      return;
+    }
+    rolling.add(id);
+    el?.classList.add("done");
+    const check = el?.querySelector(".check");
+    if (check) check.checked = true;
+    setTimeout(() => {
+      rolling.delete(id);
+      const r = rollForward(id);
+      if (!r) return;
+      toast(`Done · next ${fmtDateLong(r.next.due)}`, { action: { label: "Undo", onClick: () => undoRollForward(id, r.prev) } });
+    }, 400);
+  }
+
+  // src/media.js
+  var DB = "stackd-media";
+  var VERSION = 1;
+  var RECS = "recordings";
+  var CHUNKS = "chunks";
+  var available2 = () => typeof indexedDB !== "undefined";
+  var keyFor = (meetingId) => `rec-${meetingId}`;
+  var dbPromise = null;
+  function open() {
+    if (!available2()) return Promise.reject(new Error("IndexedDB is not available"));
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB, VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(RECS)) db.createObjectStore(RECS, { keyPath: "key" });
+        if (!db.objectStoreNames.contains(CHUNKS)) db.createObjectStore(CHUNKS, { keyPath: ["key", "i"] });
+      };
+      req.onsuccess = () => {
+        req.result.onversionchange = () => {
+          req.result.close();
+          dbPromise = null;
+        };
+        resolve(req.result);
+      };
+      req.onerror = () => {
+        dbPromise = null;
+        reject(req.error);
+      };
+      req.onblocked = () => reject(new Error("IndexedDB is blocked"));
+    });
+    return dbPromise;
+  }
+  var done = (tx) => new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  var result = (req) => new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  var range = (key) => IDBKeyRange.bound([key, 0], [key, Number.MAX_SAFE_INTEGER]);
+  async function begin(key, { meetingId, mimeType }) {
+    const db = await open();
+    const tx = db.transaction([RECS, CHUNKS], "readwrite");
+    tx.objectStore(RECS).put({ key, meetingId, mimeType, durationMs: 0, sizeBytes: 0, chunks: 0, updatedAt: Date.now() });
+    tx.objectStore(CHUNKS).delete(range(key));
+    await done(tx);
+  }
+  async function append(key, chunk, durationMs) {
+    const db = await open();
+    const tx = db.transaction([RECS, CHUNKS], "readwrite");
+    const recs = tx.objectStore(RECS);
+    const row2 = await result(recs.get(key));
+    if (!row2) throw new Error("recording row missing");
+    tx.objectStore(CHUNKS).put({ key, i: row2.chunks, blob: chunk });
+    recs.put({ ...row2, chunks: row2.chunks + 1, sizeBytes: row2.sizeBytes + chunk.size, durationMs, updatedAt: Date.now() });
+    await done(tx);
+    return { chunks: row2.chunks + 1, sizeBytes: row2.sizeBytes + chunk.size };
+  }
+  async function finish(key, durationMs) {
+    const db = await open();
+    const tx = db.transaction(RECS, "readwrite");
+    const row2 = await result(tx.objectStore(RECS).get(key));
+    if (row2) tx.objectStore(RECS).put({ ...row2, durationMs, updatedAt: Date.now() });
+    await done(tx);
+    return row2 ? { ...row2, durationMs } : null;
+  }
+  async function list2() {
+    const db = await open();
+    return result(db.transaction(RECS).objectStore(RECS).getAll()) || [];
+  }
+  async function blob(key) {
+    const db = await open();
+    const tx = db.transaction([RECS, CHUNKS]);
+    const row2 = await result(tx.objectStore(RECS).get(key));
+    if (!row2) return null;
+    const rows = await result(tx.objectStore(CHUNKS).getAll(range(key)));
+    rows.sort((a, b) => a.i - b.i);
+    return new Blob(rows.map((r) => r.blob), { type: row2.mimeType });
+  }
+  async function remove2(key) {
+    if (!available2()) return;
+    const db = await open();
+    const tx = db.transaction([RECS, CHUNKS], "readwrite");
+    tx.objectStore(RECS).delete(key);
+    tx.objectStore(CHUNKS).delete(range(key));
+    await done(tx);
+  }
+  async function orphans(referenced) {
+    const keep2 = new Set(referenced);
+    return (await list2()).filter((r) => !keep2.has(r.key));
+  }
+  var persisted = null;
+  async function persist() {
+    if (persisted !== null) return persisted;
+    try {
+      persisted = navigator.storage?.persist ? await navigator.storage.persist() : false;
+    } catch {
+      persisted = false;
+    }
+    return persisted;
+  }
+  async function estimate() {
+    try {
+      const e = await navigator.storage?.estimate?.();
+      if (!e || typeof e.quota !== "number") return null;
+      return { usage: e.usage || 0, quota: e.quota, free: Math.max(0, e.quota - (e.usage || 0)) };
+    } catch {
+      return null;
+    }
+  }
+  var fmtBytes = (n) => n >= 1024 * 1024 ? `${Math.round(n / 1024 / 1024 * 10) / 10} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+
+  // src/ai.js
+  var STEPS = ["transcribe", "summarise"];
+  var REQUEST_TIMEOUT_MS = 15e4;
+  var ALLOWANCE_TTL_MS = 10 * 60 * 1e3;
+  var POLL_MS2 = 4e3;
+  var JOB_TTL_MS = 2 * 3600 * 1e3;
+  var MESSAGES = {
+    offline: "No connection. Try again when you are back online.",
+    from_file: "The AI steps need the app opened from the website (or start-stackd.cmd), not from a file on disk.",
+    unauthorized: "This build cannot reach the service. Update the app.",
+    plan_required: "This needs a plan.",
+    allowance_exhausted: "You've used this period's summaries.",
+    too_large: "This is too large to send.",
+    too_quiet: "The recording was too quiet to transcribe.",
+    invalid_audio: "The recording could not be read.",
+    refused: "The service declined to summarise this transcript.",
+    provider_unavailable: "The service is unavailable right now. Try again in a minute.",
+    timeout: "That took too long. Try again.",
+    interrupted: "Summarising was interrupted. Try again.",
+    bad_output: "The minutes came back unreadable. Try again.",
+    bad_request: "Something went wrong with the request. Try again.",
+    misconfigured: "The service is not set up yet.",
+    not_implemented: "This step arrives in a later build."
+  };
+  var CLIENT_WORDING = /* @__PURE__ */ new Set(["plan_required"]);
+  var isOnline = () => globalThis.navigator?.onLine !== false;
+  var fromFile = () => globalThis.location?.protocol === "file:";
+  function errorFor(x) {
+    const code = x && typeof x === "object" ? x.code : null;
+    if (code && MESSAGES[code]) return { code, message: !CLIENT_WORDING.has(code) && x.message ? x.message : MESSAGES[code], resetsAt: x.resetsAt ?? null };
+    if (x?.name === "AbortError") return { code: "timeout", message: MESSAGES.timeout };
+    if (fromFile()) return { code: "from_file", message: MESSAGES.from_file };
+    if (!isOnline()) return { code: "offline", message: MESSAGES.offline };
+    return { code: "provider_unavailable", message: MESSAGES.provider_unavailable };
+  }
+  var fetchImpl2 = (...args) => globalThis.fetch(...args);
+  var uploadImpl = (url, formData, { headers, onProgress, signal }) => new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.withCredentials = true;
+    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    xhr.responseType = "text";
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(Math.round(100 * e.loaded / e.total));
+    };
+    xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, json: async () => JSON.parse(xhr.responseText) });
+    xhr.onerror = () => reject(new TypeError("Network request failed"));
+    xhr.onabort = () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    signal?.addEventListener("abort", () => xhr.abort());
+    xhr.send(formData);
+  });
+  var blobImpl = (key) => blob(key);
+  var headersFor = () => ({ "X-Stackd-App": APP_TOKEN, "X-Stackd-Subscriber": S.plan.subscriberId, ...authHeaders() });
+  async function call(path, { method = "GET", body, signal } = {}) {
+    const res = await fetchImpl2(proxyUrl() + path, {
+      method,
+      headers: { "Content-Type": "application/json", ...headersFor() },
+      body: body === void 0 ? void 0 : JSON.stringify(body),
+      credentials: "include",
+      signal
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+    }
+    if (data?.allowance) setPlanCache(data.allowance);
+    if (!res.ok || !data?.ok) {
+      const err = new Error(data?.message || `The service answered ${res.status}.`);
+      err.code = data?.code || (res.status === 401 ? "unauthorized" : "provider_unavailable");
+      err.resetsAt = data?.resetsAt ?? null;
+      if (err.code === "signed_out") signedOut();
+      throw err;
+    }
+    return data;
+  }
+  function reduce(m, ev) {
+    const jobs = { transcribe: null, summarise: null, ...m.jobs || {} };
+    switch (ev.type) {
+      case "start":
+        return { jobs: { ...jobs, [ev.step]: { id: ev.id, startedAt: ev.at, phase: ev.phase || "wait" } }, lastError: null };
+      case "phase":
+        return jobs[ev.step] ? { jobs: { ...jobs, [ev.step]: { ...jobs[ev.step], phase: ev.phase, ...ev.id ? { id: ev.id } : {} } } } : null;
+      case "done":
+        return { jobs: { ...jobs, [ev.step]: null }, lastError: null };
+      case "error":
+        return { jobs: { ...jobs, [ev.step]: null }, lastError: { step: ev.step, code: ev.code, message: ev.message, at: ev.at, ...ev.resetsAt ? { resetsAt: ev.resetsAt } : {} } };
+      case "resume": {
+        const resumable = (s) => s === "transcribe" && jobs[s]?.phase === "wait" && /^job_/.test(jobs[s].id || "") && ev.at - (jobs[s].startedAt || 0) < JOB_TTL_MS;
+        const lost = STEPS.filter((s) => jobs[s] && !ev.inflight.includes(s) && !resumable(s));
+        if (!lost.length) return null;
+        const next = { ...jobs };
+        lost.forEach((s) => {
+          next[s] = null;
+        });
+        const step = lost[0];
+        const message = step === "transcribe" ? "Transcribing was interrupted. Try again." : MESSAGES.interrupted;
+        return { jobs: next, lastError: { step, code: "interrupted", message, at: ev.at } };
+      }
+      default:
+        return null;
+    }
+  }
+  var inflight = /* @__PURE__ */ new Map();
+  var onPlanError = null;
+  function setPlanErrorHandler(fn) {
+    onPlanError = fn;
+  }
+  var isRunning = (meetingId, step) => inflight.has(`${meetingId}:${step}`);
+  function apply(meetingId, patch2) {
+    if (patch2) setJobState(meetingId, patch2);
+  }
+  async function summarise(meetingId) {
+    const m = meetingById(meetingId);
+    const key = `${meetingId}:summarise`;
+    if (!m || m.status !== "active" || !m.transcript || inflight.has(key)) return;
+    const now2 = Date.now();
+    if (!isOnline()) {
+      apply(meetingId, reduce(m, { type: "error", step: "summarise", code: "offline", message: MESSAGES.offline, at: now2 }));
+      return;
+    }
+    const ac = new AbortController();
+    inflight.set(key, ac);
+    const timer2 = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
+    apply(meetingId, reduce(m, { type: "start", step: "summarise", id: uid(), at: now2 }));
+    try {
+      const t = m.transcript;
+      const data = await call("/v1/summarise", {
+        method: "POST",
+        signal: ac.signal,
+        body: {
+          transcript: { segments: t.segments.map((s) => ({ speaker: s.speaker, startMs: s.startMs, text: s.text })), speakers: t.speakers },
+          meetingDate: toISO(new Date(m.createdAt)),
+          priorities: S.priorities.map((p) => p.name)
+        }
+      });
+      settle();
+      const cur = meetingById(meetingId);
+      if (!cur) return;
+      apply(meetingId, reduce(cur, { type: "done", step: "summarise" }));
+      setMinutes(meetingId, data.minutes, data.actions);
+    } catch (e) {
+      settle();
+      const cur = meetingById(meetingId);
+      if (cur) {
+        const { code, message, resetsAt } = errorFor(e);
+        apply(meetingId, reduce(cur, { type: "error", step: "summarise", code, message, resetsAt, at: Date.now() }));
+        onPlanError?.(code, { step: "summarise", resetsAt });
+      }
+    } finally {
+      settle();
+    }
+    function settle() {
+      clearTimeout(timer2);
+      inflight.delete(key);
+    }
+  }
+  var progress = /* @__PURE__ */ new Map();
+  var uploadProgress = (meetingId) => progress.get(meetingId)?.pct ?? null;
+  async function transcribe(meetingId, { onProgress = null } = {}) {
+    const m = meetingById(meetingId);
+    const key = `${meetingId}:transcribe`;
+    if (!m || m.status !== "active" || !m.recording || inflight.has(key)) return;
+    const now2 = Date.now();
+    if (!isOnline()) {
+      apply(meetingId, reduce(m, { type: "error", step: "transcribe", code: "offline", message: MESSAGES.offline, at: now2 }));
+      return;
+    }
+    const ac = new AbortController();
+    inflight.set(key, ac);
+    progress.set(meetingId, { pct: 0, onProgress });
+    apply(meetingId, reduce(m, { type: "start", step: "transcribe", id: uid(), at: now2, phase: "upload" }));
+    try {
+      const blob2 = await blobImpl(m.recording.key);
+      if (!blob2 || !blob2.size) throw Object.assign(new Error("The recording is missing from this device."), { code: "invalid_audio" });
+      const fd = new FormData();
+      fd.append("audio", blob2, `recording.${blob2.type.includes("mp4") ? "m4a" : "webm"}`);
+      fd.append("durationMs", String(m.recording.durationMs));
+      const res = await uploadImpl(proxyUrl() + "/v1/transcribe", fd, {
+        headers: headersFor(),
+        signal: ac.signal,
+        onProgress: (pct) => {
+          const p = progress.get(meetingId);
+          if (p) {
+            p.pct = pct;
+            p.onProgress?.(pct);
+          }
+        }
+      });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+      }
+      if (data?.allowance) setPlanCache(data.allowance);
+      if (!res.ok || !data?.ok) {
+        const err = new Error(data?.message || `The service answered ${res.status}.`);
+        err.code = data?.code || (res.status === 401 ? "unauthorized" : "provider_unavailable");
+        err.resetsAt = data?.resetsAt ?? null;
+        throw err;
+      }
+      const cur = meetingById(meetingId);
+      if (!cur) return;
+      apply(meetingId, reduce(cur, { type: "phase", step: "transcribe", phase: "wait", id: data.jobId }));
+      inflight.delete(key);
+      await pollTranscription(meetingId, data.jobId);
+    } catch (e) {
+      inflight.delete(key);
+      const cur = meetingById(meetingId);
+      if (cur) {
+        const { code, message, resetsAt } = errorFor(e);
+        const cancelled2 = e?.name === "AbortError" && ac.signal.aborted && progress.get(meetingId)?.cancelled;
+        if (cancelled2) apply(meetingId, reduce(cur, { type: "done", step: "transcribe" }));
+        else {
+          apply(meetingId, reduce(cur, { type: "error", step: "transcribe", code, message, resetsAt, at: Date.now() }));
+          onPlanError?.(code, { step: "transcribe", resetsAt });
+        }
+      }
+    } finally {
+      inflight.delete(key);
+      progress.delete(meetingId);
+    }
+  }
+  function cancelUpload(meetingId) {
+    const key = `${meetingId}:transcribe`;
+    const ac = inflight.get(key);
+    const p = progress.get(meetingId);
+    if (!ac || !p) return false;
+    p.cancelled = true;
+    ac.abort();
+    return true;
+  }
+  var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function pollTranscription(meetingId, jobId) {
+    const key = `${meetingId}:transcribe:poll`;
+    if (inflight.has(key)) return;
+    inflight.set(key, new AbortController());
+    try {
+      for (; ; ) {
+        const m = meetingById(meetingId);
+        if (!m || !m.jobs?.transcribe || m.jobs.transcribe.id !== jobId) return;
+        if (Date.now() - (m.jobs.transcribe.startedAt || 0) > JOB_TTL_MS) {
+          apply(meetingId, reduce(m, { type: "error", step: "transcribe", code: "timeout", message: MESSAGES.timeout, at: Date.now() }));
+          return;
+        }
+        let data;
+        try {
+          data = await call(`/v1/transcribe/${encodeURIComponent(jobId)}`);
+        } catch (e) {
+          if (e?.code && e.code !== "provider_unavailable" && e.code !== "offline") {
+            const { code, message, resetsAt } = errorFor(e);
+            apply(meetingId, reduce(m, { type: "error", step: "transcribe", code, message, resetsAt, at: Date.now() }));
+            onPlanError?.(code, { step: "transcribe", resetsAt });
+            return;
+          }
+          await sleep(POLL_MS2 * 2);
+          continue;
+        }
+        if (data.state === "done") {
+          const cur = meetingById(meetingId);
+          if (!cur) return;
+          apply(meetingId, reduce(cur, { type: "done", step: "transcribe" }));
+          setTranscript(meetingId, { source: "recording", segments: data.transcript.segments, speakers: data.transcript.speakers });
+          onTranscribed?.(meetingId);
+          return;
+        }
+        await sleep(POLL_MS2);
+      }
+    } finally {
+      inflight.delete(key);
+    }
+  }
+  var onTranscribed = null;
+  function setTranscribedHandler(fn) {
+    onTranscribed = fn;
+  }
+  async function allowance({ force = false } = {}) {
+    if (!force && Date.now() - (S.plan.checkedAt || 0) < ALLOWANCE_TTL_MS) return S.plan;
+    await call("/v1/allowance");
+    return S.plan;
+  }
+  function resumeJobs(now2 = Date.now()) {
+    S.meetings.forEach((m) => {
+      const running2 = STEPS.filter((s) => inflight.has(`${m.id}:${s}`) || inflight.has(`${m.id}:${s}:poll`));
+      apply(m.id, reduce(m, { type: "resume", inflight: running2, at: now2 }));
+      const t = m.jobs?.transcribe;
+      if (t && t.phase === "wait" && /^job_/.test(t.id || "") && !running2.includes("transcribe") && isOnline()) pollTranscription(m.id, t.id);
+    });
+  }
+
+  // src/purchases.js
+  var RC_KEYS = { ios: "appl_REPLACE_ME", android: "goog_REPLACE_ME" };
+  var PAID_TIERS = ["plus", "pro", "max"];
+  var PRODUCT_IDS = { plus: "plus_monthly", pro: "pro_monthly", max: "max_monthly" };
+  var plugin4 = () => globalThis.Capacitor?.Plugins?.Purchases;
+  var platform = () => globalThis.Capacitor?.getPlatform?.() || "web";
+  var available3 = () => !!(globalThis.Capacitor?.isNativePlatform?.() && typeof plugin4()?.configure === "function" && RC_KEYS[platform()] && !RC_KEYS[platform()].includes("REPLACE_ME"));
+  var configured = false;
+  var offeringsCache = null;
+  async function configure(subscriberId) {
+    if (!available3() || configured) return false;
+    try {
+      await plugin4().configure({ apiKey: RC_KEYS[platform()], appUserID: subscriberId });
+      configured = true;
+    } catch (e) {
+      console.warn("purchases: configure failed", e?.message || e);
+    }
+    return configured;
+  }
+  async function identify(userId) {
+    if (!configured) return;
+    try {
+      await plugin4().logIn({ appUserID: userId });
+      await plugin4().syncPurchases();
+      offeringsCache = null;
+    } catch (e) {
+      console.warn("purchases: identify failed", e?.message || e);
+    }
+  }
+  async function anonymous(subscriberId) {
+    if (!configured) return;
+    try {
+      await plugin4().logIn({ appUserID: subscriberId });
+      offeringsCache = null;
+    } catch (e) {
+      console.warn("purchases: anonymous failed", e?.message || e);
+    }
+  }
+  async function offerings({ force = false } = {}) {
+    if (!configured) return {};
+    if (offeringsCache && !force) return offeringsCache;
+    try {
+      const res = await plugin4().getOfferings();
+      const packages = res?.current?.availablePackages || [];
+      const out = {};
+      PAID_TIERS.forEach((tier) => {
+        const pkg = packages.find((p) => p.identifier === tier || p.product?.identifier === PRODUCT_IDS[tier] || p.product?.identifier?.startsWith(`${tier}_`));
+        if (pkg) out[tier] = { price: pkg.product?.priceString || "", package: pkg };
+      });
+      offeringsCache = out;
+      return out;
+    } catch (e) {
+      console.warn("purchases: offerings failed", e?.message || e);
+      return {};
+    }
+  }
+  function tierOf(customerInfo) {
+    const active2 = customerInfo?.entitlements?.active || {};
+    for (const tier of [...PAID_TIERS].reverse()) if (active2[tier]) return tier;
+    return "free";
+  }
+  var cancelled = (e) => e?.userCancelled === true || String(e?.code) === "1" || /cancel/i.test(String(e?.message || ""));
+  async function buy(tier) {
+    if (!PAID_TIERS.includes(tier) || !PLAN_TIERS.includes(tier)) throw new Error("Unknown plan");
+    const offer = (await offerings())[tier];
+    if (!offer) throw new Error("This plan is not available in the store right now.");
+    try {
+      const res = await plugin4().purchasePackage({ aPackage: offer.package });
+      return { tier: tierOf(res?.customerInfo), customerInfo: res?.customerInfo };
+    } catch (e) {
+      if (cancelled(e)) return { cancelled: true };
+      throw new Error(e?.message || "The purchase did not go through.");
+    }
+  }
+  async function restore() {
+    const res = await plugin4().restorePurchases();
+    return { tier: tierOf(res?.customerInfo), customerInfo: res?.customerInfo };
+  }
+  async function manageUrl() {
+    try {
+      const res = await plugin4().getCustomerInfo();
+      return res?.customerInfo?.managementURL || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // src/ui/paywall.js
+  var BLURB = {
+    plus: "A 30-minute call most working days",
+    pro: "Two 30-minute calls every working day",
+    max: "About an hour of meetings every working day"
+  };
+  var poolLine = (tier) => `${PLAN_POOLS[tier].hours} h of audio · ${PLAN_POOLS[tier].summaries} summaries a month`;
+  function aiButtonState(step) {
+    const p = S.plan;
+    if (p.tier === "free" && p.checkedAt) return { locked: true, hint: `from ${PLAN_PRICES.plus} / month` };
+    if (!p.checkedAt) return { locked: false, hint: "" };
+    if (step === "summarise") return { locked: false, hint: `1 of ${p.summariesLeft} summar${p.summariesLeft === 1 ? "y" : "ies"} left` };
+    return { locked: false, hint: `${fmtDuration(p.audioSecondsLeft * 1e3)} of audio left` };
+  }
+  var prices = {};
+  function cardHTML(tier, current2) {
+    const price = prices[tier] || PLAN_PRICES[tier];
+    const isCurrent = current2 === tier;
+    const action = !available3() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : `<button type="button" class="btn ${current2 === "free" || current2 === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current2 === "free" || current2 === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current2) ? "Upgrade" : "Switch"}</button>`;
+    return `
+  <div class="plan-card ${isCurrent ? "is-current" : ""}">
+    <div class="plan-head">
+      <span class="plan-name">${planName(tier)}</span>
+      <span class="plan-price num">${esc(price)}<span class="hint"> / month</span></span>
+    </div>
+    <span class="plan-pool">${esc(poolLine(tier))}</span>
+    <span class="hint">${esc(BLURB[tier])}</span>
+    ${action}
+  </div>`;
+  }
+  var bar = (label, left, total, text2) => `
+  <div class="plan-bar" role="group" aria-label="${esc(label)}">
+    <div class="plan-bar-line"><span>${esc(label)}</span><span class="num">${esc(text2)}</span></div>
+    <div class="plan-track"><div class="plan-fill" style="width:${total ? Math.round(100 * Math.max(0, Math.min(1, left / total))) : 0}%"></div></div>
+  </div>`;
+  function planSectionHTML() {
+    const p = S.plan;
+    const current2 = p.tier;
+    const paid = PAID_TIERS.includes(current2);
+    const status2 = !p.checkedAt ? "Not checked yet" : current2 === "free" ? "Free · the AI steps need a plan" : current2 === "tester" ? "Tester · allowance resets daily" : `Renews ${p.renewsAt ? fmtDate(p.renewsAt, S.dateFormat) : "monthly"}`;
+    const bars = p.checkedAt && current2 !== "free" ? `
+    ${bar("Audio", p.audioSecondsLeft, p.audioSecondsTotal, `${fmtDuration(p.audioSecondsLeft * 1e3)} of ${fmtDuration(p.audioSecondsTotal * 1e3)}`)}
+    ${bar("Summaries", p.summariesLeft, p.summariesTotal, `${p.summariesLeft} of ${p.summariesTotal}`)}` : "";
+    return `
+  <span class="section-title list-label" id="settings-plan">Plan</span>
+  <div class="card plan-current">
+    <div class="plan-head">
+      <span class="plan-name">${planName(current2)}</span>
+      <span class="hint">${esc(status2)}</span>
+    </div>
+    ${bars}
+    <div class="plan-actions">
+      <button type="button" class="btn btn-sm btn-secondary" data-plan-check>${icon("undo", 16)}Refresh</button>
+      ${available3() ? '<button type="button" class="btn btn-sm btn-secondary" data-plan-restore>Restore purchases</button>' : ""}
+      ${available3() && paid ? '<button type="button" class="btn btn-sm btn-ghost" data-plan-manage>Manage subscription</button>' : ""}
+    </div>
+  </div>
+  <div class="plan-cards">
+    ${PAID_TIERS.map((t) => cardHTML(t, current2)).join("")}
+  </div>
+  <p class="hint set-hint">${available3() ? "Monthly subscriptions renew automatically until cancelled in your store account. The allowance resets on the renewal date; unused minutes and summaries do not carry over." : "Subscribe in the Stack’d app on iPhone or Android; the plan then applies there. Monthly subscriptions renew until cancelled."}
+    <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>`;
+  }
+  async function refresh2(btn) {
+    if (btn) btn.disabled = true;
+    try {
+      await allowance({ force: true });
+      rerender();
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      toast(errorFor(e).message);
+    }
+  }
+  function bindPlanSection(root) {
+    root.querySelector("[data-plan-check]")?.addEventListener("click", (e) => refresh2(e.currentTarget));
+    root.querySelector("[data-plan-restore]")?.addEventListener("click", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      try {
+        const r = await restore();
+        await allowance({ force: true }).catch(() => {
+        });
+        toast(r.tier === "free" ? "No purchases to restore" : `Restored: ${planName(r.tier)}`);
+        rerender();
+      } catch (err) {
+        b.disabled = false;
+        toast(err?.message || "Restore failed");
+      }
+    });
+    root.querySelector("[data-plan-manage]")?.addEventListener("click", async () => {
+      const url = await manageUrl();
+      if (url) window.open(url, "_blank");
+      else toast("Open your store account to manage the subscription");
+    });
+    root.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", () => purchase(b.dataset.buy, b)));
+    if (available3() && !Object.keys(prices).length) {
+      offerings().then((o) => {
+        const next = Object.fromEntries(Object.entries(o).map(([t, v]) => [t, v.price]).filter(([, v]) => v));
+        if (Object.keys(next).length) {
+          prices = next;
+          rerender();
+        }
+      });
+    }
+  }
+  async function purchase(tier, btn) {
+    if (btn) btn.disabled = true;
+    try {
+      const r = await buy(tier);
+      if (r.cancelled) {
+        if (btn) btn.disabled = false;
+        return;
+      }
+      await allowance({ force: true }).catch(() => {
+      });
+      toast(`${planName(r.tier)} is active`);
+      commit();
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      toast(e?.message || "The purchase did not go through.");
+    }
+  }
+  function sheet(html) {
+    const ov = document.createElement("div");
+    ov.className = "overlay";
+    ov.innerHTML = html;
+    document.body.appendChild(ov);
+    const unpin = pinToViewport(ov);
+    const close = () => {
+      unpin();
+      ov.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", onKey);
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov) close();
+    });
+    ov.querySelector("[data-close]")?.addEventListener("click", close);
+    return { ov, close };
+  }
+  var STEP_TEXT = {
+    summarise: "Summarise turns a transcript into minutes, decisions, open questions and action cards you can send to a board.",
+    transcribe: "Transcribe turns a recording into text with speaker labels."
+  };
+  function openPlanRequired({ step }) {
+    const { ov, close } = sheet(`
+  <div class="sheet" role="dialog" aria-label="Choose a plan">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="section-title">This needs a plan</span>
+      <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
+    </div>
+    <p class="plan-intro">${esc(STEP_TEXT[step] || "")}</p>
+    <div class="plan-cards">${PAID_TIERS.map((t) => cardHTML(t, S.plan.tier)).join("")}</div>
+    ${available3() ? "" : '<p class="hint">Subscribe in the Stack’d app on iPhone or Android.</p>'}
+    <p class="hint">Renews monthly until cancelled · <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>
+  </div>`);
+    ov.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", async () => {
+      await purchase(b.dataset.buy, b);
+      if (S.plan.tier !== "free") close();
+    }));
+  }
+  function openAllowanceUsed({ step, resetsAt }) {
+    const tier = S.plan.tier;
+    const next = PAID_TIERS[PAID_TIERS.indexOf(tier) + 1] || null;
+    const what = step === "summarise" ? "summaries" : "audio minutes";
+    const when = resetsAt || S.plan.renewsAt;
+    const { ov, close } = sheet(`
+  <div class="sheet" role="dialog" aria-label="Allowance used">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="section-title">Allowance used</span>
+      <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
+    </div>
+    <p class="plan-intro">You've used this ${tier === "tester" ? "day's" : "month's"} ${what}.${when ? ` Resets ${esc(fmtDate(when, S.dateFormat))}.` : ""}</p>
+    ${next && available3() ? `<div class="plan-cards">${cardHTML(next, tier)}</div>` : ""}
+    <button type="button" class="btn btn-secondary btn-block" data-close>OK</button>
+  </div>`);
+    ov.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", async () => {
+      await purchase(b.dataset.buy, b);
+      close();
+    }));
+  }
+
+  // src/ui/minutesview.js
+  var DISCLOSURE = "The transcript, with the speaker names you gave, is sent to our server and to an AI model provider to write the minutes and find the actions. Nothing is kept there after the result comes back, and nothing is sent until you press this button.";
+  function summariseCtaHTML(m) {
+    if (!m.transcript) return "";
+    const running2 = m.jobs?.summarise || isRunning(m.id, "summarise");
+    const err = m.lastError?.step === "summarise" ? m.lastError : null;
+    const offline = !isOnline();
+    const stale = minutesStale(m);
+    if (running2) {
+      return `
+    <div class="cta cta-running" role="status" aria-live="polite">
+      <span class="spin" aria-hidden="true"></span>
+      <span>Summarising…</span>
+      <span class="hint">keeps going if you leave this screen</span>
+    </div>`;
+    }
+    const state3 = aiButtonState("summarise");
+    const planErr = err && (err.code === "plan_required" || err.code === "allowance_exhausted");
+    const label = err && !planErr ? "Retry" : m.minutes ? "Regenerate" : "Summarise into minutes and actions";
+    return `
+  <div class="cta" data-cta="summarise">
+    ${err && !planErr ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
+    ${err?.code === "allowance_exhausted" ? `<div class="notice"><span>${esc(err.message)}</span><button type="button" class="btn btn-sm btn-ghost" data-plan-sheet="allowance_exhausted">Upgrade</button></div>` : ""}
+    <span class="cta-row">
+      <button type="button" class="btn ${m.minutes ? "btn-secondary" : "btn-primary"} ${state3.locked ? "is-locked" : ""}" data-summarise ${offline ? "disabled" : ""} ${state3.locked ? 'data-locked="1"' : ""}>
+        ${icon(state3.locked ? "lock" : "sparkle", 18)}${label}
+      </button>
+      ${state3.hint ? `<span class="hint cta-hint">${esc(state3.hint)}</span>` : ""}
+    </span>
+    ${stale && m.minutes ? '<span class="tag tag-soon">Transcript edited since</span>' : ""}
+    ${offline ? '<span class="hint">Needs a connection</span>' : ""}
+  </div>`;
+  }
+  function bindSummariseCta(root, m) {
+    root.querySelector("[data-plan-sheet]")?.addEventListener("click", () => openAllowanceUsed({ step: "summarise", resetsAt: m.lastError?.resetsAt || null }));
+    root.querySelector("[data-summarise]")?.addEventListener("click", async (e) => {
+      if (e.currentTarget.dataset.locked) {
+        openPlanRequired({ step: "summarise" });
+        return;
+      }
+      if (!S.ai.disclosed) {
+        if (!await confirmDialog("Before the first summary", DISCLOSURE, { confirmLabel: "Continue" })) return;
+        markDisclosed();
+      }
+      if (m.minutes && !await confirmDialog("Regenerate the minutes?", "The minutes and the actions not yet added to a board are replaced.", { confirmLabel: "Regenerate" })) return;
+      summarise(m.id);
+    });
+  }
+  function minutesToText(m) {
+    const mm = m.minutes;
+    const lines2 = [meetingTitle(m), `${fmtDate(m.createdAt, S.dateFormat)} ${fmtClock(m.createdAt)}`, ""];
+    lines2.push("Summary", mm.summary || "None noted", "");
+    lines2.push("Decisions", ...mm.decisions.length ? mm.decisions.map((d) => `- ${d}`) : ["None noted"], "");
+    lines2.push("Open questions", ...mm.openQuestions.length ? mm.openQuestions.map((q) => `- ${q}`) : ["None noted"], "");
+    const actions = m.actions.filter((a) => a.status !== "dismissed");
+    lines2.push("Actions", ...actions.length ? actions.map((a) => `- ${a.title}${a.due ? ` · due ${fmtDate(a.due, S.dateFormat)}` : ""}${a.priority !== "none" ? ` · ${priorityName(a.priority)}` : ""}${a.status === "added" ? " · on a board" : ""}`) : ["None"]);
+    lines2.push("", generatedLine(mm));
+    return lines2.join("\n");
+  }
+  var generatedLine = (mm) => `Generated by AI · ${fmtDate(mm.generatedAt, S.dateFormat)} ${fmtClock(mm.generatedAt)} · check before you rely on it.`;
+  function sectionHTML(key, title, value, { readOnly, list: list3 }) {
+    const text2 = list3 ? value.join("\n") : value;
+    const empty2 = !text2.trim();
+    if (readOnly) {
+      return `
+    <div class="min-section">
+      <span class="section-title">${title}</span>
+      ${empty2 ? '<p class="min-empty">None noted</p>' : list3 ? `<ul class="min-list">${value.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="min-text">${esc(text2)}</p>`}
+    </div>`;
+    }
+    return `
+  <div class="min-section">
+    <label class="section-title" for="min-${key}">${title}</label>
+    <textarea id="min-${key}" class="min-edit ${list3 ? "min-edit-list" : ""}" data-min="${key}" rows="1" placeholder="None noted" aria-label="${title}">${esc(text2)}</textarea>
+    ${list3 ? '<span class="hint">One per line</span>' : ""}
+  </div>`;
+  }
+  function minutesHTML(m, { readOnly = false } = {}) {
+    const mm = m.minutes;
+    if (!mm) return "";
+    return `
+  <section class="mblock" data-block="minutes" aria-label="Minutes">
+    <div class="mblock-head">
+      <span class="section-title">Minutes</span>
+      <span class="hint">${esc(generatedLine(mm))}</span>
+      <span class="mblock-actions"><button type="button" class="btn btn-ghost btn-sm" data-copy-minutes>${icon("copy", 16)}Copy</button></span>
+    </div>
+    <div class="card minutes">
+      ${sectionHTML("summary", "Summary", mm.summary, { readOnly, list: false })}
+      ${sectionHTML("decisions", "Decisions", mm.decisions, { readOnly, list: true })}
+      ${sectionHTML("openQuestions", "Open questions", mm.openQuestions, { readOnly, list: true })}
+    </div>
+  </section>`;
+  }
+  var grow = (ta) => {
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  };
+  function bindMinutes(root, m, { readOnly = false } = {}) {
+    root.querySelector("[data-copy-minutes]")?.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(minutesToText(m));
+        toast("Minutes copied");
+      } catch {
+        toast("Couldn't copy on this device");
+      }
+    });
+    if (readOnly) return;
+    let timer2 = null;
+    const pending = {};
+    const flush = () => {
+      if (!timer2) return;
+      clearTimeout(timer2);
+      timer2 = null;
+      editMinutes(m.id, { ...pending });
+      Object.keys(pending).forEach((k) => delete pending[k]);
+    };
+    root.querySelectorAll("[data-min]").forEach((ta) => {
+      grow(ta);
+      ta.addEventListener("input", () => {
+        grow(ta);
+        const key = ta.dataset.min;
+        pending[key] = key === "summary" ? ta.value : ta.value.split("\n").map((s) => s.trim()).filter(Boolean);
+        clearTimeout(timer2);
+        timer2 = setTimeout(flush, 500);
+      });
+      ta.addEventListener("blur", flush);
+    });
+    window.addEventListener("pagehide", flush, { once: true });
+  }
+
   // src/webcrypto.js
   var hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
   var randomHex = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
@@ -5222,7 +5595,7 @@
     onForget(() => {
       isLocked = false;
       reason = null;
-      remove2(VERIFIER_KEY);
+      remove(VERIFIER_KEY);
       emit();
     });
     const a = current();
@@ -5364,7 +5737,7 @@
   async function loadDevices() {
     loading = true;
     try {
-      devices = await refresh2();
+      devices = await refresh();
     } catch {
       devices = null;
     }
@@ -5388,7 +5761,7 @@
     rerender();
   }
   async function removeLocalData() {
-    await Promise.all(S.meetings.filter((m) => m.recording).map((m) => remove(m.recording.key).catch(() => {
+    await Promise.all(S.meetings.filter((m) => m.recording).map((m) => remove2(m.recording.key).catch(() => {
     })));
     [STORE_KEY, NOTE_DRAFT_KEY, BACKUP_KEY].forEach((k) => localStorage.removeItem(k));
     globalThis.location?.reload();
@@ -5606,6 +5979,7 @@
     </header>
     <div class="scroll-area">
       ${accountSectionHTML()}
+      ${sharedSectionHTML()}
 
       <span class="section-title list-label" id="settings-appearance">Appearance</span>
       <div class="card list-card">
@@ -5756,6 +6130,7 @@
   function bindSettings() {
     bindScrollShadow();
     bindAccountSection(app);
+    bindSharedSection(app);
     app.querySelectorAll("[data-theme-opt]").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.themeOpt)));
     app.querySelectorAll("[data-date-format]").forEach((b) => b.addEventListener("click", () => setDateFormat(b.dataset.dateFormat)));
     app.querySelectorAll("[data-prio]").forEach((row2) => {
@@ -6077,7 +6452,7 @@
   <div class="screen">
     <header class="page-head">
       <div class="page-title-row">
-        ${pageTitleHTML(list3.name, `${list3.name}. Switch board`)}
+        <span class="title-with-chip">${pageTitleHTML(list3.name, `${list3.name}. Switch board`)}${sharedChipHTML(list3)}</span>
         <span class="head-right"><span class="kicker">${headCount}</span>${searchToggleHTML()}</span>
       </div>
       ${viewbarHTML()}
@@ -6091,6 +6466,7 @@
     bindSearch(app);
     bindScrollShadow();
     bindPageTitle();
+    bindSharedChip(app);
     bindChecks();
     app.querySelectorAll(".trow").forEach((row2) => {
       const t = taskById(row2.dataset.id);
@@ -7207,7 +7583,7 @@
     }
     return "";
   }
-  var canRecord = () => typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia && available();
+  var canRecord = () => typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia && available2();
   var session = null;
   var isRecording = () => !!session;
   var recordingMeetingId = () => session?.meetingId || null;
@@ -7302,7 +7678,7 @@
       if (m.recording) replaceRecording(m.id, rec);
       else setRecording(m.id, rec);
     } else {
-      await remove(s.key).catch(() => {
+      await remove2(s.key).catch(() => {
       });
       toast("Nothing was recorded");
       rerender();
@@ -9042,10 +9418,7 @@
     UI.screen = "list";
     commit();
   }
-  async function newBoard() {
-    const name = await promptDialog("New board", { placeholder: "Board name", confirmLabel: "Create" });
-    if (name) addList(name);
-  }
+  var newBoard = () => newBoardFlow();
   function pressable(el, onPress) {
     if (!el) return;
     el.addEventListener("click", onPress);
@@ -9137,6 +9510,7 @@
       </div>
     </header>
     <div class="scroll-area">
+      ${invitesHTML()}
       <h2 class="menu-title">Boards</h2>
       <div class="card list-card">
         ${activeLists().map((l) => `
@@ -9191,17 +9565,19 @@
     bindBoardRows(".lrow[data-id]");
     pressable(app.querySelector("[data-newlist]"), newBoard);
     bindFolderLinks();
+    bindInvites(app);
   }
   function mobileNavHTML() {
     const item = (screen, label, name) => `
     <button class="nav-item ${UI.screen === screen ? "active" : ""}" data-nav="${screen}" aria-label="${label}">
       <span class="nav-icon">${icon(name, 24)}</span>
+      ${screen === "lists" && invitations().length ? '<span class="nav-dot" aria-hidden="true"></span>' : ""}
       <span class="nav-item-indicator"></span>
     </button>`;
     return `
   <nav class="bottom-nav">
     <div class="nav-pill">
-      ${item("lists", "Boards", "grid")}
+      ${item("lists", invitations().length ? "Boards, an invitation is waiting" : "Boards", "grid")}
       ${item("list", "Tasks", "tasks")}
       ${item("notes", "Notes", "note")}
       ${item("folders", "Archive & Bin", "archive")}
@@ -9232,6 +9608,7 @@
     const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meetings" ? meetingsHTML() : UI.screen === "meeting" ? meetingHTML() : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list3.name)}</h1>
+      ${sharedChipHTML(list3)}
       ${searchFieldHTML({ placeholder: "Search tasks" })}
       ${viewbarHTML()}
       ${S.view === "kanban" ? `<button class="btn btn-primary btn-sm" data-add>${icon("plus", 18)}Add task</button>` : ""}
@@ -9245,6 +9622,7 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="brand"><div class="brand-mark"></div><div class="brand-name">STACK'D</div></div>
+      ${invitations().length ? `<div class="side-invites">${invitesHTML()}</div>` : ""}
       <span class="section-title side-label">Boards</span>
       ${activeLists().map((l) => `
       <div class="side-item ${onBoard && l.id === S.currentList ? "active" : ""}" data-id="${l.id}" role="button" tabindex="0" aria-label="${esc(l.name)}, ${openCount(l.id)} open" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Delete">
@@ -9286,6 +9664,8 @@
     bindBoardRows(".side-item[data-id]");
     app.querySelector("[data-newlist]").addEventListener("click", newBoard);
     bindFolderLinks();
+    bindInvites(app);
+    bindSharedChip(app);
     if (UI.screen === "detail") {
       bindDetail();
       return;
@@ -9486,6 +9866,14 @@
     wasLocked = on;
   });
   onPinRequired(() => lock("pin_required"));
+  onGone((name) => toast(`You are no longer on “${name}”`, { ms: 6e3 }));
+  var shownInvites = "";
+  onShared((sh) => {
+    const key = sh.invites.map((i) => i.id).join(",");
+    if (key === shownInvites) return;
+    shownInvites = key;
+    rerender();
+  });
   var shownSync = "";
   onState((s) => {
     const key = s.state === "syncing" && UI.screen !== "settings" ? shownSync : `${s.state}|${s.pending}|${s.paused?.code || ""}`;
@@ -9520,17 +9908,17 @@
   window.addEventListener("online", () => syncSoon("online"));
   setInterval(() => {
     if (document.visibilityState === "visible") syncSoon("poll");
-  }, POLL_MS2);
+  }, POLL_MS);
   ["pointerdown", "keydown"].forEach((t) => document.addEventListener(t, () => touch2(), { passive: true, capture: true }));
-  setMediaRemover((keys) => keys.forEach((k) => remove(k).catch(() => {
+  setMediaRemover((keys) => keys.forEach((k) => remove2(k).catch(() => {
   })));
   purgeDeleted();
-  if (available()) {
+  if (available2()) {
     orphans(S.meetings.map((m) => m.recording?.key).filter(Boolean)).then((rows) => rows.forEach((row2) => {
       const m = meetingById(row2.meetingId);
       if (m && m.status === "active" && !m.recording && row2.sizeBytes > 0 && row2.durationMs > 0) {
         setRecording(m.id, { key: row2.key, mimeType: row2.mimeType, durationMs: row2.durationMs, sizeBytes: row2.sizeBytes, recordedAt: row2.updatedAt - row2.durationMs });
-      } else remove(row2.key).catch(() => {
+      } else remove2(row2.key).catch(() => {
       });
     })).catch(() => {
     });

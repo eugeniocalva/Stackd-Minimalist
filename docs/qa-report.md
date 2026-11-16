@@ -539,3 +539,29 @@ deployed; `/security-review` not run on these changes.
   once; 500 / 500 / 50 records timing (AC-05.11); Remove from this
   device and Delete account in the browser (covered by the proxy tests
   and the code path only).
+
+## Engineer's check: 2026-11-16, phases 34 and 35 (shared boards)
+
+Not the QA walk and not the release gate; nothing deployed;
+`/security-review` not run on these changes.
+
+- **Automated:** `npm run check` green (check-sync now also shares a board
+  from the app, has a second person accept and add a card, receives an
+  invitation, loses a board its owner deleted, and deletes one for
+  everyone); `proxy` `npm test` green with `test/sharing.mjs`.
+- **In the browser preview against `wrangler dev`, 375 px:** New board →
+  Personal / Shared; a bad address refused in place; the board created
+  with the "Shared" mark; the people sheet (owner, invited, Withdraw /
+  Remove, Invite people); a second person (scripted over HTTP) accepted
+  and added a card, which appeared after a sync, and the mark became
+  "Shared · 2"; an invitation from that person showed as a card in the
+  menu with a dot on the Boards button and its spoken label, Accept
+  added the board, and being removed took it away with "You are no
+  longer on …"; Settings › Shared boards listed it; Delete for everyone
+  from the board row's Delete key left the board in Deleted › Boards with
+  its card and the other person got `gone`. **1280 px:** the mark and the
+  people sheet in the desktop header, the account line in the sidebar.
+  No console errors.
+- **Not verified:** screenshots (still unavailable), dark mode, two real
+  people on two devices, the phones (no sign-in there yet), the
+  signed-out "Sharing needs an account" path in the browser.

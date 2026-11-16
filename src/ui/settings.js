@@ -20,6 +20,7 @@ import { confirmDialog, openMenu } from './primitives.js';
 import { canImport, importFile } from '../backup.js';
 import { isLegacyOrigin } from '../legal.js';
 import { accountSectionHTML, bindAccountSection } from './account.js';
+import { sharedSectionHTML, bindSharedSection } from './sharing.js';
 import * as account from '../account.js';
 
 const THEME_LABEL = { light: 'Light', dark: 'Dark', system: 'System' };
@@ -135,6 +136,7 @@ export function settingsHTML() {
     </header>
     <div class="scroll-area">
       ${accountSectionHTML()}
+      ${sharedSectionHTML()}
 
       <span class="section-title list-label" id="settings-appearance">Appearance</span>
       <div class="card list-card">
@@ -280,6 +282,7 @@ function bindAdd(selector, add) {
 export function bindSettings() {
   bindScrollShadow();
   bindAccountSection(app);
+  bindSharedSection(app);
 
   app.querySelectorAll('[data-theme-opt]').forEach((b) =>
     b.addEventListener('click', () => setTheme(b.dataset.themeOpt)));

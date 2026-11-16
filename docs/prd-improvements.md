@@ -7,7 +7,7 @@ the app on the device (Kanban, navigation, the "+" button, boards). Two
 and are only cross-referenced here. One (shared boards) is new and
 depends on accounts and sync.
 
-Status: **written 2026-11-15; US-01 to US-10 being built.** Decisions
+Status: **US-01 to US-10 built 2026-11-15, US-12 built 2026-11-16** (shared boards, server and app, run locally end to end; not deployed). AC-12.11, the Terms and Privacy wording, belongs to accounts phase 29 and is open. Decisions
 taken are in §07; calls the analyst made alone are in §08; open questions
 are in §09. Companion documents: `docs/prd-accounts.md`,
 `docs/architecture.md` Part V (§38 onwards). Target release: **1.6.0**
@@ -227,39 +227,39 @@ by the brief:
   also pulls every 30 s, so two open devices converge without a tap
   (needed by US-12 as well).
 
-- [ ] AC-11.1 With two signed-in devices open, a change made on one
+- [x] AC-11.1 With two signed-in devices open, a change made on one
       appears on the other within 35 s without any action.
 
 ### US-12 — Shared boards (brief 14)
 *As a signed-in user, I want a board other people can work on with me.*
 
-- [ ] AC-12.1 "New board" first asks **Personal** or **Shared**.
+- [x] AC-12.1 "New board" first asks **Personal** or **Shared**.
       Personal continues to the name. Signed out, Shared explains that
       sharing needs an account and offers Sign in.
-- [ ] AC-12.2 Shared asks for the name, then for one or more email
+- [x] AC-12.2 Shared asks for the name, then for one or more email
       addresses. Invalid addresses are refused in place. The owner's own
       address is refused.
-- [ ] AC-12.3 Each invited person who is, or later becomes, a signed-in
+- [x] AC-12.3 Each invited person who is, or later becomes, a signed-in
       user with that email sees an invitation in the app: a dot on the
       main menu and a card "{owner email} shared “{board}” with you",
       Accept or Decline. Invitations expire after 30 days.
-- [ ] AC-12.4 The answer to the owner is the same whether or not the
+- [x] AC-12.4 The answer to the owner is the same whether or not the
       email has an account.
-- [ ] AC-12.5 An accepted board appears in the member's board list.
+- [x] AC-12.5 An accepted board appears in the member's board list.
       Owner and members can add, edit, move, complete, archive and
       delete cards and change lanes. Only the owner can rename, archive
       or delete the board, invite and remove people. A member can leave.
-- [ ] AC-12.6 Inside a shared board, a "Shared" mark sits next to the
+- [x] AC-12.6 Inside a shared board, a "Shared" mark sits next to the
       title; pressing it lists the people (email, owner / member,
       pending) and, for the owner, Invite and Remove.
-- [ ] AC-12.7 Settings › Shared boards lists every shared board with the
+- [x] AC-12.7 Settings › Shared boards lists every shared board with the
       people on it.
-- [ ] AC-12.8 Changes by one person reach the others within 35 s while
+- [x] AC-12.8 Changes by one person reach the others within 35 s while
       the app is open. The newer change wins per card (as in sync).
-- [ ] AC-12.9 When the owner deletes the board or removes a member, the
+- [x] AC-12.9 When the owner deletes the board or removes a member, the
       board disappears from that member's device at the next sync, with
       a one-line notice.
-- [ ] AC-12.10 A shared board has at most 10 people. Reminders stay per
+- [x] AC-12.10 A shared board has at most 10 people. Reminders stay per
       device. A priority level a member does not have shows as none and
       is kept.
 - [ ] AC-12.11 Terms and Privacy say that content on a shared board and

@@ -10,6 +10,7 @@ import {
 } from '../store.js';
 import { fmtDateLong } from '../dates.js';
 import { toast, choiceDialog } from './primitives.js';
+import { askRemoveShared } from './sharing.js';
 
 const where = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
 const isRecurring = (t) => t.recur !== 'none' && !!t.due;
@@ -114,6 +115,7 @@ export function restoreBoardWithToast(id) {
     (AC-10.3). The last board stays, and the app says why (AC-10.6). */
 export async function askRemoveBoard(id) {
   const l = listById(id); if (!l) return;
+  if (l.share) { await askRemoveShared(id); return; }   // shared: delete for everyone, or leave (AC-12.5)
   if (!canRemoveList(id)) { toast('This is your only board. Add another one before removing it.'); return; }
   const n = boardCardCount(id);
   const cards = n === 0 ? 'It has no cards.' : n === 1 ? 'Its 1 card goes with it.' : `Its ${n} cards go with it.`;

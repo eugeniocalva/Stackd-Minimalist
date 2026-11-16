@@ -8,6 +8,7 @@ import {
 import { bindHold } from './gestures.js';
 import { openAddMenu } from './addmenu.js';
 import { askRemoveBoard } from './actions.js';
+import { newBoardFlow, invitesHTML, bindInvites, invitations, sharedChipHTML, bindSharedChip } from './sharing.js';
 import * as account from '../account.js';
 import * as sync from '../sync.js';
 import { syncDot, ago } from './account.js';
@@ -99,10 +100,8 @@ export function bindOnboarding() {
 
 function openBoard(id) { S.currentList = id; UI.screen = 'list'; commit(); }
 
-async function newBoard() {
-  const name = await promptDialog('New board', { placeholder: 'Board name', confirmLabel: 'Create' });
-  if (name) addList(name);
-}
+/* "New board" asks Personal or Shared first (PRD-improvements AC-12.1) */
+const newBoard = () => newBoardFlow();
 
 /* A div that acts as a button: Enter and Space press it. */
 function pressable(el, onPress) {
@@ -195,6 +194,7 @@ export function listsMenuHTML() {
       </div>
     </header>
     <div class="scroll-area">
+      ${invitesHTML()}
       <h2 class="menu-title">Boards</h2>
       <div class="card list-card">
         ${activeLists().map((l) => `
@@ -250,6 +250,7 @@ export function bindListsMenu() {
   bindBoardRows('.lrow[data-id]');
   pressable(app.querySelector('[data-newlist]'), newBoard);
   bindFolderLinks();
+  bindInvites(app);
 }
 
 /* — mobile: bottom nav pill + FAB (hidden on the detail screen) — */
@@ -258,12 +259,13 @@ export function mobileNavHTML() {
   const item = (screen, label, name) => `
     <button class="nav-item ${UI.screen === screen ? 'active' : ''}" data-nav="${screen}" aria-label="${label}">
       <span class="nav-icon">${icon(name, 24)}</span>
+      ${screen === 'lists' && invitations().length ? '<span class="nav-dot" aria-hidden="true"></span>' : ''}
       <span class="nav-item-indicator"></span>
     </button>`;
   return `
   <nav class="bottom-nav">
     <div class="nav-pill">
-      ${item('lists', 'Boards', 'grid')}
+      ${item('lists', invitations().length ? 'Boards, an invitation is waiting' : 'Boards', 'grid')}
       ${item('list', 'Tasks', 'tasks')}
       ${item('notes', 'Notes', 'note')}
       ${item('folders', 'Archive & Bin', 'archive')}
@@ -300,6 +302,7 @@ export function desktopHTML() {
     : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
+      ${sharedChipHTML(list)}
       ${searchFieldHTML({ placeholder: 'Search tasks' })}
       ${viewbarHTML()}
       ${S.view === 'kanban' ? `<button class="btn btn-primary btn-sm" data-add>${icon('plus', 18)}Add task</button>` : ''}
@@ -317,6 +320,7 @@ export function desktopHTML() {
   <div class="shell">
     <aside class="sidebar">
       <div class="brand"><div class="brand-mark"></div><div class="brand-name">STACK'D</div></div>
+      ${invitations().length ? `<div class="side-invites">${invitesHTML()}</div>` : ''}
       <span class="section-title side-label">Boards</span>
       ${activeLists().map((l) => `
       <div class="side-item ${onBoard && l.id === S.currentList ? 'active' : ''}" data-id="${l.id}" role="button" tabindex="0" aria-label="${esc(l.name)}, ${openCount(l.id)} open" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Delete">
@@ -359,6 +363,8 @@ export function bindDesktop() {
   bindBoardRows('.side-item[data-id]');
   app.querySelector('[data-newlist]').addEventListener('click', newBoard);
   bindFolderLinks();
+  bindInvites(app);
+  bindSharedChip(app);
   if (UI.screen === 'detail') { bindDetail(); return; }
   if (UI.screen === 'folders') { bindFolders(); return; }
   if (UI.screen === 'settings') { bindSettings(); return; }

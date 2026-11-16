@@ -522,3 +522,19 @@
 
 .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-accent); flex: none; }
 .set-under { margin: calc(-1 * var(--space-2)) 0 var(--space-5); min-height: 44px; }
+
+/* ── Shared boards (PRD-improvements US-12) ──────────────────────────── */
+.shared-chip { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 2px 10px; cursor: pointer; flex: none; }
+.shared-chip::after { content: ''; position: absolute; inset: -8px 0; }
+.shared-chip { position: relative; }
+.shared-chip svg { width: 12px; height: 12px; }
+.title-with-chip { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.share-emails { width: 100%; resize: vertical; min-height: 80px; font-family: inherit; }
+.invite-card { margin-bottom: var(--space-3); align-items: center; }
+.invite-actions { display: flex; gap: var(--space-2); margin-left: auto; flex: none; }
+.invite-card .btn { color: inherit; }
+.invite-card .btn-primary { color: var(--text-on-primary); }
+.side-invites { margin: 0 var(--space-1) var(--space-3); }
+.side-invites .notice { font-size: var(--text-xs); flex-wrap: wrap; }
+.nav-item { position: relative; }
+.nav-dot { position: absolute; top: 12px; right: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-danger-solid); box-shadow: 0 0 0 2px var(--bg-surface); }

@@ -186,6 +186,12 @@ is enough; HTTPS is required for install + service worker on real devices.
   30-day copy. Devices list with sign-out, app lock (PIN, offline too),
   Change PIN, export, delete. Waits on the server setup and, in the
   phone apps, on the secure-storage plugin (architecture §45)
+- **Shared boards (1.6.0, not live yet)** — New board asks Personal or
+  Shared. A shared board is invited by email; the invited person accepts
+  it in the app (a card in the menu, a dot on Boards). Everyone edits
+  cards and lanes; the owner renames, invites, removes and deletes for
+  everyone; a member can leave. A "Shared" mark on the board opens who is
+  on it; Settings › Shared boards lists them (architecture §46)
 - **Search** — a field at the top of every board (desktop inline, mobile
   behind a search icon) and of Notes: case- and accent-insensitive, every
   word must appear in the title, tags, subtasks, note text or checklist.

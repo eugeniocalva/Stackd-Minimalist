@@ -192,6 +192,69 @@ assert.equal(n.color, null, 'an unknown colour is dropped');
 const local = { untouched: true, counts: { list: 4, task: 15, note: 0, meeting: 0 } };
 assert.equal(sync.mergePlan(local, { counts: (await B('/v1/sync/summary', undefined, bTok)).counts }), 'download');
 
+/* ── shared boards (PRD-improvements US-12) ─────────────────────────── */
+{
+  const share = await import('../src/share.js');
+  const gone = [];
+  sync.onGone((name) => gone.push(name));
+  /* a second person, over HTTP */
+  const OTHER = 'pal@example.com';
+  await B('/v1/auth/start', { email: OTHER });
+  const tp = (await B('/v1/auth/verify', { email: OTHER, code: code(OTHER) })).ticket;
+  const pal = (await B('/v1/auth/register', { email: OTHER, ticket: tp, pin: '7531', adult: true, termsVersion: legal.TERMS_VERSION, privacyVersion: legal.PRIVACY_VERSION, label: 'Android' })).token;
+
+  assert.deepEqual(share.parseEmails('a@x.io, not-mail'), { error: '“not-mail” is not an email address.' });
+  assert.deepEqual(share.parseEmails('A@x.io\nb@y.io; a@x.io').emails, ['a@x.io', 'b@y.io']);
+  assert.equal(share.parseEmails('dev@example.com', EMAIL).error, 'You are already on this board.');
+
+  /* this device shares a new board; it and its card go to the space only */
+  const trip = await share.createShared('Trip', [OTHER]);
+  assert.equal(trip.share.role, 'owner');
+  store.addTask({ listId: trip.id, title: 'Pack', priority: 'none', tags: [] });
+  await sync.now();
+  assert.equal(db.raw.prepare('SELECT COUNT(*) AS n FROM records WHERE id = ?').get(trip.id).n, 0, 'never in the personal records');
+  assert.equal(db.raw.prepare('SELECT COUNT(*) AS n FROM space_records WHERE space_id = ?').get(trip.id).n, 2);
+  assert.ok(!JSON.parse(db.raw.prepare("SELECT data FROM space_records WHERE kind = 'list'").get().data).share, 'who it is shared with is not part of the board');
+
+  /* the other person accepts, adds a card, and it arrives here */
+  let s = await B('/v1/sync', { cursor: 0, changes: [] }, pal);
+  await B(`/v1/invites/${s.shared.invites[0].id}/accept`, {}, pal);
+  s = await B('/v1/sync', { cursor: 0, changes: [], spaces: { [trip.id]: { cursor: 0, changes: [] } } }, pal);
+  assert.deepEqual(s.spaces[trip.id].changes.filter((c) => c.kind === 'task').map((c) => c.data.title), ['Pack']);
+  await B('/v1/sync', { cursor: 0, changes: [], spaces: { [trip.id]: { cursor: s.spaces[trip.id].cursor, changes: [
+    { kind: 'task', id: 'palcard1', changedAt: Date.now() + 1000, deleted: false, data: { ...sync.toWire('task', store.blankTask(trip.id, 'Book tickets')), id: 'palcard1', priority: 'urgent-pal' } },
+  ] } } }, pal);
+  await sync.now();
+  const card = store.taskById('palcard1');
+  assert.equal(card?.title, 'Book tickets', 'a member\'s card arrives');
+  assert.equal(card.priority, 'urgent-pal', 'an unknown priority level is kept, shown as none');
+  assert.equal(store.listById(trip.id).share.members.filter((m) => m.state === 'active').length, 2);
+  pushes = [];
+  await sync.now();
+  assert.ok(pushes.at(-1) === 0, 'nothing echoes back');
+
+  /* this device is invited to the other person's board, accepts, and loses it when it is deleted */
+  const palBoard = { kind: 'list', id: 'palboard1', changedAt: Date.now(), deleted: false, data: { id: 'palboard1', name: 'Pal board', lanes: store.defaultLanes(), status: 'active' } };
+  await B('/v1/spaces', { boardId: 'palboard1', boardName: 'Pal board', emails: [EMAIL] }, pal);
+  await B('/v1/sync', { cursor: 0, changes: [], spaces: { palboard1: { cursor: 0, changes: [palBoard] } } }, pal);
+  await sync.now();
+  assert.deepEqual(sync.shared().invites.map((i) => i.boardName), ['Pal board']);
+  await share.answer(sync.shared().invites[0].id, true);
+  assert.equal(store.listById('palboard1')?.share?.role, 'member', 'the board is here, shared');
+  const delRes = await worker.fetch(new Request('https://proxy.test/v1/spaces/palboard1', { method: 'DELETE', headers: { 'X-Stackd-App': store.APP_TOKEN, 'X-Stackd-Client': 'android', Authorization: `Bearer ${pal}` } }), env);
+  assert.equal(delRes.status, 200);
+  await sync.now();
+  assert.equal(store.listById('palboard1'), undefined, 'gone from this device when its owner deletes it');
+  assert.deepEqual(gone, ['Pal board']);
+
+  /* the owner here deletes Trip for everyone: personal and in Deleted, with its cards */
+  await share.deleteForEveryone(trip.id);
+  assert.equal(store.listById(trip.id).share, undefined);
+  assert.equal(store.listById(trip.id).status, 'deleted');
+  await sync.now();
+  assert.equal(db.raw.prepare("SELECT COUNT(*) AS n FROM records WHERE kind = 'list' AND id = ?").get(trip.id).n, 1, 'now it syncs as a personal board');
+}
+
 /* sign-out forgets the session and the shadow, keeps the data */
 const tasksBefore = S.tasks.length;
 await account.signOut({ keepData: true });

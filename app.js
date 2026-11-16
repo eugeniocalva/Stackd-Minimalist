@@ -136,6 +136,16 @@ lock.onLockChange((on) => {
   wasLocked = on;
 });
 sync.onPinRequired(() => lock.lock('pin_required'));
+/* shared boards (PRD-improvements US-12): a board that left this device says so once;
+   a new invitation redraws the menu and the dot */
+sync.onGone((name) => toast(`You are no longer on “${name}”`, { ms: 6000 }));
+let shownInvites = '';
+sync.onShared((sh) => {
+  const key = sh.invites.map((i) => i.id).join(',');
+  if (key === shownInvites) return;
+  shownInvites = key;
+  rerender();
+});
 /* the status line and dot follow sync, but a poll that changes nothing redraws nothing */
 let shownSync = '';
 sync.onState((s) => {

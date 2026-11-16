@@ -2735,3 +2735,41 @@ last message, served only with `DEV_MAIL=1` on localhost. Point the app at
 - *Not built*: PC biometrics through WebAuthn (Should), the "Do not sync
   meetings" switch (Should), the "Recording is on the device that made
   it" line on a meeting without its audio (AC-05.3).
+
+---
+
+## 46. As built: phases 34 and 35, shared boards (2026-11-16)
+
+Departures from §38 to §43:
+- *Record kinds in a space are `list` and `task`* (not `board`), the same
+  kinds as personal sync, so one wire form and one cleaner serve both.
+- *Membership rides on every sync answer* (`shared: { spaces, invites }`)
+  instead of a separate `GET /v1/spaces` per poll; `GET /v1/spaces`
+  remains for an explicit refresh.
+- *A shared board is never archived or deleted through sync*: the server
+  refuses a board record with a status other than active (`not_allowed`).
+  The owner's "Delete for everyone" deletes the space; that device keeps
+  the board as a personal one in Deleted, with its cards, for 30 days. A
+  member's remove action is "Leave".
+- *Only new boards are shared.* "New board" asks Personal or Shared and a
+  shared one is created on the server before it exists on the device, so
+  it never enters the personal records and nothing has to move.
+- *Pending invitations keep the invited address* (`invites.email`) so the
+  owner can see and withdraw them; the row goes when the invitation is
+  answered, withdrawn or 30 days old. Phase 29's privacy text must say so.
+- *A refused change (`not_allowed`, e.g. a member's rename) resets that
+  space's cursor to 0*, so the next sync pulls the server's version back
+  and the device stops resending it.
+- *Unknown priority levels on another person's card are kept* by letting
+  the cleaner accept the card's own priority id; the views show none.
+- *Deleting an account deletes the spaces it owns* (for every member), its
+  memberships, the invitations it sent and those sent to its email.
+
+Tests: `proxy/test/sharing.mjs` (create, invite, accept, who may change
+what, isolation, the ten-person limit, decline, withdraw, remove, leave,
+delete, expiry, account deletion) and the shared-board part of
+`scripts/check-sync.mjs` (the app's engine against the Worker with a
+second person over HTTP).
+
+Not built: email to the invited person (Could), opening an archived board
+read-only (Could), members inviting others (open question, now: owner only).

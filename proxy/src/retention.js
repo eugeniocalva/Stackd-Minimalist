@@ -13,8 +13,10 @@ export async function retention(env, now = Date.now()) {
     env.DB.prepare('DELETE FROM sessions WHERE last_seen_at < ?').bind(now - IDLE_MS),
     env.DB.prepare('DELETE FROM records WHERE deleted = 1 AND changed_at < ?').bind(now - 90 * DAY),
     env.DB.prepare('DELETE FROM rate WHERE window_start < ?').bind(now - DAY),
+    env.DB.prepare('DELETE FROM invites WHERE expires_at < ?').bind(now),
+    env.DB.prepare('DELETE FROM space_records WHERE deleted = 1 AND changed_at < ?').bind(now - 90 * DAY),
   ]);
-  const [codes, sessions, tombstones, rate] = res.map((r) => r.meta?.changes ?? 0);
-  console.log('retention', JSON.stringify({ codes, sessions, tombstones, rate }));
-  return { codes, sessions, tombstones, rate };
+  const [codes, sessions, tombstones, rate, invites, sharedTombstones] = res.map((r) => r.meta?.changes ?? 0);
+  console.log('retention', JSON.stringify({ codes, sessions, tombstones, rate, invites, sharedTombstones }));
+  return { codes, sessions, tombstones, rate, invites, sharedTombstones };
 }

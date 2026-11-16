@@ -16,6 +16,7 @@ import { mailReady, devLastMessage } from './mail/index.js';
 import { authRoute } from './auth/routes.js';
 import { accountRoute } from './account.js';
 import { syncRoute } from './sync.js';
+import { spacesRoute } from './spaces.js';
 import { retention } from './retention.js';
 
 const SUB_ID = /^[a-z0-9]{8,64}$/;
@@ -30,7 +31,7 @@ const origins = (env) => String(env.ALLOWED_ORIGINS || '').split(',').map((s) =>
 function corsHeaders(request, env) {
   const origin = request.headers.get('Origin');
   const h = {
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-Stackd-App, X-Stackd-Subscriber, X-Stackd-Client, Authorization',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
@@ -44,7 +45,7 @@ function corsHeaders(request, env) {
   return h;
 }
 
-const ACCOUNT_ROUTE = /^\/v1\/(auth\/|account(\/|$)|sync(\/|$))/;
+const ACCOUNT_ROUTE = /^\/v1\/(auth\/|account(\/|$)|sync(\/|$)|spaces(\/|$)|invites\/)/;
 
 /** Accounts need the database, both peppers, the document versions and mail. */
 const accountsReady = (env) => !!env.DB && secretsReady(env) && !!env.TERMS_VERSION && !!env.PRIVACY_VERSION && mailReady(env);
@@ -91,6 +92,7 @@ export default {
         const c = { later: (p) => later(ctx, p) };
         if (url.pathname.startsWith('/v1/auth/')) return await authRoute(request, env, c, route);
         if (url.pathname.startsWith('/v1/account')) return await accountRoute(request, env, c, route);
+        if (url.pathname.startsWith('/v1/spaces') || url.pathname.startsWith('/v1/invites/')) return await spacesRoute(request, env, c, route);
         return await syncRoute(request, env, c, route);
       }
     } catch (e) {

@@ -9,6 +9,7 @@ import {
   reorderTask, moveToLane, addLane, renameLane, moveLane, deleteLane, commit, rerender,
 } from '../store.js';
 import { bindHold } from './gestures.js';
+import { sharedChipHTML, bindSharedChip } from './sharing.js';
 import { fmtDue, fmtTime } from '../dates.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
@@ -168,7 +169,7 @@ export function mobileListHTML() {
   <div class="screen">
     <header class="page-head">
       <div class="page-title-row">
-        ${pageTitleHTML(list.name, `${list.name}. Switch board`)}
+        <span class="title-with-chip">${pageTitleHTML(list.name, `${list.name}. Switch board`)}${sharedChipHTML(list)}</span>
         <span class="head-right"><span class="kicker">${headCount}</span>${searchToggleHTML()}</span>
       </div>
       ${viewbarHTML()}
@@ -183,6 +184,7 @@ export function bindMobileList() {
   bindSearch(app);
   bindScrollShadow();
   bindPageTitle();
+  bindSharedChip(app);
   bindChecks();
   app.querySelectorAll('.trow').forEach((row) => {
     const t = taskById(row.dataset.id);

@@ -9,6 +9,7 @@ import { ticketMatches, consumeTicket } from './auth/codes.js';
 import { revoke, clearCookie } from './auth/sessions.js';
 import { pinError } from './auth/routes.js';
 import { send } from './mail/index.js';
+import { forgetInvites } from './spaces.js';
 
 const RC_API = 'https://api.revenuecat.com/v1/subscribers/';
 
@@ -111,9 +112,13 @@ export async function accountRoute(request, env, ctx, { path, method, ident, now
       env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(userId),
       env.DB.prepare('DELETE FROM legacy_ids WHERE user_id = ?').bind(userId),
       env.DB.prepare('DELETE FROM consent_log WHERE user_id = ?').bind(userId),
+      env.DB.prepare('DELETE FROM spaces WHERE owner_id = ?').bind(userId),          // boards this account shares go for everyone
+      env.DB.prepare('DELETE FROM space_members WHERE user_id = ?').bind(userId),
+      env.DB.prepare('DELETE FROM invites WHERE created_by = ?').bind(userId),
       env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId),
     ]);
     if (key) await consumeTicket(env, key);
+    await forgetInvites(env, user.email);
     ctx.later(send(env, { to: user.email, template: 'deleted', vars: { at: now } }));
     if (env.RC_SECRET_KEY) {
       ctx.later((env.FETCH || fetch)(RC_API + encodeURIComponent(userId), { method: 'DELETE', headers: { Authorization: `Bearer ${env.RC_SECRET_KEY}` } }));
