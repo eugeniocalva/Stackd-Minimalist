@@ -5,7 +5,6 @@
 import { request } from './net.js';
 import * as sync from './sync.js';
 import { S, addList, unshare, softDeleteList, canRemoveList, listById } from './store.js';
-import { uid } from './util.js';
 
 const shareFrom = (shared, id) => {
   const s = shared?.spaces?.find((x) => x.id === id);
@@ -15,10 +14,13 @@ const shareFrom = (shared, id) => {
 /** Can this device share now? It needs an account whose first sync ran. */
 export const canShare = () => sync.started();
 
-/** A new board, made on the server first so it never syncs as personal. */
+/** A new board, made on the server first so it never syncs as personal.
+    The server gives the id (never one this device chose), so a space can
+    never be opened under a board that already exists somewhere. */
 export async function createShared(name, emails) {
-  const id = uid() + uid();
-  const r = await request('/v1/spaces', { method: 'POST', body: { boardId: id, boardName: name, emails } });
+  const r = await request('/v1/spaces', { method: 'POST', body: { boardName: name, emails } });
+  const id = r?.id;
+  if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id) || listById(id)) throw Object.assign(new Error('The board could not be shared. Try again.'), { code: 'provider_unavailable' });
   sync.addSpace(id);
   addList(name, { id, share: shareFrom(r.shared, id) || { role: 'owner', ownerEmail: '', members: [] } });
   sync.applyShared(r.shared);

@@ -91,21 +91,25 @@ export async function spacesRoute(request, env, ctx, { path, method, ident, now,
   await requireAccepted(env, ident.userId);
   const { userId } = ident;
   const me = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(userId).first();
-  const ok = async () => json({ ok: true, shared: await sharedState(env, userId, now) }, 200, cors);
+  const ok = async (extra = {}) => json({ ok: true, ...extra, shared: await sharedState(env, userId, now) }, 200, cors);
 
   if (method === 'GET' && path === '/v1/spaces') return ok();
 
   if (method === 'POST' && path === '/v1/spaces') {
     const b = await body(request);
-    if (typeof b.boardId !== 'string' || !ID.test(b.boardId)) throw new AuthError('bad_request', 'A board id is required.');
     const emails = cleanEmails(b.emails, me.email);
-    if (await env.DB.prepare('SELECT 1 FROM spaces WHERE id = ?').bind(b.boardId).first()) throw new AuthError('conflict', 'This board is already shared.', 409);
+    /* The server picks the id, never the client: board ids on a device are
+       predictable (the samples are 'work', 'personal', …) and a deleted
+       space's id is known to its former members, so a chosen id would let
+       anyone open a space under someone else's board and, once they
+       accept, receive its cards. 16 random characters are never reused. */
+    const id = `s_${newId(16)}`;
     await env.DB.batch([
-      env.DB.prepare('INSERT INTO spaces (id, owner_id, rev, created_at) VALUES (?, ?, 0, ?)').bind(b.boardId, userId, now),
-      env.DB.prepare('INSERT INTO space_members (space_id, user_id, role, joined_at) VALUES (?, ?, \'owner\', ?)').bind(b.boardId, userId, now),
+      env.DB.prepare('INSERT INTO spaces (id, owner_id, rev, created_at) VALUES (?, ?, 0, ?)').bind(id, userId, now),
+      env.DB.prepare('INSERT INTO space_members (space_id, user_id, role, joined_at) VALUES (?, ?, \'owner\', ?)').bind(id, userId, now),
     ]);
-    await invite(env, { spaceId: b.boardId, name: boardName(b.boardName), emails, userId, now });
-    return ok();
+    await invite(env, { spaceId: id, name: boardName(b.boardName), emails, userId, now });
+    return ok({ id });
   }
 
   const inv = /^\/v1\/invites\/([^/]+)\/(accept|decline)$/.exec(path);

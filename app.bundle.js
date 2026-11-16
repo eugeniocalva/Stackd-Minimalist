@@ -1482,7 +1482,7 @@
     let changed = false;
     for (const l of S.lists) {
       const next = shares[l.id];
-      if (next && JSON.stringify(next) !== JSON.stringify(l.share)) {
+      if (l.share && next && JSON.stringify(next) !== JSON.stringify(l.share)) {
         l.share = next;
         changed = true;
       }
@@ -3694,7 +3694,7 @@
     const shared2 = new Set((state3.lists || []).filter((l) => l.share).map((l) => l.id));
     const inScope = (kind, x) => {
       const board = kind === "list" ? x.id : kind === "task" ? x.listId : null;
-      return space ? board === space : !shared2.has(board);
+      return space ? board === space && shared2.has(space) : !shared2.has(board);
     };
     for (const kind of space ? ["list", "task"] : ["list", "task", "note", "meeting"]) {
       for (const x of state3[plural[kind]] || []) if (inScope(kind, x)) out.set(`${kind}:${x.id}`, { kind, id: x.id, data: toWire(kind, x) });
@@ -3904,6 +3904,7 @@
   }
   function applyInbound(changes, { space = null } = {}) {
     if (!changes.length) return;
+    if (space && S.lists.some((l) => l.id === space && !l.share)) return;
     const shadow = space ? spacesOf()[space].shadow : doc.shadow;
     const upserts = [], deletes = [];
     const incomingLists = changes.filter((c) => c.kind === "list" && !c.deleted).map((c) => c.data);
@@ -3915,11 +3916,14 @@
     for (const c of [...changes].sort((a, b) => order[a.kind] - order[b.kind])) {
       const key = `${c.kind}:${c.id}`;
       if (space && !(c.kind === "list" ? c.id === space : c.kind === "task" && (c.deleted || c.data?.listId === space))) continue;
+      const mine = space && c.kind !== "settings" ? (S[plural[c.kind]] || []).find((x) => x.id === c.id) : null;
+      const foreign = !!mine && (c.kind === "list" ? !mine.share : mine.listId !== space);
       if (c.deleted) {
         shadow[key] = [null, c.changedAt];
-        deletes.push({ kind: c.kind, id: c.id });
+        if (!foreign) deletes.push({ kind: c.kind, id: c.id });
         continue;
       }
+      if (foreign) continue;
       const prios = space && c.kind === "task" && typeof c.data?.priority === "string" && !priorities.some((p) => p.id === c.data.priority) ? [...priorities, { id: c.data.priority }] : priorities;
       let clean;
       try {
@@ -4307,8 +4311,9 @@
   };
   var canShare = () => started();
   async function createShared(name, emails) {
-    const id = uid() + uid();
-    const r = await request("/v1/spaces", { method: "POST", body: { boardId: id, boardName: name, emails } });
+    const r = await request("/v1/spaces", { method: "POST", body: { boardName: name, emails } });
+    const id = r?.id;
+    if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(id) || listById(id)) throw Object.assign(new Error("The board could not be shared. Try again."), { code: "provider_unavailable" });
     addSpace(id);
     addList(name, { id, share: shareFrom(r.shared, id) || { role: "owner", ownerEmail: "", members: [] } });
     applyShared(r.shared);

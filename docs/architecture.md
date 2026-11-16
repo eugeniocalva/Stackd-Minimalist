@@ -2604,7 +2604,7 @@ choiceDialog(title, body, [{ id, label, danger? }]): Promise<id | null>
 ### Endpoints (Phase 34), all behind `identify()`
 
 ```
-POST   /v1/spaces                { boardId, boardName, emails[] }  → { space }
+POST   /v1/spaces                { boardName, emails[] }           → { id, shared }  (the server makes the id)
 GET    /v1/spaces                                                  → { spaces[], invites[] }
 POST   /v1/spaces/:id/invite     { emails[] }                      → 204 (same for known and unknown)
 POST   /v1/spaces/:id/remove     { email }                         → 204   (owner)
@@ -2615,8 +2615,13 @@ POST   /v1/sync                  { cursor, changes, spaces: { [id]: { cursor, ch
                                  → { changes, cursor, spaces: { [id]: { changes, cursor } | { gone: true } } }
 ```
 
-The outcome table of §30 applies per space with `spaces.rev` as the
-counter. Limits: 10 members per space, 20 pending invitations per space,
+The space id is the board's id on every device, and the server makes it
+(`s_` and 16 random characters); a client never chooses one, so a space
+cannot be opened under a board that already exists (security review of
+2026-11-16, docs/qa-report.md). A device attaches a space only to a board
+it created through `createShared` or pulled from that space, never to a
+personal board. The outcome table of §30 applies per space with
+`spaces.rev` as the counter. Limits: 10 members per space, 20 pending invitations per space,
 20 invitations per account per day.
 
 ## 42. Component Inventory (additions)

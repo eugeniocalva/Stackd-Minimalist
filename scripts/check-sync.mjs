@@ -234,18 +234,46 @@ assert.equal(sync.mergePlan(local, { counts: (await B('/v1/sync/summary', undefi
   assert.ok(pushes.at(-1) === 0, 'nothing echoes back');
 
   /* this device is invited to the other person's board, accepts, and loses it when it is deleted */
-  const palBoard = { kind: 'list', id: 'palboard1', changedAt: Date.now(), deleted: false, data: { id: 'palboard1', name: 'Pal board', lanes: store.defaultLanes(), status: 'active' } };
-  await B('/v1/spaces', { boardId: 'palboard1', boardName: 'Pal board', emails: [EMAIL] }, pal);
-  await B('/v1/sync', { cursor: 0, changes: [], spaces: { palboard1: { cursor: 0, changes: [palBoard] } } }, pal);
+  const PAL = (await B('/v1/spaces', { boardId: 'palboard1', boardName: 'Pal board', emails: [EMAIL] }, pal)).id;
+  assert.notEqual(PAL, 'palboard1', 'the server picks the id, not the client');
+  const palBoard = { kind: 'list', id: PAL, changedAt: Date.now(), deleted: false, data: { id: PAL, name: 'Pal board', lanes: store.defaultLanes(), status: 'active' } };
+  await B('/v1/sync', { cursor: 0, changes: [], spaces: { [PAL]: { cursor: 0, changes: [palBoard] } } }, pal);
   await sync.now();
   assert.deepEqual(sync.shared().invites.map((i) => i.boardName), ['Pal board']);
   await share.answer(sync.shared().invites[0].id, true);
-  assert.equal(store.listById('palboard1')?.share?.role, 'member', 'the board is here, shared');
-  const delRes = await worker.fetch(new Request('https://proxy.test/v1/spaces/palboard1', { method: 'DELETE', headers: { 'X-Stackd-App': store.APP_TOKEN, 'X-Stackd-Client': 'android', Authorization: `Bearer ${pal}` } }), env);
+  assert.equal(store.listById(PAL)?.share?.role, 'member', 'the board is here, shared');
+  const delRes = await worker.fetch(new Request(`https://proxy.test/v1/spaces/${PAL}`, { method: 'DELETE', headers: { 'X-Stackd-App': store.APP_TOKEN, 'X-Stackd-Client': 'android', Authorization: `Bearer ${pal}` } }), env);
   assert.equal(delRes.status, 200);
   await sync.now();
-  assert.equal(store.listById('palboard1'), undefined, 'gone from this device when its owner deletes it');
+  assert.equal(store.listById(PAL), undefined, 'gone from this device when its owner deletes it');
   assert.deepEqual(gone, ['Pal board']);
+
+  /* a space that somehow has the id of a personal board here (the server
+     no longer allows it; forced in the database) takes nothing from it and
+     puts nothing on it */
+  {
+    const mine = store.activeLists().find((l) => !l.share);
+    store.addTask({ listId: mine.id, title: 'Private card', priority: 'none', tags: [] });
+    await sync.now();
+    const uid = (email) => db.raw.prepare('SELECT id FROM users WHERE email = ?').get(email).id;
+    db.raw.prepare('INSERT INTO spaces (id, owner_id, rev, created_at) VALUES (?, ?, 0, ?)').run(mine.id, uid(OTHER), Date.now());
+    db.raw.prepare("INSERT INTO space_members (space_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?), (?, ?, 'member', ?)").run(mine.id, uid(OTHER), Date.now(), mine.id, uid(EMAIL), Date.now());
+    await B('/v1/sync', { cursor: 0, changes: [], spaces: { [mine.id]: { cursor: 0, changes: [
+      { kind: 'list', id: mine.id, changedAt: Date.now() + 2000, deleted: false, data: { id: mine.id, name: 'Taken', lanes: store.defaultLanes(), status: 'active' } },
+      { kind: 'task', id: 'palplant1', changedAt: Date.now() + 2000, deleted: false, data: { ...sync.toWire('task', store.blankTask(mine.id, 'Planted')), id: 'palplant1' } },
+    ] } } }, pal);
+    const before = S.tasks.filter((t) => t.listId === mine.id).length;
+    await sync.now(); await sync.now();
+    assert.equal(store.listById(mine.id).share, undefined, 'the personal board does not become shared');
+    assert.notEqual(store.listById(mine.id).name, 'Taken');
+    assert.equal(store.taskById('palplant1'), undefined, 'nothing from that space lands here');
+    assert.equal(S.tasks.filter((t) => t.listId === mine.id).length, before);
+    const up = db.raw.prepare("SELECT id FROM space_records WHERE space_id = ? AND id != 'palplant1'").all(mine.id).map((r) => r.id);
+    assert.deepEqual(up, [mine.id], 'only the other person\'s own board record is in the space; none of this device\'s cards');
+    assert.ok(db.raw.prepare("SELECT COUNT(*) AS n FROM records WHERE kind = 'list' AND id = ? AND deleted = 0").get(mine.id).n === 1, 'still a personal board on the server');
+    db.raw.prepare('DELETE FROM spaces WHERE id = ?').run(mine.id);
+    await sync.now();
+  }
 
   /* the owner here deletes Trip for everyone: personal and in Deleted, with its cards */
   await share.deleteForEveryone(trip.id);

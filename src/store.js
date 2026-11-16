@@ -1052,12 +1052,15 @@ export function reorderList(id, beforeId = null) {
 /* — shared boards: who a board is shared with is the server's answer,
    copied onto the board as `share` (never synced as part of it) — */
 
-/** shares: { [boardId]: { role, ownerEmail, members } }. Redraws only on a change. */
+/** shares: { [boardId]: { role, ownerEmail, members } }. Redraws only on a
+    change. Updates boards that are shared already (made by createShared or
+    pulled from their space); never turns a personal board into a shared one,
+    which would move its cards into someone else's space. */
 export function setShares(shares) {
   let changed = false;
   for (const l of S.lists) {
     const next = shares[l.id];
-    if (next && JSON.stringify(next) !== JSON.stringify(l.share)) { l.share = next; changed = true; }
+    if (l.share && next && JSON.stringify(next) !== JSON.stringify(l.share)) { l.share = next; changed = true; }
   }
   if (changed) commit();
 }

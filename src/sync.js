@@ -72,7 +72,9 @@ export function collect(state, { space = null } = {}) {
   const shared = new Set((state.lists || []).filter((l) => l.share).map((l) => l.id));
   const inScope = (kind, x) => {
     const board = kind === 'list' ? x.id : kind === 'task' ? x.listId : null;
-    return space ? board === space : !shared.has(board);
+    /* a space takes its board only once the board here is the shared one:
+       a personal board that happens to have that id never goes into it */
+    return space ? board === space && shared.has(space) : !shared.has(board);
   };
   for (const kind of space ? ['list', 'task'] : ['list', 'task', 'note', 'meeting']) {
     for (const x of state[plural[kind]] || []) if (inScope(kind, x)) out.set(`${kind}:${x.id}`, { kind, id: x.id, data: toWire(kind, x) });
@@ -281,6 +283,8 @@ export function onPinRequired(fn) { pinRequired.add(fn); }
     store does, so applying never looks like a local edit. */
 function applyInbound(changes, { space = null } = {}) {
   if (!changes.length) return;
+  /* a space whose id is a personal board here is not that board: ignore it */
+  if (space && S.lists.some((l) => l.id === space && !l.share)) return;
   const shadow = space ? spacesOf()[space].shadow : doc.shadow;
   const upserts = [], deletes = [];
   const incomingLists = changes.filter((c) => c.kind === 'list' && !c.deleted).map((c) => c.data);
@@ -293,7 +297,11 @@ function applyInbound(changes, { space = null } = {}) {
     const key = `${c.kind}:${c.id}`;
     /* a shared board takes only its board and its cards */
     if (space && !(c.kind === 'list' ? c.id === space : c.kind === 'task' && (c.deleted || c.data?.listId === space))) continue;
-    if (c.deleted) { shadow[key] = [null, c.changedAt]; deletes.push({ kind: c.kind, id: c.id }); continue; }
+    /* …and never a board or card this device holds outside that space */
+    const mine = space && c.kind !== 'settings' ? (S[plural[c.kind]] || []).find((x) => x.id === c.id) : null;
+    const foreign = !!mine && (c.kind === 'list' ? !mine.share : mine.listId !== space);
+    if (c.deleted) { shadow[key] = [null, c.changedAt]; if (!foreign) deletes.push({ kind: c.kind, id: c.id }); continue; }
+    if (foreign) continue;
     /* another person's priority level may not exist here: shown as none, kept as it is (AC-12.10) */
     const prios = space && c.kind === 'task' && typeof c.data?.priority === 'string' && !priorities.some((p) => p.id === c.data.priority)
       ? [...priorities, { id: c.data.priority }] : priorities;

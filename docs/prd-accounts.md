@@ -473,7 +473,7 @@ security problems.*
 - [ ] AC-13.4 The rule is written where releases are described (README,
       `.agents/vibe-coding-workflow.md`) so it holds for releases after
       1.6.0, whatever they contain.
-- [ ] AC-13.5 For 1.6.0 the review explicitly covers: the sign-in
+- [x] AC-13.5 For 1.6.0 the review explicitly covers: the sign-in
       endpoints and their rate limits; how the code, the PIN and the
       session are stored; that one account cannot reach another's records
       (AC-05.10); the cookie and cross-origin rules; secrets absent from

@@ -584,3 +584,102 @@ Not the QA walk and not the release gate; nothing deployed;
   stale-while-revalidate and a `VERSION` that has not changed; the release
   bump handles it, nothing to fix.
 - **Not verified:** the pages in dark mode by eye; a lawyer's read.
+
+## Security review: 2026-11-16, all of 1.6.0, before the release
+
+- **Reviewed:** `main` (`81f75f8`) to `release/1.6.0` (`25c6872`): every
+  1.6.0 phase (23 to 35), 86 files, the proxy included. This is the review
+  AC-13.1 asks for before `VERSION` changes; the targets of AC-13.5 were
+  given to the reviewer by name.
+- **How:** `/security-review` in Claude Code: one pass that traced the
+  code, then a second, independent pass on each candidate finding. Both
+  read the code; neither ran an exploit. The fix below was then tested
+  against the Worker (proxy tests, `check-sync`) and in the browser
+  preview against `wrangler dev`.
+- **Result: one finding, rated high (confidence 9/10), fixed.**
+- **Finding 1: a shared board could be opened under someone else's board
+  id.**
+  - *What:* `POST /v1/spaces` took the space id from the client, checking
+    only that no space had it. Board ids are predictable: every new device
+    has the samples `work`, `personal`, `shopping` and `family`, and a
+    deleted space's id is known to its former members. Anyone who knew a
+    person's email could open a space called "Work" under the id `work`
+    and invite them. When that person tapped **Accept**:
+    1. their device attached the space to its own Work board (`setShares`);
+    2. it uploaded that board and every card on it into the attacker's
+       space (`collect` chose the scope by id alone);
+    3. it removed them from the personal records.
+    Deleting the space afterwards then wiped the board from all of the
+    victim's devices.
+  - *Fix, server:* the server makes the id (`s_` and 16 random
+    characters, `proxy/src/spaces.js`) and ignores any id the client
+    sends; `createShared` (`src/share.js`) builds the board under the id
+    it gets back.
+  - *Fix, app (defence in depth):*
+    - `setShares` (`src/store.js`) updates boards that are already shared
+      and never turns a personal board into a shared one.
+    - `collect` (`src/sync.js`) gives a space its board only when the
+      board on the device is the shared one.
+    - `applyInbound` ignores a space whose id is a personal board on the
+      device, and never changes or deletes a card that the device holds
+      on another board.
+  - *Tests:*
+    - `proxy/test/sharing.mjs` checks that a sent id (a former space's,
+      and `work`) is ignored.
+    - `check-sync` forces the collision in the database and checks that
+      the personal board and its cards stay personal and nothing from the
+      space lands on it. That check fails with the app fix taken out.
+- **Looked at closely and cleared (AC-13.5):**
+  - *Sign-in endpoints and their rate limits.* The email code is six
+    random digits, kept as an HMAC and compared in constant time; it lasts
+    10 minutes and allows 5 tries, counted in the database. The ticket is
+    32 random bytes, kept as its hash and tied to its email. The PIN
+    allows 5 tries, counted on the server for all devices.
+  - *How the code, the PIN and the session are stored.* The PIN is kept
+    as PBKDF2 (100k rounds) of a peppered HMAC with its own salt; a reset
+    needs an email ticket and signs out every device. The session token
+    is 32 bytes, kept only as its hash, and expires after 90 days idle.
+    On the web the cookie is `HttpOnly; Secure; SameSite=Strict;
+    Path=/v1`.
+  - *One account cannot reach another's records.* Every personal query is
+    bound to the session's user. Space records are keyed by space and
+    checked against membership. Only the owner invites, removes or
+    deletes, and an invitation is answered only by the email it was sent
+    to.
+  - *Cookie and cross-origin rules.* Origins come from an exact allow-list
+    and are never reflected. A cookie request needs an allowed `Origin`.
+    The custom `X-Stackd-App` header forces a preflight.
+  - *Secrets absent from the repository and the client.* `.dev.vars` and
+    `.wrangler/` are ignored by git. The peppers in `wrangler.dev.toml`
+    are marked as public placeholders. `check-origins` finds no
+    key-shaped string in 122 files.
+  - *Logs (AC-11.7).* Only error messages, stacks and retention counts
+    are logged, never an email, a code, a token or content. The server
+    tests check the captured output for emails.
+  - *Merge, sync and import as outside input.* Every incoming record is
+    rebuilt field by field (`cleanRemote`), and every name, email and card
+    title is drawn through `esc()`. Note bodies are sanitised. SQL values
+    are always bound, and table names come from constants.
+  - *Also cleared.*
+    - The developer mail endpoint needs `DEV_MAIL=1`, the stub provider
+      and a localhost host.
+    - The service worker caches same-origin GETs only.
+    - The workflows run on push or by hand, with read-only tokens.
+    - Account deletion leaves no row behind.
+- **Accepted, not fixed (below the bar, with the reason):**
+  - An account's id is still accepted as an anonymous subscriber id, which
+    gives its AI allowance without a session. The id is 24 random
+    characters and is returned to no one else, so there is no way to
+    learn it. Close it when the legacy-id path is retired.
+  - A space's card can land on the first personal board of a member whose
+    device has not received the space's board record yet (the
+    `firstBoard` fallback in `cleanTask`). This lets someone put content
+    on the board but not read anything. Follow-up: hold such cards until
+    their board arrives.
+  - The production `ALLOWED_ORIGINS` still lists `http://localhost` ports.
+    This cannot be exploited, because the cookie is `SameSite=Strict` and
+    the shells send a bearer token. Remove the ports when the proxy is
+    next deployed.
+- **Not covered by this review:** the iOS and Android shells with the
+  secure-storage and biometric plugins, which are not chosen yet. They
+  need their own review before the shells offer sign-in.
