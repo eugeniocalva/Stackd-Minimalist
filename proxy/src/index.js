@@ -103,6 +103,16 @@ export default {
 
     const sub = ident.kind === 'account' ? ident.userId : request.headers.get('X-Stackd-Subscriber') || '';
     if (!SUB_ID.test(sub)) return fail('bad_request', 'Missing subscriber id.', 400, cors);
+    /* An account's plan and counters are reached with its session only. The
+       app always sends the device's own id here, never the account's, so an
+       account id without a session is someone else's (security review of
+       2026-11-16, docs/qa-report.md). */
+    if (ident.kind === 'anon' && env.DB) {
+      let taken;
+      try { taken = await env.DB.prepare('SELECT 1 FROM users WHERE id = ?').bind(sub).first(); }
+      catch (e) { console.error('unhandled', e?.stack || e); return fail('provider_unavailable', 'Something went wrong. Try again.', 500, cors); }
+      if (taken) return fail('signed_out', 'Sign in to use this plan.', 401, cors);
+    }
     /* an account the owner flagged as tester in the database counts as if its
        id were on the TESTERS list, so no tester's email is in this repository (AC-08.6) */
     if (ident.kind === 'account' && ident.tester) env = { ...env, TESTERS: `${env.TESTERS || ''},${sub}` };

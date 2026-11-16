@@ -667,10 +667,14 @@ Not the QA walk and not the release gate; nothing deployed;
     - The workflows run on push or by hand, with read-only tokens.
     - Account deletion leaves no row behind.
 - **Accepted, not fixed (below the bar, with the reason):**
-  - An account's id is still accepted as an anonymous subscriber id, which
-    gives its AI allowance without a session. The id is 24 random
-    characters and is returned to no one else, so there is no way to
-    learn it. Close it when the legacy-id path is retired.
+  - An account's id was accepted as an anonymous subscriber id, which gave
+    its AI allowance without a session. The id is 24 random characters
+    and is returned to no one else, so there was no way to learn it.
+    *Fixed afterwards:* a request without a session whose subscriber id is
+    an account's gets `401 signed_out` on every AI route
+    (`proxy/src/index.js`). The app always sends the device's own id there,
+    so no real client is affected; `proxy/test/accounts.mjs` checks the
+    four routes and fails without the fix.
   - A space's card can land on the first personal board of a member whose
     device has not received the space's board record yet (the
     `firstBoard` fallback in `cleanTask`). This lets someone put content

@@ -317,6 +317,13 @@ assert.equal(r.body.allowance.tier, 'tester', 'the owner flags testers in the da
   assert.equal(r.body.allowance.summariesLeft, 6, 'four used under the old id, six left on the account');
   r = await call('/v1/allowance', { method: 'GET', headers: { 'X-Stackd-Subscriber': 'oldphone0001' } });
   assert.equal(r.body.allowance.tier, 'free', 'the old id itself gains nothing');
+  /* the account's own id, sent without a session, reaches nothing (security review 2026-11-16) */
+  for (const [method, path] of [['GET', '/v1/allowance'], ['POST', '/v1/summarise'], ['POST', '/v1/transcribe'], ['GET', '/v1/transcribe/job_abcdef']]) {
+    r = await call(path, { method, body: method === 'POST' ? {} : undefined, headers: { 'X-Stackd-Subscriber': benId } });
+    assert.deepEqual([r.status, r.body.code], [401, 'signed_out'], `${method} ${path} with an account id and no session`);
+  }
+  r = await call('/v1/allowance', { method: 'GET', token: ben, headers: { 'X-Stackd-Subscriber': benId } });
+  assert.equal(r.body.allowance.tier, 'tester', 'with the session it is the account, as before');
 }
 r = await call('/v1/allowance', { method: 'GET', headers: { 'X-Stackd-Subscriber': 'anon00000001' } });
 assert.equal(r.body.allowance.tier, 'free', 'signed-out devices keep the 1.5.0 path (AC-08.4)');
