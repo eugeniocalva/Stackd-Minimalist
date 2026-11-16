@@ -29,8 +29,42 @@ import * as media from './src/media.js';
 import { isRecording, recordingMeetingId } from './src/ui/recorder.js';
 import { toast } from './src/ui/primitives.js';
 import { openPlanRequired, openAllowanceUsed } from './src/ui/paywall.js';
+import { bindMenuSwipe } from './src/ui/gestures.js';
+
+/* Every render replaces the whole screen, which would send each scroller
+   back to its start: tick a card in the third lane and the board jumps to
+   the first (PRD-improvements AC-01.1). So the offsets of the screen being
+   replaced are put back when the new one is the same screen. */
+const screenKey = () => [isDesktop.matches, UI.screen, S.currentList, S.view, UI.folder, UI.folderKind, UI.detailId].join('|');
+let shownKey = null;
+function readScroll() {
+  const one = (sel, prop) => app.querySelector(sel)?.[prop] || 0;
+  return {
+    key: shownKey,
+    board: one('.board', 'scrollLeft'), area: one('.scroll-area', 'scrollTop'),
+    main: one('.main', 'scrollTop'), side: one('.sidebar', 'scrollTop'),
+    lanes: [...app.querySelectorAll('.lane')].map((l) => [l.dataset.lane, l.querySelector('.lane-cards')?.scrollTop || 0]),
+  };
+}
+function keepScroll(was) {
+  shownKey = S.onboarded ? screenKey() : null;
+  if (!shownKey || was.key !== shownKey) return;
+  const put = (sel, prop, v) => { const el = app.querySelector(sel); if (el && v) el[prop] = v; };
+  put('.board', 'scrollLeft', was.board); put('.scroll-area', 'scrollTop', was.area);
+  put('.main', 'scrollTop', was.main); put('.sidebar', 'scrollTop', was.side);
+  was.lanes.forEach(([id, top]) => {
+    const el = top && [...app.querySelectorAll('.lane')].find((l) => l.dataset.lane === id)?.querySelector('.lane-cards');
+    if (el) el.scrollTop = top;
+  });
+}
 
 function render() {
+  const was = readScroll();
+  draw();
+  keepScroll(was);
+}
+
+function draw() {
   applyTheme();
   /* a running recording pins the app to its meeting (AC-04.2): stop it first */
   if (isRecording() && !(UI.screen === 'meeting' && UI.detailId === recordingMeetingId())) {
@@ -118,6 +152,19 @@ function openTask(id) {
 
 document.addEventListener('click', (e) => {
   if (UI.sortMenu && !e.target.closest('.sortwrap')) { UI.sortMenu = false; rerender(); }
+});
+/* Mobile: a swipe to the right opens the main menu, sliding in from the left
+   (PRD-improvements US-07). On the Kanban view it starts anywhere outside
+   the lanes, which keep the gesture for scrolling; on the other top-level
+   pages it starts in the left half of the screen. */
+bindMenuSwipe(app, {
+  canOpen: (target, x) => {
+    if (isDesktop.matches || !S.onboarded || isRecording()) return false;
+    if (target.closest('input, textarea, select, [contenteditable="true"], [data-editor], .bottom-nav, .row.open, .swiping')) return false;
+    if (UI.screen === 'list' && S.view === 'kanban') return !target.closest('.board');
+    return ['list', 'notes', 'meetings', 'folders', 'settings'].includes(UI.screen) && x <= window.innerWidth / 2;
+  },
+  open: () => { UI.menuSlide = true; UI.screen = 'lists'; rerender(); },
 });
 isDesktop.addEventListener('change', render);
 systemDark.addEventListener('change', render); // theme 'system' follows the OS live

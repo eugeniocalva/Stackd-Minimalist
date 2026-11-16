@@ -130,6 +130,16 @@ await rejects(mutate((r, d) => { d.app = 'other'; }), 'not_stackd', 'another app
 await rejects(mutate((r, d) => { d.format = backup.FILE_FORMAT + 1; }), 'newer', 'a newer format');
 await rejects(mutate((r, d) => { delete d.records; }), 'bad_file', 'no records');
 await rejects(mutate((r) => { r.lists = []; }), 'bad_file', 'no boards');
+await rejects(mutate((r) => { r.lists.forEach((l) => { l.status = 'deleted'; l.deletedAt = 1; }); }), 'bad_file', 'no board that is not archived or deleted');
+/* 1.6.0 (PRD-improvements US-02, US-10): a board keeps its status and dates, and Done comes back last */
+{
+  const r = clone(doc.records);
+  r.lists.push({ id: 'awayboard', name: 'Away', lanes: [{ id: 'done', name: 'Finished' }, { id: 'backlog', name: 'Backlog' }], status: 'archived', archivedAt: 5, deletedAt: null });
+  const away = backup.cleanRecords(r).lists.at(-1);
+  assert.deepEqual([away.status, away.archivedAt, away.deletedAt], ['archived', 5, null], 'an archived board stays archived');
+  assert.deepEqual(away.lanes, [{ id: 'backlog', name: 'Backlog' }, { id: 'done', name: 'Finished' }], 'Done is last and keeps its name');
+  assert.ok(backup.cleanRecords(clone(doc.records)).lists.every((l) => l.status === 'active' && l.archivedAt === null && l.deletedAt === null));
+}
 await rejects(mutate((r) => { r.tasks = 'x'; }), 'bad_file', 'tasks that are not a list');
 await rejects(mutate((r) => { r.tasks[0].id = '"><img src=x onerror=alert(1)>'; }), 'bad_file', 'markup in a task id');
 await rejects(mutate((r) => { r.lists[0].id = 'a b'; }), 'bad_file', 'a space in a board id');

@@ -306,6 +306,92 @@ assert.equal(find('In QA').lane, 'backlog', 'moving to a lane the board no longe
 wk.lanes = [{ id: 'backlog', name: 'Backlog' }, { id: 'inprogress', name: 'In Progress' }, { id: 'done', name: 'Done' }];
 S.tasks = S.tasks.filter((x) => !['In QA', 'In QA archived', 'Elsewhere'].includes(x.title));
 
+// 1.6.0 (PRD-improvements US-01, US-02): the origin lane lasts one session; Done is fixed
+{
+  const o = store.addTask({ listId: 'work', title: 'Origin', lane: 'inprogress', priority: 'none', tags: [] });
+  store.toggleDone(o.id);
+  assert.deepEqual([o.lane, o.done], ['done', true]);
+  store.toggleDone(o.id);
+  assert.deepEqual([o.lane, o.done], ['inprogress', false], 'reopened in the session: back to the lane it came from');
+  store.moveToLane(o.id, 'done');
+  store.toggleDone(o.id);
+  assert.equal(o.lane, 'inprogress', 'a card dragged into Done remembers its lane too');
+  store.toggleDone(o.id);
+  assert.deepEqual(Object.keys(stored().tasks.find((x) => x.id === o.id)).sort(), Object.keys(store.blankTask('work', 'x')).sort(), 'the origin lane is never written to storage');
+  assert.ok(!Object.keys(stored()).some((k) => /origin/i.test(k)));
+  store.forgetDoneOrigins();                               // what closing the app does
+  store.toggleDone(o.id);
+  assert.equal(o.lane, 'backlog', 'after a restart a reopened card goes to the first lane');
+  const tmp = store.addLane('work', 'Temp');
+  store.moveToLane(o.id, tmp.id);
+  store.toggleDone(o.id);
+  store.deleteLane('work', tmp.id);
+  store.toggleDone(o.id);
+  assert.equal(o.lane, 'backlog', 'an origin lane deleted meanwhile falls back to the first lane');
+
+  store.renameLane('work', 'done', 'Finished');
+  assert.equal(store.laneName('work', 'done'), 'Done', 'Done cannot be renamed');
+  store.moveLane('work', 'done', -1);
+  assert.equal(wk.lanes.at(-1).id, 'done', 'Done cannot be moved');
+  store.moveLane('work', 'inprogress', 1);
+  assert.deepEqual(wk.lanes.map((l) => l.id), ['backlog', 'inprogress', 'done'], 'no lane moves past Done');
+  assert.deepEqual([store.canMoveLane('work', 'inprogress', 1), store.canMoveLane('work', 'inprogress', -1), store.canMoveLane('work', 'done', -1)], [false, true, false]);
+  S.tasks = S.tasks.filter((x) => x.title !== 'Origin');
+}
+
+// 1.6.0 (PRD-improvements US-10): boards reorder, archive, delete and restore; their cards go with them
+{
+  const order = () => store.activeLists().map((l) => l.id);
+  const before = order();
+  const current = S.currentList;
+  assert.equal(store.addList('  '), null);
+  const b = store.addList(' Trip ');
+  assert.deepEqual([b.name, b.status, S.currentList], ['Trip', 'active', b.id]);
+  const c1 = store.addTask({ listId: b.id, title: 'Pack', priority: 'none', tags: ['trip-tag'] });
+  const c2 = store.addTask({ listId: b.id, title: 'Old ticket', priority: 'none', tags: [] });
+  store.archiveTask(c2.id);
+  store.reorderList(b.id, before[0]);
+  assert.equal(order()[0], b.id, 'dropped before the first board');
+  store.reorderList(b.id, null);
+  assert.equal(order().at(-1), b.id, 'dropped last');
+
+  assert.deepEqual(store.archiveList(b.id), { status: 'active', archivedAt: null });
+  assert.ok(!order().includes(b.id));
+  assert.notEqual(S.currentList, b.id, 'the current board moves on');
+  assert.equal(c1.status, 'active', 'the card keeps its own status');
+  assert.equal(store.tasksOf(b.id).length, 0, 'but it is no longer live');
+  assert.equal(store.boardCardCount(b.id), 1);
+  assert.deepEqual(store.folderBoards('archived').map((l) => l.id), [b.id]);
+  assert.ok(store.allTags().includes('trip-tag'), 'an archived board keeps its labels in the pool');
+  assert.equal(store.copyTask(c1.id, b.id, 'backlog'), null, 'an archived board is not a destination');
+
+  const archivedAt = b.archivedAt;
+  store.softDeleteList(b.id);
+  assert.deepEqual(store.folderBoards('deleted').map((l) => l.id), [b.id]);
+  assert.ok(!store.allTags().includes('trip-tag'), 'a deleted board takes its labels out of the pool');
+  store.restoreList(b.id, { toArchive: archivedAt });
+  assert.deepEqual([b.status, b.archivedAt, b.deletedAt], ['archived', archivedAt, null], 'Undo of a delete made from Archived');
+  assert.equal(store.restoreTask(c2.id).fellBack, true, 'a card restored while its board is away falls back to a live board');
+  store.restoreList(b.id);
+  assert.equal(b.status, 'active');
+  assert.deepEqual(store.tasksOf(b.id).map((x) => x.title), ['Pack'], 'Restore brings the cards back where they were');
+
+  store.softDeleteList(b.id);
+  assert.equal(store.purgeDeleted(), 0, 'a board deleted today stays');
+  b.deletedAt = Date.now() - 31 * 86400000;
+  assert.equal(store.purgeDeleted(), 2, 'after 30 days the board goes, with its card');
+  assert.deepEqual([store.listById(b.id), store.taskById(c1.id)], [undefined, undefined]);
+
+  before.slice(1).forEach((id) => store.archiveList(id));
+  assert.equal(store.canRemoveList(before[0]), false);
+  assert.equal(store.archiveList(before[0]), null, 'the last board stays');
+  assert.equal(store.softDeleteList(before[0]), null);
+  before.slice(1).forEach((id) => store.restoreList(id));
+  assert.deepEqual(order(), before);
+  S.tasks = S.tasks.filter((x) => x.id !== c2.id);
+  S.currentList = current;
+}
+
 // v1 migration arms migrated reminders (fresh module instance, v1 store only)
 mem.clear();
 mem.set('stackd-v1', JSON.stringify({

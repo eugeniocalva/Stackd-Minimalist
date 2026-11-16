@@ -2449,3 +2449,226 @@ The proxy's `npm test` gains the Phase 24 and Phase 26 cases listed in
 §34, run against `node:sqlite` through a thin D1-shaped adapter so the
 SQL in `db.js` is the SQL that is tested; `proxy.yml` runs it before the
 migrations and the deploy.
+
+---
+
+# Part V — Improvements and shared boards (1.6.0, `docs/prd-improvements.md`)
+
+Implements `docs/prd-improvements.md`. Structural code only. Phases 31
+to 33 touch the device only and are built before Phase 24; phases 34 and
+35 sit on top of Part IV's sync.
+
+## 38. Approach
+
+- **The render stays whole-screen.** The view jump of US-01 is fixed
+  where it is caused: `render()` in `app.js` records the scroll offsets
+  of the screen it is about to replace and puts them back when the new
+  screen has the same key. No screen keeps its own scroll code.
+- **The origin lane lives in memory.** A `Map` in `store.js`, never
+  saved, never exported, never synced (AC-01.3).
+- **One hold gesture.** `src/ui/gestures.js` owns press timing for
+  Kanban cards and board rows: hold to lift, hold longer for the delete
+  badge. `bindCard` and the board rows are thin callers.
+- **A board carries its cards.** Archiving or deleting a board sets a
+  status on the board record only. Its cards keep their own status and
+  become invisible because every "live" selector also requires a live
+  board (AC-10.4, 10.7).
+- **Sharing is a second sync space, not a second sync.** A shared board
+  and its tasks are stored once on the server under the board's space,
+  and each member's device runs the same push / pull loop against that
+  space with its own cursor (§41).
+
+## 39. Data Schema additions
+
+### On the device (`stackd-v2`, no migration beyond defaults)
+
+```
+list   + status: 'active' | 'archived' | 'deleted'   (missing = 'active')
+       + archivedAt: number | null
+       + deletedAt:  number | null
+       lanes: the lane with id 'done' is always last (withSettings moves it)
+       + share: null | { spaceId, role: 'owner' | 'member', ownerEmail,
+                         members: [{ email, role, state: 'active' | 'pending' }] }
+                                                   (Phase 35; device copy of server truth)
+S      + invites: [{ id, boardName, ownerEmail, expiresAt }]   (Phase 35)
+```
+
+Not persisted: `doneOrigin: Map<taskId, { listId, lane }>` in `store.js`.
+
+### Transient UI state additions (`UI`)
+
+```
+menuSlide: boolean      // the next render of 'lists' animates in from the left
+folderKind: + 'boards'
+```
+
+### In D1 (`proxy/migrations/0002_sharing.sql`, Phase 34)
+
+```sql
+CREATE TABLE spaces (
+  id TEXT PRIMARY KEY,             -- equals the board id
+  owner_id TEXT NOT NULL REFERENCES users(id),
+  rev INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE space_members (
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  role TEXT NOT NULL CHECK (role IN ('owner','member')),
+  joined_at INTEGER NOT NULL,
+  PRIMARY KEY (space_id, user_id)
+);
+CREATE TABLE invites (
+  id TEXT PRIMARY KEY,
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  email_hash TEXT NOT NULL,        -- keyed hash, as login_codes
+  board_name TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  UNIQUE (space_id, email_hash)
+);
+CREATE TABLE space_records (
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  kind TEXT NOT NULL CHECK (kind IN ('board','task')),
+  id TEXT NOT NULL,
+  rev INTEGER NOT NULL,
+  changed_at INTEGER NOT NULL,
+  changed_by TEXT NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0,
+  data TEXT,
+  PRIMARY KEY (space_id, kind, id)
+);
+CREATE INDEX space_records_rev ON space_records (space_id, rev);
+```
+
+### Invariants (tested in `check-store.mjs`, `check-sync.mjs`, `proxy/test`)
+
+- `lanesOf(id).at(-1).id === 'done'` for every board after load.
+- `renameLane` and `moveLane` refuse the Done lane; `moveLane` never
+  swaps a lane with Done.
+- At least one board has `status === 'active'`.
+- `tasksOf`, `openCount`, `planReminders` and `allTags` ignore cards
+  whose board is not active.
+- `doneOrigin` is absent from `save()`, `exportRecords()` and the wire.
+- A space's records are readable and writable only by rows in
+  `space_members`; a removed member's next request gets `gone`.
+- A shared board's tasks never appear in the owner's personal records.
+
+## 40. File & Folder Structure (delta)
+
+```
+src/
+  store.js            + doneOrigin, activeLists, folderBoards, reorderList,
+                        archiveList, softDeleteList, restoreList, deleteListForever
+  ui/
+    gestures.js       NEW  hold-to-lift, hold-longer delete badge, swipe-to-menu
+    addmenu.js        NEW  the "+" grid
+    board.js          Done lane locked; pageTitleHTML / bindPageTitle; bindCard on gestures.js
+    shell.js          menu header, Archive & Bin, board rows on gestures.js
+    folders.js        two pages, Boards kind
+    primitives.js     toast fade; choiceDialog; overlay exported
+    sharing.js        NEW (Phase 35)  new-board chooser, people sheet, invitations
+  share.js            NEW (Phase 35)  calls to /v1/spaces, device copy of members
+proxy/
+  migrations/0002_sharing.sql   NEW (Phase 34)
+  src/spaces.js                 NEW (Phase 34)
+```
+
+## 41. Core Interfaces & Types (additions)
+
+```js
+/* gestures.js */
+bindHold(el, {
+  ignore,                 // selector: presses on these start nothing
+  canDrag(), canArm(),    // () => boolean
+  onTap(),                // release without hold or movement
+  onDragStart(), onDragMove(ev), onDrop(), onDragEnd(),
+  scroller, axis,         // element auto-scrolled near its edge, 'x' | 'y'
+  deleteLabel(),          // accessible name of the badge
+  onDelete(),             // badge pressed
+})
+disarm()                  // removes the badge, if any
+bindMenuSwipe(root, { enabled(), open() })
+
+/* store.js */
+activeLists(): List[]
+folderBoards(status): List[]
+reorderList(id, beforeId | null)
+archiveList(id) / softDeleteList(id): prev | null
+restoreList(id) / deleteListForever(id)
+
+/* primitives.js */
+choiceDialog(title, body, [{ id, label, danger? }]): Promise<id | null>
+```
+
+### Endpoints (Phase 34), all behind `identify()`
+
+```
+POST   /v1/spaces                { boardId, boardName, emails[] }  → { space }
+GET    /v1/spaces                                                  → { spaces[], invites[] }
+POST   /v1/spaces/:id/invite     { emails[] }                      → 204 (same for known and unknown)
+POST   /v1/spaces/:id/remove     { email }                         → 204   (owner)
+POST   /v1/spaces/:id/leave                                        → 204   (member)
+DELETE /v1/spaces/:id                                              → 204   (owner)
+POST   /v1/invites/:id/accept | decline                            → 204
+POST   /v1/sync                  { cursor, changes, spaces: { [id]: { cursor, changes } } }
+                                 → { changes, cursor, spaces: { [id]: { changes, cursor } | { gone: true } } }
+```
+
+The outcome table of §30 applies per space with `spaces.rev` as the
+counter. Limits: 10 members per space, 20 pending invitations per space,
+20 invitations per account per day.
+
+## 42. Component Inventory (additions)
+
+| Component | Where | Notes |
+|---|---|---|
+| Delete badge | `.hold-del` in `gestures.js` | 24 px circle, `::after` hit area 44 px, primary colour, focusable button |
+| Lane drop mark | `.lane.dropover` | inset ring + tint, 150 ms |
+| Page title with chevron | `pageTitleHTML(label)` | mobile only; desktop keeps the plain `h1` |
+| Add menu | `addmenu.js` | sheet with a 2 × 2 grid of tiles |
+| Choice dialog | `primitives.js` | Cancel plus two or more actions |
+| Board row | `.lrow[data-id]`, `.side-item[data-id]` | `role="button"`, hold gestures, Delete key |
+| Shared mark | `sharing.js` | chip next to the board title, opens the people sheet |
+
+## 43. Implementation Phases (the roadmap, continued)
+
+### Phase 31 — Kanban · M (~5 h) — US-01 to US-05
+- `app.js` scroll keeping; `store.js` `doneOrigin`, Done pinned and
+  locked; `gestures.js` `bindHold`; `bindCard` rewritten on it; drop
+  mark; toast fade.
+- **Done when:** AC-01.x to AC-05.x pass at 375 px and 1280 px.
+
+### Phase 32 — Navigation and the Add menu · M (~5 h) — US-06 to US-09
+- `pageTitleHTML`; Archive & Bin; `folders.js` as two pages;
+  `bindMenuSwipe`; menu header; `addmenu.js`; `sw.js` SHELL.
+- **Done when:** AC-06.x to AC-09.x pass.
+
+### Phase 33 — Boards · M (~5 h) — US-10
+- Board status and selectors; board rows on `bindHold`; `choiceDialog`;
+  Boards kind in the two pages; purge; `backup.js` keeps board status;
+  reminders ignore non-active boards.
+- **Done when:** AC-10.x pass; `check-store.mjs` and `check-backup.mjs`
+  cover board status, restore and purge.
+
+### Phase 34 — Shared boards on the server · L (~9 h) — US-12
+- After Phase 26. Migration `0002`; `spaces.js`; `/v1/sync` gains the
+  `spaces` map; invitation hashing and limits; retention of expired
+  invitations.
+- **Done when:** a scripted owner and member create, accept, edit both
+  ways, remove and leave; a non-member gets `gone`.
+
+### Phase 35 — Shared boards in the app · L (~9 h) — US-12, AC-11.1
+- New-board chooser; `share.js`; people sheet; invitations card and
+  dot; Settings › Shared boards; 30 s pull while visible; Terms and
+  Privacy wording.
+- **Done when:** AC-12.x pass with two accounts on two devices.
+
+## 44. Checks added to `npm run check`
+
+| Script | Covers |
+|---|---|
+| `scripts/check-store.mjs` (extended) | origin lane within a session and after a reload; Done pinned, not renamable, not movable; board reorder, archive, delete, restore, purge after 30 days, last board kept; live selectors skip non-active boards. |
+| `scripts/check-backup.mjs` (extended) | a board's status and dates survive export and import; a file with no active board is refused. |
+| `scripts/check-reminders.mjs` (extended) | no reminder is planned for a card on a non-active board. |
+| `scripts/check-shell.mjs` (unchanged) | fails until `gestures.js` and `addmenu.js` are in SHELL. |

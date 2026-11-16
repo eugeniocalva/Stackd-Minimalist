@@ -8,17 +8,25 @@ import { icon } from './icons.js';
 /* ── Toast ───────────────────────────────────────────────────────────── */
 
 let toastEl = null, toastTimer = null;
+const TOAST_FADE_MS = 250;   // matches .toast / .toast.leaving in components.css
 
-export function dismissToast() {
+/** Takes the toast away. It fades out (PRD-improvements AC-05.1) unless
+    `now` is set, which is what a newer toast taking its place needs. */
+export function dismissToast({ now = false } = {}) {
   clearTimeout(toastTimer);
-  toastEl?.remove();
+  const el = toastEl;
   toastEl = null;
+  if (!el) return;
+  if (now) { el.remove(); return; }
+  el.classList.add('leaving');
+  setTimeout(() => el.remove(), TOAST_FADE_MS);
 }
 
 /** toast('Archived', { action: { label: 'Undo', onClick } }) — one at a time;
     the countdown pauses while the toast is pressed. */
 export function toast(message, { action = null, ms = 5000 } = {}) {
-  dismissToast();
+  dismissToast({ now: true });
+  document.querySelectorAll('.toast.leaving').forEach((el) => el.remove());
   const el = document.createElement('div');
   el.className = 'toast';
   el.setAttribute('role', 'status');
@@ -28,7 +36,7 @@ export function toast(message, { action = null, ms = 5000 } = {}) {
   toastEl = el;
 
   let remaining = ms, started = Date.now();
-  const start = () => { started = Date.now(); toastTimer = setTimeout(dismissToast, remaining); };
+  const start = () => { started = Date.now(); clearTimeout(toastTimer); toastTimer = setTimeout(() => dismissToast(), remaining); };
   const pause = () => { clearTimeout(toastTimer); remaining = Math.max(1500, remaining - (Date.now() - started)); };
   el.addEventListener('pointerdown', pause);
   el.addEventListener('pointerup', start);
@@ -60,7 +68,7 @@ export function pinToViewport(ov) {
   return () => { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); };
 }
 
-function overlay(innerHTML, { onClose } = {}) {
+export function overlay(innerHTML, { onClose } = {}) {
   const ov = document.createElement('div');
   ov.className = 'overlay';
   ov.innerHTML = innerHTML;
@@ -89,6 +97,25 @@ export function confirmDialog(title, body, { confirmLabel = 'Confirm', danger = 
     ov.querySelector('[data-cancel]').addEventListener('click', () => close(false));
     ov.querySelector('[data-ok]').addEventListener('click', () => close(true));
     ov.querySelector('[data-ok]').focus();
+  });
+}
+
+/** A question with more than one way to go ahead: Cancel plus one button
+    per choice ({ id, label, danger? }). Resolves with the chosen id, or null. */
+export function choiceDialog(title, body, choices) {
+  return new Promise((resolve) => {
+    const { ov, close } = overlay(`
+      <div class="sheet dialog" role="alertdialog" aria-labelledby="dlg-title" aria-describedby="dlg-body">
+        <h2 id="dlg-title">${esc(title)}</h2>
+        <p id="dlg-body">${esc(body)}</p>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" data-cancel>Cancel</button>
+          ${choices.map((c) => `<button class="btn ${c.danger ? 'btn-danger' : 'btn-primary'}" data-choice="${esc(c.id)}">${esc(c.label)}</button>`).join('')}
+        </div>
+      </div>`, { onClose: (r) => resolve(typeof r === 'string' ? r : null) });
+    ov.querySelector('[data-cancel]').addEventListener('click', () => close(null));
+    ov.querySelectorAll('[data-choice]').forEach((b) => b.addEventListener('click', () => close(b.dataset.choice)));
+    ov.querySelector('[data-cancel]').focus();
   });
 }
 

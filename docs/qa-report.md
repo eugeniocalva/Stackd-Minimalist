@@ -461,3 +461,41 @@ the release is ready.
     `data-lane` and `data-lane-menu`; ids are made by the app, and an
     imported file's ids must match the strict pattern in `src/backup.js`.
   - No new request, stored key, permission or dependency.
+
+## Engineer's check: 2026-11-16, phases 31 to 33 (`docs/prd-improvements.md` US-01 to US-10)
+
+Not the QA walk and not the release gate: what the engineer verified
+before offering the phases for commit. `VERSION` is unchanged
+(`stackd-v1.5.0`); `/security-review` has not been run on these changes.
+
+- **Automated:** `npm run check` green. New assertions: the origin lane
+  within a session and after a restart, Done pinned and locked, board
+  reorder / archive / delete / restore / purge and the last board
+  (`check-store.mjs`); board status and Done order through export and
+  import, a file with no live board refused (`check-backup.mjs`); no
+  reminder for a card on an archived or deleted board
+  (`check-reminders.mjs`).
+- **In the browser preview, 375 px, by scripted pointer, touch and key
+  events:** AC-01.1 (board scroll kept on tick and untick), AC-01.2,
+  AC-02.1 to 02.3, AC-03.1 (ring computed as an inset 2 px shadow, no
+  outline), AC-04.1 to 04.5, AC-05.1 (250 ms in, `leaving` class, removed
+  after the fade), AC-06.1 to 06.3, AC-07.1 to 07.3, AC-08.1 to 08.3 (three
+  titles at 18 px / 800), AC-09.1 to 09.3, AC-10.1 to 10.6, 10.8, 10.9.
+- **At 1280 px:** sidebar label, board drag in the sidebar, tap opens the
+  board, mouse hold shows the badge and the release does not open the
+  card, a press elsewhere removes the badge, plain titles without chevron.
+- **Not verified:**
+  - Nothing was looked at: the preview pane could not take screenshots in
+    this session, so layout, spacing, colours in light and dark, and every
+    animation (lane ring fade, toast fade, menu slide, badge pop) are
+    checked by computed style only.
+  - No real finger: hold timing against scrolling, the swipe against the
+    browser's own gestures, and haptics need both phones (QA, Phase 30).
+  - AC-02.4 (a board that moved Done in 1.5.0) and AC-01.3 are covered by
+    the store checks, not in the browser.
+  - Reduced motion (AC-03.2, AC-07.4) relies on the existing global rule
+    in `base.css`; not exercised.
+  - Screen readers.
+- **Left as it was, on purpose:** the main menu's "Synced 2 min ago · free
+  account" line and the sidebar's sample user are placeholders from 1.0;
+  phases 25 and 26 replace them with the real account and sync status.

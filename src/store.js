@@ -17,9 +17,10 @@ export const RETENTION_DAYS = 30;
 const RETENTION_MS = RETENTION_DAYS * 86400000;
 
 /* Lanes are per board (1.4.3): list.lanes = [{ id, name }], in column
-   order. The lane whose id is DONE_LANE is the board's Done lane: it can be
-   renamed and moved but not deleted, because completing a task means moving
-   it there (and the automation depends on it). Other lanes are free. */
+   order. The lane whose id is DONE_LANE is the board's Done lane: it is
+   always the last column and cannot be renamed, moved or deleted, because
+   completing a task means moving it there (PRD-improvements US-02). Other
+   lanes are free. */
 export const DONE_LANE = 'done';
 export const defaultLanes = () => [
   { id: 'backlog', name: 'Backlog' },
@@ -97,7 +98,8 @@ export let S = migrate();
 export const UI = {
   screen: 'list',        // 'lists' | 'list' | 'detail' | 'folders' | 'settings' | 'notes' | 'note' | 'meetings' | 'meeting'
   folder: 'archived',    // which tab the folders screen shows
-  folderKind: 'tasks',   // 'tasks' | 'notes' | 'meetings' — segment inside a folder
+  folderKind: 'tasks',   // 'tasks' | 'notes' | 'meetings' | 'boards' — segment inside a folder
+  menuSlide: false,      // the next render of the main menu slides in from the left (swipe)
   detailId: null,        // task id on 'detail', note id on 'note', meeting id on 'meeting'
   transcriptAll: false,  // meeting detail: the transcript is expanded past its first lines
   recorder: null,        // { meetingId } while a recording runs (ui/recorder.js owns the session)
@@ -151,8 +153,24 @@ function withSettings(state) {
   if (state.sort === 'due') state.sort = 'due-asc';
   else if (state.sort === 'priority') state.sort = 'priority-desc';
   else if (!TASK_SORTS.some(([v]) => v === state.sort)) state.sort = 'manual';
-  /* 1.4.3: lanes per board; boards from before carry the three built-in lanes */
-  state.lists.forEach((l) => { l.lanes ??= defaultLanes(); });
+  /* 1.4.3: lanes per board; boards from before carry the three built-in lanes.
+     1.6.0: Done is pinned last (a board that moved it gets it back there),
+     and a board has a status of its own, so it can be archived or deleted
+     with its cards inside (PRD-improvements US-02, US-10). */
+  state.lists.forEach((l) => {
+    l.lanes ??= defaultLanes();
+    const i = l.lanes.findIndex((x) => x.id === DONE_LANE);
+    if (i !== -1 && i !== l.lanes.length - 1) l.lanes.push(...l.lanes.splice(i, 1));
+    if (l.status !== 'archived' && l.status !== 'deleted') l.status = 'active';
+    l.archivedAt = l.status === 'archived' ? (l.archivedAt ?? Date.now()) : null;
+    l.deletedAt = l.status === 'deleted' ? (l.deletedAt ?? Date.now()) : null;
+  });
+  if (state.lists.length && !state.lists.some((l) => l.status === 'active')) {
+    Object.assign(state.lists[0], { status: 'active', archivedAt: null, deletedAt: null });
+  }
+  if (state.lists.length && state.lists.find((l) => l.id === state.currentList)?.status !== 'active') {
+    state.currentList = state.lists.find((l) => l.status === 'active').id;
+  }
   /* Meetings (1.5.0): defaults only. The plan cache keeps its subscriber id
      across loads; everything else in it is overwritten by the proxy. */
   state.meetings ??= [];
@@ -296,11 +314,26 @@ function seed() {
 
 /* ── Selectors (active tasks only unless named otherwise) ────────────── */
 
-export const listById = (id) => S.lists.find((l) => l.id === id);
+export const listById = (id) => S.lists.find((l) => l.id === id);        // any status
 export const taskById = (id) => S.tasks.find((t) => t.id === id);      // any status
-const active = () => S.tasks.filter((t) => t.status === 'active');
+/* A board is live unless it was archived or deleted; its cards go with it
+   (PRD-improvements US-10), so "active" for a task also means a live board. */
+const isLive = (l) => !!l && (l.status ?? 'active') === 'active';
+export const activeLists = () => S.lists.filter(isLive);
+export const folderBoards = (status) => {
+  const key = status === 'archived' ? 'archivedAt' : 'deletedAt';
+  return S.lists.filter((l) => l.status === status).sort((a, b) => b[key] - a[key]);
+};
+/** Cards that travel with the board: the ones on it when it left (or now). */
+export const boardCardCount = (listId) => S.tasks.filter((t) => t.listId === listId && t.status === 'active').length;
+const active = () => {
+  const away = new Set(S.lists.filter((l) => !isLive(l)).map((l) => l.id));
+  return S.tasks.filter((t) => t.status === 'active' && !away.has(t.listId));
+};
 export const tasksOf = (listId) => active().filter((t) => t.listId === listId);
 export const openCount = (listId) => tasksOf(listId).filter((t) => !t.done).length;
+/** Deleted itself, or sitting on a deleted board. */
+const isGone = (x) => x.status === 'deleted' || (x.listId !== undefined && listById(x.listId)?.status === 'deleted');
 
 export function folderTasks(status) {
   const key = status === 'archived' ? 'archivedAt' : 'deletedAt';
@@ -308,7 +341,7 @@ export function folderTasks(status) {
 }
 
 /* tags and notes share one pool (PRD-notes Q3) */
-const tagged = () => [...S.tasks, ...S.notes].filter((x) => x.status !== 'deleted');
+const tagged = () => [...S.tasks, ...S.notes].filter((x) => !isGone(x));
 export const allTags = () => normalizeTags([...S.labels, ...tagged().flatMap((x) => x.tags)]);
 
 const sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
@@ -385,11 +418,11 @@ export const minutesStale = (m) => !!(m.minutes && m.transcript && m.transcript.
 export const meetingIsEmpty = (m) => !m.recording && !m.transcript && !m.title.trim();
 
 /** Tasks + notes + meetings in a folder (sidebar and Boards-menu counts). */
-export const folderCount = (status) => folderTasks(status).length + folderNotes(status).length + folderMeetings(status).length;
+export const folderCount = (status) => folderTasks(status).length + folderNotes(status).length + folderMeetings(status).length + folderBoards(status).length;
 
 /** Label usage split by kind, for Settings › Labels. */
 export const tagUseCounts = (name) => ({
-  tasks: S.tasks.filter((t) => t.status !== 'deleted' && t.tags.some((x) => sameTag(x, name))).length,
+  tasks: S.tasks.filter((t) => !isGone(t) && t.tags.some((x) => sameTag(x, name))).length,
   notes: S.notes.filter((n) => n.status !== 'deleted' && n.tags.some((x) => sameTag(x, name))).length,
 });
 
@@ -398,7 +431,7 @@ export const priorityById = (id) => S.priorities.find((p) => p.id === id);
 export const priorityIdByName = (name) => S.priorities.find((p) => p.name.toLowerCase() === String(name ?? '').trim().toLowerCase())?.id || 'none';
 export const priorityName = (id) => priorityById(id)?.name || 'None';
 export const priorityUseCount = (id) =>
-  S.tasks.filter((t) => t.status !== 'deleted' && t.priority === id).length;
+  S.tasks.filter((t) => !isGone(t) && t.priority === id).length;
 
 /** Manual: by order. Field sorts: by the field in S.sort's direction, ties by order. */
 export function sortedTasks(listId) {
@@ -428,12 +461,24 @@ const touch = (t) => { t.updatedAt = Date.now(); };
 const nextOrder = () => Math.max(0, ...S.tasks.map((t) => t.order + 1));
 const leaveDetail = (id) => { if (UI.detailId === id) { UI.detailId = null; UI.screen = 'list'; } };
 
+/* The lane a card was in when it went to Done, for this session only
+   (PRD-improvements AC-01.2 to 01.4): never saved, exported or synced, so
+   after a restart a reopened card lands in the board's first lane. */
+const doneOrigin = new Map();
+const rememberOrigin = (t) => { if (t.lane !== DONE_LANE) doneOrigin.set(t.id, { listId: t.listId, lane: t.lane }); };
+function reopenLane(t) {
+  const o = doneOrigin.get(t.id);
+  doneOrigin.delete(t.id);
+  return o && o.listId === t.listId && o.lane !== DONE_LANE ? validLane(t.listId, o.lane) : firstLane(t.listId);
+}
+/** Test hook: what a restart does to the remembered lanes. */
+export const forgetDoneOrigins = () => doneOrigin.clear();
+
 export function toggleDone(id) {
   const t = taskById(id); if (!t) return;
   if (!t.done && t.recur !== 'none' && t.due) { rollForward(id); return; } // recurring: never "done"
-  t.done = !t.done;
-  if (t.done) { t.lane = DONE_LANE; S.lastAuto = Date.now(); }
-  else { if (t.lane === DONE_LANE) t.lane = firstLane(t.listId); armReminder(t); }
+  if (!t.done) { rememberOrigin(t); t.done = true; t.lane = DONE_LANE; S.lastAuto = Date.now(); }
+  else { t.done = false; if (t.lane === DONE_LANE) t.lane = reopenLane(t); armReminder(t); }
   touch(t); commit();
 }
 
@@ -450,6 +495,7 @@ export function moveToLane(id, lane) {
   lane = validLane(t.listId, lane);
   if (lane === DONE_LANE && t.recur !== 'none' && t.due) { rollForward(id); return; }
   const wasDone = t.done;
+  if (lane === DONE_LANE) rememberOrigin(t); else doneOrigin.delete(t.id);
   t.lane = lane;
   t.done = lane === 'done';
   if (wasDone && !t.done) armReminder(t);
@@ -795,7 +841,7 @@ export function restoreAction(id, actionId, status = 'proposed') {
     chosen board and lane with a pointer back here; the card becomes added. */
 export function addActionToBoard(id, actionId, draft) {
   const m = meetingById(id); const a = actionOf(m, actionId);
-  if (!a || a.status !== 'proposed' || !listById(draft.listId)) return null;
+  if (!a || a.status !== 'proposed' || !isLive(listById(draft.listId))) return null;
   a.title = String(draft.title ?? a.title).trim() || a.title;
   const t = addTask({ ...draft, title: a.title, from: { meetingId: id, actionId } });
   a.status = 'added'; a.taskId = t.id;
@@ -948,11 +994,12 @@ export function undoRollForward(id, prev) {
     target lane and the moved-to board becomes the current one. A recurring
     task never enters Done: it keeps its lane (callers roll it forward). */
 export function moveTask(id, listId, lane) {
-  const t = taskById(id); if (!t || !listById(listId)) return;
+  const t = taskById(id); if (!t || !isLive(listById(listId))) return;
   lane = validLane(listId, lane);
   if (lane === DONE_LANE && t.recur !== 'none' && t.due) lane = validLane(listId, t.lane);
   if (t.listId === listId && t.lane === lane) return;
   const wasDone = t.done;
+  if (lane === DONE_LANE && t.listId === listId) rememberOrigin(t); else doneOrigin.delete(t.id);
   t.listId = listId; t.lane = lane; t.order = nextOrder();
   t.done = lane === 'done';
   if (wasDone && !t.done) armReminder(t);
@@ -963,7 +1010,7 @@ export function moveTask(id, listId, lane) {
 /** Duplicate into a board/lane: same fields and schedule, subtasks reset,
     fresh ids and timestamps. Returns the copy. */
 export function copyTask(id, listId, lane) {
-  const t = taskById(id); if (!t || !listById(listId)) return null;
+  const t = taskById(id); if (!t || !isLive(listById(listId))) return null;
   lane = validLane(listId, lane);
   const copy = blankTask(listId, t.title, {
     lane, done: lane === DONE_LANE, order: nextOrder(),
@@ -977,13 +1024,76 @@ export function copyTask(id, listId, lane) {
   return copy;
 }
 
-export function newList() {
-  const name = prompt('New board name');
-  if (!name || !name.trim()) return;
-  const list = { id: uid(), name: name.trim(), lanes: defaultLanes() };
+/* — boards: add, reorder, archive, delete, restore (PRD-improvements US-10) — */
+
+/** A new board, opened at once. Returns it, or null for an empty name. */
+export function addList(name) {
+  const n = String(name ?? '').trim();
+  if (!n) return null;
+  const list = { id: uid(), name: n, lanes: defaultLanes(), status: 'active', archivedAt: null, deletedAt: null };
   S.lists.push(list);
   S.currentList = list.id;
   UI.screen = 'list';
+  commit();
+  return list;
+}
+
+/** Drop the board before `beforeId`, or last when null. */
+export function reorderList(id, beforeId = null) {
+  const i = S.lists.findIndex((l) => l.id === id);
+  if (i === -1 || id === beforeId) return;
+  const [l] = S.lists.splice(i, 1);
+  const j = beforeId ? S.lists.findIndex((x) => x.id === beforeId) : -1;
+  S.lists.splice(j === -1 ? S.lists.length : j, 0, l);
+  commit();
+}
+
+/** The last live board stays: the app always has one to show. */
+export const canRemoveList = (id) => activeLists().some((l) => l.id !== id);
+
+/* Archiving or deleting a board changes the board only. Its cards keep
+   their own status and simply stop being live (see `active`), so Restore
+   brings every card back exactly where it was. */
+function binList(id, status) {
+  const l = listById(id);
+  if (!l || l.status === status || (isLive(l) && !canRemoveList(id))) return null;
+  const prev = { status: l.status ?? 'active', archivedAt: l.archivedAt ?? null };
+  const now = Date.now();
+  l.status = status;
+  l.archivedAt = status === 'archived' ? now : null;
+  l.deletedAt = status === 'deleted' ? now : null;
+  if (S.currentList === id) S.currentList = activeLists()[0].id;
+  if (UI.screen === 'detail' && taskById(UI.detailId)?.listId === id) { UI.detailId = null; UI.screen = 'list'; }
+  commit();
+  return prev;
+}
+/** Both return the status and archivedAt the board had (for Undo), or null. */
+export const archiveList = (id) => binList(id, 'archived');
+export const softDeleteList = (id) => binList(id, 'deleted');
+
+/** Back among the boards, or (Undo of a delete made from Archived) back
+    into Archived. Reminders that came due meanwhile are marked used. */
+export function restoreList(id, { toArchive = null } = {}) {
+  const l = listById(id); if (!l || isLive(l)) return;
+  if (toArchive !== null && l.status === 'deleted') {
+    l.status = 'archived'; l.archivedAt = toArchive; l.deletedAt = null;
+  } else {
+    l.status = 'active'; l.archivedAt = null; l.deletedAt = null;
+    S.tasks.forEach((t) => { if (t.listId === id && t.status === 'active' && t.reminderFiredAt === null) armReminder(t); });
+  }
+  commit();
+}
+
+/* The board and the cards that travelled with it. Cards archived or deleted
+   one by one before the board went stay in their folder; restoring one of
+   them falls back to the first board, as for any board that no longer exists. */
+function dropList(id) {
+  S.tasks = S.tasks.filter((t) => !(t.listId === id && t.status === 'active'));
+  S.lists = S.lists.filter((l) => l.id !== id);
+}
+export function deleteListForever(id) {
+  const l = listById(id); if (!l || isLive(l)) return;
+  dropList(id);
   commit();
 }
 
@@ -1000,17 +1110,22 @@ export function addLane(listId, name) {
   return lane;
 }
 
+/** Any lane but Done, whose name is fixed (PRD-improvements AC-02.1). */
 export function renameLane(listId, laneId, name) {
   const lane = listById(listId)?.lanes.find((l) => l.id === laneId); const n = (name || '').trim();
-  if (!lane || !n || lane.name === n) return;
+  if (!lane || laneId === DONE_LANE || !n || lane.name === n) return;
   lane.name = n; commit();
 }
 
-/** dir -1 moves the lane one column left, +1 one right. */
+/** dir -1 moves the lane one column left, +1 one right. Done stays last:
+    it does not move, and no lane moves past it (AC-02.3). */
+export const canMoveLane = (listId, laneId, dir) => {
+  const lanes = lanesOf(listId); const i = lanes.findIndex((l) => l.id === laneId), j = i + dir;
+  return i !== -1 && laneId !== DONE_LANE && j >= 0 && j < lanes.length && lanes[j].id !== DONE_LANE;
+};
 export function moveLane(listId, laneId, dir) {
-  const lanes = listById(listId)?.lanes; if (!lanes) return;
+  const lanes = listById(listId)?.lanes; if (!lanes || !canMoveLane(listId, laneId, dir)) return;
   const i = lanes.findIndex((l) => l.id === laneId), j = i + dir;
-  if (i === -1 || j < 0 || j >= lanes.length) return;
   [lanes[i], lanes[j]] = [lanes[j], lanes[i]];
   commit();
 }
@@ -1142,8 +1257,8 @@ export function returnToArchive(id, archivedAt) {
 export function restoreTask(id, { keepPosition = false } = {}) {
   const t = taskById(id); if (!t || t.status === 'active') return null;
   const o = t.origin || { listId: t.listId, lane: t.lane, order: t.order };
-  const fellBack = !listById(o.listId);
-  t.listId = fellBack ? S.lists[0].id : o.listId;
+  const fellBack = !isLive(listById(o.listId));          // gone, or archived / deleted itself
+  t.listId = fellBack ? activeLists()[0].id : o.listId;
   t.lane = fellBack ? firstLane(t.listId) : validLane(t.listId, o.lane);   // a deleted lane falls back too
   t.order = keepPosition ? o.order : nextOrder();
   t.done = t.lane === DONE_LANE;
@@ -1158,8 +1273,9 @@ export function deleteForever(id) {
   commit();
 }
 
-/** Tasks, notes and meetings alike. */
+/** Tasks, notes, meetings and boards alike. */
 export function emptyDeleted() {
+  folderBoards('deleted').forEach((l) => dropList(l.id));
   S.tasks = S.tasks.filter((t) => t.status !== 'deleted');
   S.notes = S.notes.filter((n) => n.status !== 'deleted');
   dropMedia(S.meetings.filter((m) => m.status === 'deleted'));
@@ -1167,15 +1283,17 @@ export function emptyDeleted() {
   commit();
 }
 
-/** Drops deleted tasks, notes and meetings older than RETENTION_DAYS. Returns how many went. */
+/** Drops deleted tasks, notes, meetings and boards (with their cards) older
+    than RETENTION_DAYS. Returns how many records went. */
 export function purgeDeleted(now = Date.now()) {
   const keep = (x) => x.status !== 'deleted' || now - x.deletedAt < RETENTION_MS;
-  const before = S.tasks.length + S.notes.length + S.meetings.length;
+  const before = S.tasks.length + S.notes.length + S.meetings.length + S.lists.length;
+  S.lists.filter((l) => !keep(l)).forEach((l) => dropList(l.id));
   S.tasks = S.tasks.filter(keep);
   S.notes = S.notes.filter(keep);
   dropMedia(S.meetings.filter((m) => !keep(m)));
   S.meetings = S.meetings.filter(keep);
-  const removed = before - S.tasks.length - S.notes.length - S.meetings.length;
+  const removed = before - S.tasks.length - S.notes.length - S.meetings.length - S.lists.length;
   if (removed) save();
   return removed;
 }
@@ -1222,7 +1340,8 @@ export function replaceRecords({ lists, tasks, notes, meetings, settings }) {
   if (isDateFormat(settings.dateFormat)) S.dateFormat = settings.dateFormat;   // else this device keeps its own
   S.priorities = settings.priorities; S.labels = settings.labels;
   withSettings(S);
-  if (!listById(S.currentList)) S.currentList = S.lists[0].id;
+  if (!isLive(listById(S.currentList))) S.currentList = activeLists()[0].id;
+  doneOrigin.clear();
   try { save(); } catch (e) {
     Object.assign(S, before);
     withSettings(S);

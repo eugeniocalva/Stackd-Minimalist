@@ -1,6 +1,6 @@
 /* Add-task sheet. Rendered outside #app so re-renders never remove it. */
 
-import { S, addTask, allTags as tagPool, laneName } from '../store.js';
+import { S, addTask, allTags as tagPool, laneName, activeLists } from '../store.js';
 import { daysFrom, fmtDue, RECUR_OPTIONS } from '../dates.js';
 import { openSchedule } from './schedule.js';
 import { esc } from '../util.js';
@@ -63,7 +63,7 @@ export function openSheet({ lane, initial = null, fixedList = null, submitLabel 
     <div class="chip-group">
       <span class="microlabel">Board</span>
       <div class="chip-row" data-list>
-        ${(fixedList ? S.lists.filter((l) => l.id === fixedList) : S.lists).map((l) => `<button class="chip ${l.id === draft.listId ? 'on' : ''}" data-val="${l.id}" ${fixedList ? 'disabled aria-disabled="true"' : ''}>${esc(l.name)}${fixedList && lane ? ` · ${esc(laneName(l.id, lane))}` : ''}</button>`).join('')}
+        ${(fixedList ? S.lists.filter((l) => l.id === fixedList) : activeLists()).map((l) => `<button class="chip ${l.id === draft.listId ? 'on' : ''}" data-val="${l.id}" ${fixedList ? 'disabled aria-disabled="true"' : ''}>${esc(l.name)}${fixedList && lane ? ` · ${esc(laneName(l.id, lane))}` : ''}</button>`).join('')}
       </div>
     </div>
     <button class="btn btn-primary btn-block" data-submit>${esc(submitLabel)}</button>

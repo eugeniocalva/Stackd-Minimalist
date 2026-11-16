@@ -2,13 +2,14 @@
    the detail screen, row gestures and the folder screens. */
 
 import {
-  taskById, listById, laneName, archiveTask, softDelete, returnToArchive, restoreTask,
+  RETENTION_DAYS, taskById, listById, laneName, archiveTask, softDelete, returnToArchive, restoreTask,
   moveTask, toggleDone, rollForward, undoRollForward,
   archiveNote, softDeleteNote, returnNoteToArchive, restoreNote,
   archiveMeeting, softDeleteMeeting, returnMeetingToArchive, restoreMeeting,
+  archiveList, softDeleteList, restoreList, canRemoveList, boardCardCount,
 } from '../store.js';
 import { fmtDateLong } from '../dates.js';
-import { toast } from './primitives.js';
+import { toast, choiceDialog } from './primitives.js';
 
 const where = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
 const isRecurring = (t) => t.recur !== 'none' && !!t.due;
@@ -88,6 +89,38 @@ export function deleteMeetingWithUndo(id) {
 export function restoreMeetingWithToast(id) {
   restoreMeeting(id);
   toast('Restored to Meetings');
+}
+
+/* — boards (PRD-improvements US-10): a board goes with every card on it — */
+
+/** how: 'archive' | 'delete'. Undo puts the board back where it was: among
+    the boards, or in Archived when it was deleted from there. */
+export function removeBoardWithUndo(id, how) {
+  const prev = how === 'archive' ? archiveList(id) : softDeleteList(id);
+  if (!prev) return;
+  const onClick = prev.status === 'archived'
+    ? () => restoreList(id, { toArchive: prev.archivedAt })
+    : () => restoreList(id);
+  toast(how === 'archive' ? 'Board archived' : 'Board deleted', { action: { label: 'Undo', onClick } });
+}
+
+export function restoreBoardWithToast(id) {
+  const name = listById(id)?.name;
+  restoreList(id);
+  toast(`${name} is back in Boards`);
+}
+
+/** The delete badge on a board row: confirm, and choose Archive or Delete
+    (AC-10.3). The last board stays, and the app says why (AC-10.6). */
+export async function askRemoveBoard(id) {
+  const l = listById(id); if (!l) return;
+  if (!canRemoveList(id)) { toast('This is your only board. Add another one before removing it.'); return; }
+  const n = boardCardCount(id);
+  const cards = n === 0 ? 'It has no cards.' : n === 1 ? 'Its 1 card goes with it.' : `Its ${n} cards go with it.`;
+  const how = await choiceDialog(`Remove “${l.name}”?`,
+    `${cards} Archive keeps the board until you restore it. Delete removes it for good after ${RETENTION_DAYS} days.`,
+    [{ id: 'archive', label: 'Archive' }, { id: 'delete', label: 'Delete', danger: true }]);
+  if (how) removeBoardWithUndo(id, how);
 }
 
 const rolling = new Set(); // ids waiting out the completion flash

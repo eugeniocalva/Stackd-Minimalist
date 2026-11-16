@@ -157,13 +157,26 @@ is enough; HTTPS is required for install + service worker on real devices.
   high or low first; the drag handle shows in manual sort only)
 - **Board, kanban** — the board's lanes, sorted the same way inside each
   lane, plus an "Add lane" column; completing a task moves its card to Done
-  (repeating tasks excepted, see below). Deleting a lane moves its tasks to
-  the board's first lane. Hold a card to carry it to another lane: a copy
-  follows the finger and the board scrolls when it nears an edge
+  (repeating tasks excepted, see below) and the board stays scrolled where
+  it was. Reopening a card in the same session returns it to the lane it
+  came from; after a restart it goes to the first lane. Done is always the
+  last lane and cannot be renamed, moved or deleted. Deleting another lane
+  moves its tasks to the board's first lane. Hold a card to carry it to
+  another lane: a copy follows the finger, the lane under it is ringed,
+  and the board scrolls when it nears an edge. Keep holding without moving
+  and a round **X** appears on the card; it asks before deleting
+- **Boards** — in the main menu and the sidebar, hold a board (or drag it
+  with the mouse) to reorder; keep holding for the buttons that move it one
+  step or remove it. Removing asks **Archive** or **Delete**; the board
+  goes with every card on it and comes back whole with Restore. The last
+  board stays
 - **Navigation** — mobile: sticky frosted header plus a floating bottom pill
-  (Boards · Tasks · Notes · Folders) and a round **+** (a new task on a
-  board, a new note on Notes); desktop: sidebar with Boards, Notes and
-  Folders, each with live counts
+  (Boards · Tasks · Notes · Archive & Bin) and a round **+** that opens the
+  same grid everywhere: Add task, Add note, Add meeting, Add automation.
+  The title of every top-level page carries a chevron that opens the main
+  menu, and so does a swipe to the right (outside the lanes on the kanban,
+  from the left half elsewhere). Desktop: sidebar with Boards, Notes and
+  Archive & Bin, each with live counts
 - **Search** — a field at the top of every board (desktop inline, mobile
   behind a search icon) and of Notes: case- and accent-insensitive, every
   word must appear in the title, tags, subtasks, note text or checklist.
@@ -185,8 +198,9 @@ is enough; HTTPS is required for install + service worker on real devices.
   - *Detail:* tap a row; edits save as you type; ticked items sink to the
     bottom; ⋯ gives **Copy**, **Archive**, **Delete**; a note left empty is
     removed
-  - *Folders:* archived and deleted notes sit behind the Tasks ∕ Notes
-    switch, with Restore, Delete, the 30-day purge and Empty folder
+  - *Archive & Bin:* archived and deleted notes sit on the Archived and
+    Deleted pages behind the Tasks ∕ Notes ∕ Meetings ∕ Boards switch, with
+    Restore, Delete, the 30-day purge and Empty Deleted
   - Note text is stored as a small HTML subset (line breaks and the four
     styles); everything else pasted in is stripped
 - **Meetings** — the Meetings area (Boards menu and desktop sidebar), with:
@@ -211,8 +225,8 @@ is enough; HTTPS is required for install + service worker on real devices.
     what a press costs. Failures show a reason and Retry; a step keeps
     going if you leave the screen, and a transcription resumes after a
     reload
-  - *Folders:* archived and deleted meetings sit behind the Tasks ∕ Notes ∕
-    Meetings switch; deleting forever removes the recording
+  - *Archive & Bin:* archived and deleted meetings sit behind the same
+    switch; deleting forever removes the recording
 - **Task detail** — tap the title to rename; rows for **Due date**,
   **Priority**, **Tags** (picker with suggestions from every tag in use),
   **Move** (board + lane) and **Reminder**; subtasks with a progress bar
@@ -269,10 +283,11 @@ is enough; HTTPS is required for install + service worker on real devices.
     reset, and a Developer field for the proxy URL
   - *Automations:* the built-in "completed tasks move to Done" rule; custom
     rules are a placeholder for now (kanban "Edit rules" opens this section)
-- **Gestures** — double-tap / double-click completes, long-press (with a
-  haptic tick on the phone) or swipe left deletes, the circle on a row or
-  kanban card completes, drag rows to reprioritize in manual sort, drag
-  kanban cards between lanes (hold-and-drag on touch)
+- **Gestures** — list rows: double-tap / double-click completes,
+  long-press (with a haptic tick on the phone) or swipe left deletes, drag
+  to reprioritize in manual sort. Kanban cards and board rows: hold to
+  move, hold longer for the **X** (which asks first). The circle on a row
+  or card completes. Every toast fades in and out
 - **Persistence** — localStorage key `stackd-v2` (tasks, notes, meetings,
   settings, the plan cache). Recordings are in IndexedDB (`stackd-media`,
   written five seconds at a time while recording), never in the document.
@@ -315,10 +330,15 @@ is enough; HTTPS is required for install + service worker on real devices.
 - `src/util.js` — ids, HTML escaping, app root
 - `src/theme.js` — resolves the theme preference to `data-theme` on `<html>`
 - `src/ui/` — one module per screen or overlay:
-  - `shell.js` — onboarding, Boards menu, bottom nav, desktop sidebar
-  - `board.js` — list, table, kanban, chips, gestures
+  - `shell.js` — onboarding, main menu, bottom nav, desktop sidebar,
+    board rows
+  - `board.js` — list, table, kanban, chips, row gestures, page title
+  - `gestures.js` — hold to lift, hold longer for the delete badge, the
+    swipe that opens the main menu
+  - `addmenu.js` — the "+" grid
   - `detail.js` — task detail, ⋯ menu, read-only archived / deleted view
-  - `folders.js` — Archived / Deleted screens, tasks, notes and meetings
+  - `folders.js` — the Archived and Deleted pages: tasks, notes, meetings
+    and boards
   - `meetings.js` — the Meetings list: header, search, sort, status chips
   - `meeting.js` — meeting detail: title, blocks, ⋯ menu, read-only view
   - `recorder.js` — the Source block, recording (level line, clock, cap),

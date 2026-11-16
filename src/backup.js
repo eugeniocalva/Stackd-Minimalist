@@ -112,7 +112,7 @@ const checkItems = (v, field, what) => list(v, what).map((c) => {
   return { id: idOf(c.id, what), [field]: text(c[field]), done: flag(c.done) };
 });
 
-function cleanBoard(r) {
+function cleanBoard(r, now) {
   obj(r, 'a board that is not a record');
   let lanes = unique(list(r.lanes, 'lanes that are not a list').map((l) => {
     obj(l, 'a lane that is not a record');
@@ -121,7 +121,8 @@ function cleanBoard(r) {
   if (!lanes.length) lanes = defaultLanes();
   if (!lanes.some((l) => l.id === DONE_LANE)) lanes.push({ id: DONE_LANE, name: 'Done' });
   if (lanes.length === 1) lanes.unshift({ id: 'backlog', name: 'Backlog' });   // a board always has a lane beside Done
-  return { id: idOf(r.id, 'a board'), name: text(r.name, 80).trim() || 'Board', lanes };
+  lanes = [...lanes.filter((l) => l.id !== DONE_LANE), lanes.find((l) => l.id === DONE_LANE)];   // Done is always last
+  return { id: idOf(r.id, 'a board'), name: text(r.name, 80).trim() || 'Board', lanes, ...lifecycle(r, now) };
 }
 
 function cleanPriority(r) {
@@ -225,15 +226,15 @@ function cleanMeeting(r, i, ctx) {
 export function cleanRecords(raw, now = Date.now()) {
   obj(raw, 'no records');
   const settings = obj(raw.settings, 'no settings');
-  const lists = unique(list(raw.lists, 'boards that are not a list').map(cleanBoard), 'boards');
-  if (!lists.length) bad('no boards');
+  const lists = unique(list(raw.lists, 'boards that are not a list').map((r) => cleanBoard(r, now)), 'boards');
+  if (!lists.some((l) => l.status === 'active')) bad('no boards');   // archived and deleted ones do not count
   const rawTasks = list(raw.tasks, 'tasks that are not a list');
   const rawNotes = list(raw.notes, 'notes that are not a list');
   const rawMeetings = list(raw.meetings, 'meetings that are not a list');
   if (rawTasks.length + rawNotes.length + rawMeetings.length > MAX_RECORDS) bad('too many records');
   const priorities = unique(list(settings.priorities, 'priorities that are not a list').map(cleanPriority), 'priorities');
   const ctx = {
-    now, firstBoard: lists[0],
+    now, firstBoard: lists.find((l) => l.status === 'active'),
     boards: new Map(lists.map((l) => [l.id, l])),
     priorities: new Set(priorities.map((p) => p.id)),
   };

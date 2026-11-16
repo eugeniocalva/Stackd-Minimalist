@@ -41,6 +41,8 @@ const SHELL = [
   'src/ui/board.js',
   'src/ui/detail.js',
   'src/ui/addsheet.js',
+  'src/ui/addmenu.js',
+  'src/ui/gestures.js',
   'src/ui/icons.js',
   'src/ui/primitives.js',
   'src/ui/actions.js',
