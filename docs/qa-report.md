@@ -691,3 +691,34 @@ Not the QA walk and not the release gate; nothing deployed;
 - **Not covered by this review:** the iOS and Android shells with the
   secure-storage and biometric plugins, which are not chosen yet. They
   need their own review before the shells offer sign-in.
+
+## Security review: 2026-11-16, the fixes, before the TestFlight build
+
+- **Reviewed:** what changed on `release/1.6.0` after the full review above
+  (`25c6872`): `2797a23`, `a11b407`, `b285fe3` and `2d14d04`, plus the
+  README for 1.6.0. `VERSION` is unchanged (`stackd-v1.5.0`); this is a
+  test build, not the 1.6.0 release.
+- **How:** these commits are the review's own findings being fixed.
+  Each was read against the `/security-review` criteria when it was
+  written. Each comes with a test that fails without it: `sharing.mjs` and
+  `check-sync` for the space ids and held cards, `accounts.mjs` for the
+  subscriber id, `check-origins` for the origin list. The full multi-agent
+  run was not repeated.
+- **Result: no new finding.**
+  - *Server-made space ids.* The id comes from the server's CSPRNG
+    (`newId`), and the client's `boardId` is ignored. The app checks the
+    returned id against the id pattern before using it.
+  - *Origins.* The list only got shorter, plus `https://localhost`. That
+    origin is not exploitable for the same reason as before: the cookie is
+    `SameSite=Strict`, and the apps send a bearer token.
+  - *Held cards.* The held changes are the server's own answers, cleaned
+    by `cleanRemote` like every other change when they are applied. They
+    live only in the sync document of that space and go when the space
+    goes.
+  - *Subscriber id.* There is one more bound query, and its database
+    error path answers 500 without detail.
+- **What the build contains for testers:** the kanban, navigation and
+  board changes. Sign-in stays hidden in the apps until the
+  secure-storage plugin is chosen, so accounts, sync and shared boards
+  cannot be tried from this build. The Privacy and Terms links point to
+  `app.stackdplatform.com`, which is not deployed yet.
