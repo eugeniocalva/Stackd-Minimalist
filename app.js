@@ -24,7 +24,13 @@ import { meetingsHTML, bindMeetings } from './src/ui/meetings.js';
 import { meetingHTML, bindMeeting } from './src/ui/meeting.js';
 import { resumeJobs, setPlanErrorHandler, setTranscribedHandler } from './src/ai.js';
 import { fmtBytes } from './src/media.js';
-import { configure as configurePurchases } from './src/purchases.js';
+import { configure as configurePurchases, identify as identifyPurchases, anonymous as anonymousPurchases } from './src/purchases.js';
+import * as account from './src/account.js';
+import * as sync from './src/sync.js';
+import * as lock from './src/lock.js';
+import { lockHTML, bindLock } from './src/ui/lockscreen.js';
+import { startSync } from './src/ui/signin.js';
+import { purgeOld as purgeOldBackup } from './src/backup.js';
 import * as media from './src/media.js';
 import { isRecording, recordingMeetingId } from './src/ui/recorder.js';
 import { toast } from './src/ui/primitives.js';
@@ -74,6 +80,8 @@ function draw() {
   const focusAddsub = document.activeElement?.classList?.contains('addsub-input');
   const banner = moveBannerHTML();   // '' except on the old address
   if (!S.onboarded) { app.innerHTML = banner + onboardingHTML(); bindOnboarding(); bindMoveBanner(); return; }
+  /* a locked app shows the lock screen and nothing else (PRD-accounts AC-07.1) */
+  if (lock.locked()) { app.innerHTML = lockHTML(); bindLock(); return; }
 
   if (isDesktop.matches) {
     app.innerHTML = banner + desktopHTML();
@@ -112,7 +120,51 @@ function draw() {
 /* ── Boot ────────────────────────────────────────────────────────────── */
 
 setRenderer(render);
-setAfterCommit(syncReminders); // native: keep iOS pending reminders in step
+/* after every commit: native reminders in step, and sync within 2 s of an edit (AC-05.4) */
+setAfterCommit(() => { syncReminders(); sync.request('edit'); });
+
+/* Accounts (1.6.0). Signed out, none of this sends anything (AC-01.2). */
+account.init();
+lock.init();
+sync.setBlocked(() => lock.locked());
+purgeOldBackup();
+let wasLocked = lock.locked();
+lock.onLockChange((on) => {
+  document.querySelectorAll('.overlay').forEach((o) => { if (on) o.remove(); });   // open sheets close on lock
+  render();
+  if (wasLocked && !on) sync.request('unlock');
+  wasLocked = on;
+});
+sync.onPinRequired(() => lock.lock('pin_required'));
+/* the status line and dot follow sync, but a poll that changes nothing redraws nothing */
+let shownSync = '';
+sync.onState((s) => {
+  const key = s.state === 'syncing' && UI.screen !== 'settings' ? shownSync : `${s.state}|${s.pending}|${s.paused?.code || ''}`;
+  if (key === shownSync) return;
+  shownSync = key;
+  const a = document.activeElement;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
+  if (UI.screen === 'settings' || UI.screen === 'lists' || isDesktop.matches) rerender();
+});
+let signedInAs = account.current()?.userId || null;
+account.onChange((a) => {
+  const id = a?.userId || null;
+  if (id !== signedInAs) {
+    if (id) identifyPurchases(id); else anonymousPurchases(S.plan.subscriberId);
+    signedInAs = id;
+  }
+  rerender();
+});
+function syncSoon(reason) {
+  if (!account.signedIn()) return;
+  if (!sync.started()) { if (!lock.locked()) startSync(); return; }   // a first sync that never finished
+  sync.request(reason);
+}
+account.ready.then(() => syncSoon('boot'));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncSoon('focus'); });
+window.addEventListener('online', () => syncSoon('online'));
+setInterval(() => { if (document.visibilityState === 'visible') syncSoon('poll'); }, sync.POLL_MS);   // PRD-improvements AC-11.1
+['pointerdown', 'keydown'].forEach((t) => document.addEventListener(t, () => lock.touch(), { passive: true, capture: true }));
 setMediaRemover((keys) => keys.forEach((k) => media.remove(k).catch(() => {})));
 purgeDeleted();
 /* recordings on disk that no meeting references: a crash mid-recording left
@@ -127,7 +179,7 @@ if (media.available()) {
   })).catch(() => {});
 }
 resumeJobs();                                   // an AI job persisted before a reload was lost with the page
-configurePurchases(S.plan.subscriberId);        // native shells only; a no-op on the web
+configurePurchases(account.current()?.userId || S.plan.subscriberId);   // native shells only; a no-op on the web
 setTranscribedHandler((id) => {           // AC-04.8: offer to free the space once
   const m = meetingById(id);
   if (!m?.recording) return;
@@ -137,7 +189,7 @@ setPlanErrorHandler((code, { step, resetsAt }) => {
   if (code === 'plan_required') openPlanRequired({ step });
   else if (code === 'allowance_exhausted') openAllowanceUsed({ step, resetsAt });
 });
-document.addEventListener('resume', () => resumeJobs());   // Capacitor's foreground event
+document.addEventListener('resume', () => { resumeJobs(); syncSoon('resume'); });   // Capacitor's foreground event
 window.addEventListener('online', () => resumeJobs());
 
 /** Show a task, e.g. from a tapped reminder notification. */

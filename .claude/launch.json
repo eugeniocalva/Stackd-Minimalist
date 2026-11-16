@@ -44,6 +44,24 @@
       "port": 8787
     },
     {
+      "name": "proxy-accounts",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "proxy",
+        "run",
+        "dev",
+        "--",
+        "--config",
+        "wrangler.dev.toml",
+        "--port",
+        "8787",
+        "--ip",
+        "127.0.0.1"
+      ],
+      "port": 8787
+    },
+    {
       "name": "stackd-site",
       "runtimeExecutable": "node",
       "runtimeArgs": [

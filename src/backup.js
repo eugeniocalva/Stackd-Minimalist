@@ -251,6 +251,52 @@ export function cleanRecords(raw, now = Date.now()) {
   };
 }
 
+/** One record arriving by sync, cleaned like a record in a file (sync is
+    untrusted input too). `around`: the boards and priorities it is read
+    against. Throws an ImportError for a record that cannot be read. */
+export function cleanRemote(kind, data, { lists, priorities, now = Date.now() }) {
+  obj(data, 'a record that is not a record');
+  const ctx = {
+    now, firstBoard: lists.find((l) => (l.status ?? 'active') === 'active') || lists[0],
+    boards: new Map(lists.map((l) => [l.id, l])),
+    priorities: new Set(priorities.map((p) => p.id)),
+  };
+  if (kind === 'list') return cleanBoard(data, now);
+  if (kind === 'task') { if (!ctx.firstBoard) bad('a task with no board'); return cleanTask(data, 0, ctx); }
+  if (kind === 'note') return cleanNote(data, 0, ctx);
+  if (kind === 'meeting') return cleanMeeting(data, 0, ctx);
+  if (kind === 'settings') {
+    return {
+      dateFormat: isDateFormat(data.dateFormat) ? data.dateFormat : null,
+      priorities: unique(list(data.priorities, 'priorities that are not a list').map(cleanPriority), 'priorities'),
+      labels: tagsOf(data.labels),
+    };
+  }
+  return bad('an unknown kind');
+}
+
+/* ── The copy kept before a first sign-in (PRD-accounts AC-06.5) ─────── */
+
+export const BACKUP_KEY = 'stackd-v2-backup';
+export const BACKUP_DAYS = 30;
+
+/** Writes the slot before Merge or Use my account changes anything. */
+export function keep(reason, now = Date.now()) {
+  localStorage.setItem(BACKUP_KEY, JSON.stringify({ savedAt: now, reason, doc: exportDocument(now) }));
+}
+function slot() {
+  try { const v = JSON.parse(localStorage.getItem(BACKUP_KEY)); return isObj(v) && isObj(v.doc) ? v : null; } catch { return null; }
+}
+export function info(now = Date.now()) {
+  const v = slot();
+  if (!v || now - v.savedAt > BACKUP_DAYS * 86400_000) return null;
+  return { savedAt: v.savedAt, reason: v.reason, counts: countsOf(v.doc.records) };
+}
+export function purgeOld(now = Date.now()) { if (slot() && !info(now)) localStorage.removeItem(BACKUP_KEY); }
+/** The kept document's records (validated again), for the caller to install signed out. */
+export function backupRecords(now = Date.now()) { const v = slot(); return v ? readDocument(v.doc, now) : null; }
+export const dropBackup = () => localStorage.removeItem(BACKUP_KEY);
+
 /** The parsed file → clean records, or an ImportError. */
 export function readDocument(doc, now = Date.now()) {
   if (!isObj(doc) || doc.app !== FILE_APP || !Number.isInteger(doc.format)) {

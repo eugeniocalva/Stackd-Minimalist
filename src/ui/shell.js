@@ -8,6 +8,22 @@ import {
 import { bindHold } from './gestures.js';
 import { openAddMenu } from './addmenu.js';
 import { askRemoveBoard } from './actions.js';
+import * as account from '../account.js';
+import * as sync from '../sync.js';
+import { syncDot, ago } from './account.js';
+
+/* Who is here and how sync stands, for the menu and the sidebar (AC-05.8). */
+function accountLine() {
+  const a = account.current();
+  if (!a) return { who: 'On this device', sub: 'Not signed in · sync is off' };
+  const s = sync.state();
+  const sub = s.state === 'syncing' ? 'Syncing…'
+    : s.state === 'offline' ? (s.pending ? `Offline · ${s.pending} to sync` : 'Offline')
+    : s.state === 'paused' ? 'Sync paused'
+    : s.lastSyncAt ? `Synced ${ago(s.lastSyncAt)}` : 'Signed in';
+  return { who: a.email, sub };
+}
+const dotHTML = () => (syncDot() ? '<span class="sync-dot" aria-label="Changes waiting to sync"></span>' : '');
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import {
@@ -219,10 +235,11 @@ export function listsMenuHTML() {
         <div class="lrow" data-open-settings>
           <span class="lrow-icon">${icon('settings', 18)}</span>
           <span class="lname">Settings</span>
+          ${dotHTML()}
           ${icon('chevronRight', 18)}
         </div>
       </div>
-      <span class="hint">Synced 2 min ago · free account</span>
+      <span class="hint">${esc(accountLine().sub)}</span>
     </div>
   </div>`;
 }
@@ -327,10 +344,11 @@ export function desktopHTML() {
       <div class="side-item side-settings ${UI.screen === 'settings' ? 'active' : ''}" data-open-settings>
         ${icon('settings', 16)}
         <span class="name">Settings</span>
+        ${dotHTML()}
       </div>
       <div class="side-user">
-        <span class="who">Alex Rivera</span>
-        <span class="sub">Synced across 3 devices</span>
+        <span class="who">${esc(accountLine().who)}</span>
+        <span class="sub">${esc(accountLine().sub)}</span>
       </div>
     </aside>
     <main class="main">${main}</main>

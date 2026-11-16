@@ -499,3 +499,43 @@ before offering the phases for commit. `VERSION` is unchanged
 - **Left as it was, on purpose:** the main menu's "Synced 2 min ago · free
   account" line and the sidebar's sample user are placeholders from 1.0;
   phases 25 and 26 replace them with the real account and sync status.
+
+## Engineer's check: 2026-11-16, phases 24 to 28 (accounts, sync, plan, app lock)
+
+Not the QA walk and not the release gate. `VERSION` unchanged; nothing
+deployed; `/security-review` not run on these changes.
+
+- **Automated:** `npm run check` green with two new checks:
+  `check-sync.mjs` (canonical form, hash, wire forms without recording /
+  jobs / reminder state, diff and tombstones, the clock, the merge
+  decision, nothing sent while signed out; then the app's engine end to
+  end against the real Worker on `node:sqlite`, with a second device over
+  HTTP: upload, no echo, remote edit applied with its own `updatedAt`,
+  delete wins, a hostile note body sanitised) and `check-lock.mjs` (lock
+  timing, offline waits, the device verifier, the age boundary and its
+  24-hour refusal, offline unlock). `proxy` `npm test` green with
+  `test/accounts.mjs`: codes (wrong, expired, used, five tries, 60 s,
+  five an hour), identical answers for known and unknown emails, register
+  rules, cookie vs bearer, cookie without an allowed Origin refused,
+  lockout on every device, reset signs out the others, change and
+  `pin_required`, sync outcomes (older, deleted, clock clamp, paging,
+  limits), isolation between accounts, re-accept, tester flag, legacy
+  usage carried over, sign-out, 90-day idle, export, delete leaves
+  nothing, retention, and no email / PIN / code in any log line.
+- **In the browser preview, 375 px, against `wrangler dev` with a local
+  D1:** no request to the proxy while signed out; Create an account (age
+  with no default, email with the two links, code with the 60 s resend,
+  weak PIN refused, PIN twice); session cookie not readable by the page
+  and no token in storage; first sync uploaded 20 records; an edit synced
+  within the debounce; reload opens on "Stack'd is locked", a wrong PIN
+  says how many tries are left, the right one opens the app; sign out
+  with Keep a copy keeps the data and ends the session on the server;
+  signing in again with data on both sides shows Merge / Use my account
+  with counts, and Merge keeps the 30-day copy with its Restore row.
+- **Not verified:** no screenshots (the pane could not draw this
+  session), so layout and dark mode are unchecked; desktop width not
+  walked; both phones (no secure-storage or biometric plugin yet, so the
+  shells offer no sign-in); a real mail provider; two real browsers at
+  once; 500 / 500 / 50 records timing (AC-05.11); Remove from this
+  device and Delete account in the browser (covered by the proxy tests
+  and the code path only).

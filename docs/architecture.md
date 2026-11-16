@@ -2672,3 +2672,66 @@ counter. Limits: 10 members per space, 20 pending invitations per space,
 | `scripts/check-backup.mjs` (extended) | a board's status and dates survive export and import; a file with no active board is refused. |
 | `scripts/check-reminders.mjs` (extended) | no reminder is planned for a card on a non-active board. |
 | `scripts/check-shell.mjs` (unchanged) | fails until `gestures.js` and `addmenu.js` are in SHELL. |
+
+---
+
+## 45. As built: phases 24 to 28 (2026-11-16)
+
+Where the build departs from Part IV, and what it still waits for.
+
+**Departures**
+- *Hashes are hex `TEXT`, not `BLOB`* (`proxy/migrations/0001_accounts.sql`),
+  so a row reads the same in D1 and in the `node:sqlite` adapter the tests
+  use (`proxy/test/d1.mjs`).
+- *Register, sign-in and reset send the email with the ticket.* The ticket
+  row only knows the email's keyed hash; the server checks both agree.
+  The ticket survives a wrong PIN, so the user can try again or go on to
+  reset within its ten minutes; the PIN's own count of five still applies.
+- *A used code says so*: new error code `code_used` beside `code_wrong` and
+  `code_expired` (AC-02.6). A missing ticket is `ticket_expired`.
+- *Two paths into the sheet*: "Create an account" asks the age first
+  (AC-02.1); "I have an account" starts at the email (AC-04.1). After the
+  code, a new email on the sign-in path gets the age step before its PIN,
+  and a known email on the create path goes to "Enter your PIN". Only
+  `adult: true` is ever sent.
+- *Age boundary*: "younger than 18 on 1 January of this year" is read
+  strictly from the year alone: born in or before `year − 19`.
+- *An empty account takes the device's data, samples included*
+  (`mergePlan` has no `fresh` case). A second device with untouched
+  samples then downloads instead of adding its own, which is what AC-06.1
+  is for.
+- *Incoming records are cleaned like an imported file*: `backup.cleanRemote`
+  runs every pulled record through the import validators before
+  `store.applyRemote`, so a record written by another device (or anyone
+  holding the session) cannot carry markup or values the views do not
+  expect.
+- *Plan on the account*: `pool.getUsed` / `reserve` take the account's
+  legacy ids and add their usage this period; the charge goes to the
+  account's own pool. A tester account is flagged in `users.tester`.
+- *`X-Stackd-Client`* names the platform on every request (`web`, `ios`,
+  `android`); the session answer sets the cookie for `web` only.
+
+**Local development**: `proxy/wrangler.dev.toml` (never deployed: public
+placeholder peppers) with a local D1 file and the mail stub; launch
+configuration `proxy-accounts`; `GET /v1/dev/mail?to=` shows the stub's
+last message, served only with `DEV_MAIL=1` on localhost. Point the app at
+`http://localhost:8787` in Settings › Developer.
+
+**Still waiting**
+- *Owner*: the EU D1 database, the two peppers, the mail provider (only
+  the stub exists; `mailReady` is false otherwise and every account route
+  answers `misconfigured`), `TERMS_VERSION` / `PRIVACY_VERSION` /
+  `OWNER_FOOTER` in `[vars]` matching `src/legal.js`, then uncommenting
+  the D1 block and the cron trigger in `wrangler.toml`.
+- *Shells*: a secure-storage plugin for Capacitor 8 exposing
+  `get / set / remove` as `Capacitor.Plugins.SecureStorage`, and a
+  biometric plugin exposing `isAvailable / verify` as
+  `Capacitor.Plugins.Biometric`. Until both are chosen and added,
+  `secure.available()` is false in the shells and they offer no sign-in
+  ("Sign-in arrives in the next update"); the biometric switch is hidden.
+  `NSFaceIDUsageDescription` and `USE_BIOMETRIC` come with that plugin.
+- *Phase 29*: the rewritten `privacy.html` / `terms.html`,
+  `account-deletion.html`, renewal terms on every plan card.
+- *Not built*: PC biometrics through WebAuthn (Should), the "Do not sync
+  meetings" switch (Should), the "Recording is on the device that made
+  it" line on a meeting without its audio (AC-05.3).

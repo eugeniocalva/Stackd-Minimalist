@@ -1298,7 +1298,59 @@ export function purgeDeleted(now = Date.now()) {
   return removed;
 }
 
-/* ── Records in and out (1.6.0: the export file; sync from Phase 26) ──── */
+/* ── Records in and out (1.6.0: the export file and sync) ────────────── */
+
+/** Only the sample boards and tasks a fresh install shows, never changed:
+    such a device counts as empty on a first sign-in (PRD-accounts AC-06.1). */
+export function isUntouchedSeed(state = S) {
+  const s = seed();
+  const titles = new Set(s.tasks.map((t) => t.title));
+  const boards = new Set(s.lists.map((l) => l.id));
+  return !state.notes.length && !state.meetings.length && !state.labels.length
+    && state.lists.length === s.lists.length && state.lists.every((l) => boards.has(l.id) && (l.status ?? 'active') === 'active')
+    && state.tasks.length === s.tasks.length
+    && state.tasks.every((t) => titles.has(t.title) && t.status === 'active' && t.updatedAt === t.createdAt);
+}
+
+const KIND_LIST = { list: 'lists', task: 'tasks', note: 'notes', meeting: 'meetings' };
+
+/** Changes from another device (sync.js has cleaned them and put back what
+    this device owns). No touch(): a record keeps the updatedAt it arrived
+    with. A task whose schedule changed is re-armed; a meeting deleted
+    elsewhere takes its local recording with it. */
+export function applyRemote({ upserts = [], deletes = [] }) {
+  if (!upserts.length && !deletes.length) return;
+  const now = Date.now();
+  for (const { kind, record } of upserts) {
+    if (kind === 'settings') {
+      if (isDateFormat(record.dateFormat)) { S.dateFormat = record.dateFormat; setDefaultDateFormat(record.dateFormat); }
+      if (record.priorities?.length || !S.priorities.length) S.priorities = record.priorities;
+      S.labels = record.labels || [];
+      continue;
+    }
+    const arr = S[KIND_LIST[kind]]; if (!arr) continue;
+    const i = arr.findIndex((x) => x.id === record.id);
+    if (kind === 'task') {
+      const old = i === -1 ? null : arr[i];
+      if (!old || reminderKey(old) !== reminderKey(record)) armReminder(record, now);
+      doneOrigin.delete(record.id);
+    }
+    if (i === -1) arr.push(record); else arr[i] = record;
+  }
+  for (const { kind, id } of deletes) {
+    const key = KIND_LIST[kind]; if (!key) continue;
+    if (kind === 'meeting') dropMedia(S.meetings.filter((m) => m.id === id));
+    S[key] = S[key].filter((x) => x.id !== id);
+  }
+  if (!S.lists.length) S.lists.push({ id: uid(), name: 'Board', lanes: defaultLanes() });   // the app always has a board
+  withSettings(S);
+  const gone = (id) => !taskById(id) && !noteById(id) && !meetingById(id);
+  if (['detail', 'note', 'meeting'].includes(UI.screen) && gone(UI.detailId)) {
+    UI.screen = UI.screen === 'note' ? 'notes' : UI.screen === 'meeting' ? 'meetings' : 'list';
+    UI.detailId = null;
+  }
+  save(); renderer(); afterCommit();
+}
 
 /** A deep copy of what the person made: boards, tasks, notes, meetings and
     the settings that travel with them. Nothing that belongs to the device

@@ -19,6 +19,8 @@ import { bindScrollShadow } from './board.js';
 import { confirmDialog, openMenu } from './primitives.js';
 import { canImport, importFile } from '../backup.js';
 import { isLegacyOrigin } from '../legal.js';
+import { accountSectionHTML, bindAccountSection } from './account.js';
+import * as account from '../account.js';
 
 const THEME_LABEL = { light: 'Light', dark: 'Dark', system: 'System' };
 const THEME_ICON = { light: 'sun', dark: 'moon', system: 'monitor' };
@@ -26,7 +28,7 @@ const COLOR_NAME = { red: 'Red', amber: 'Amber', green: 'Green', blue: 'Blue', v
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
 
-/** section: 'appearance' | 'dates' | 'priorities' | 'labels' | 'plan' | 'ai' | 'data' | 'automations' */
+/** section: 'account' | 'appearance' | 'dates' | 'priorities' | 'labels' | 'plan' | 'ai' | 'data' | 'automations' */
 export function openSettings(section) {
   UI.screen = 'settings';
   rerender();
@@ -132,6 +134,8 @@ export function settingsHTML() {
       </div>
     </header>
     <div class="scroll-area">
+      ${accountSectionHTML()}
+
       <span class="section-title list-label" id="settings-appearance">Appearance</span>
       <div class="card list-card">
         <div class="set-row set-wrap">
@@ -186,6 +190,14 @@ export function settingsHTML() {
             <span class="set-sub set-long">${esc(DISCLOSURE)} Recordings, transcripts, minutes and actions stay on this device otherwise.</span>
           </div>
         </div>
+        ${account.signedIn() ? `
+        <div class="set-row">
+          <span class="lrow-icon">${icon('document', 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Plan account</span>
+            <span class="set-sub">${esc(account.current().email)}</span>
+          </div>
+        </div>` : `
         <div class="set-row set-wrap">
           <span class="lrow-icon">${icon('document', 18)}</span>
           <div class="set-text">
@@ -193,7 +205,7 @@ export function settingsHTML() {
             <span class="set-sub num">${esc(S.plan.subscriberId)}</span>
           </div>
           <button class="btn btn-sm btn-secondary" data-copy-sub>Copy</button>
-        </div>
+        </div>`}
         <div class="set-row set-wrap">
           <span class="lrow-icon">${icon('undo', 18)}</span>
           <div class="set-text">
@@ -267,6 +279,7 @@ function bindAdd(selector, add) {
 
 export function bindSettings() {
   bindScrollShadow();
+  bindAccountSection(app);
 
   app.querySelectorAll('[data-theme-opt]').forEach((b) =>
     b.addEventListener('click', () => setTheme(b.dataset.themeOpt)));

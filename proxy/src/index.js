@@ -9,6 +9,14 @@ import { summarise, SummariseError } from './summarise.js';
 import { toModelText, isTranscript } from './transcript.js';
 import { provider } from './stt/index.js';
 import { createJob, getJob, updateJob } from './jobs.js';
+import { AuthError, clock, later } from './auth/http.js';
+import { identify } from './auth/sessions.js';
+import { secretsReady } from './auth/crypto.js';
+import { mailReady, devLastMessage } from './mail/index.js';
+import { authRoute } from './auth/routes.js';
+import { accountRoute } from './account.js';
+import { syncRoute } from './sync.js';
+import { retention } from './retention.js';
 
 const SUB_ID = /^[a-z0-9]{8,64}$/;
 const MAX_TRANSCRIPT_CHARS = 300_000;
@@ -23,14 +31,23 @@ function corsHeaders(request, env) {
   const origin = request.headers.get('Origin');
   const h = {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Stackd-App, X-Stackd-Subscriber',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Stackd-App, X-Stackd-Subscriber, X-Stackd-Client, Authorization',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
-  /* the shells and curl send no Origin; the web app's must be on the list */
-  if (origin && origins(env).includes(origin)) h['Access-Control-Allow-Origin'] = origin;
+  /* the shells and curl send no Origin; the web app's must be on the list.
+     Credentials let the web app's session cookie travel (1.6.0). */
+  if (origin && origins(env).includes(origin)) {
+    h['Access-Control-Allow-Origin'] = origin;
+    h['Access-Control-Allow-Credentials'] = 'true';
+  }
   return h;
 }
+
+const ACCOUNT_ROUTE = /^\/v1\/(auth\/|account(\/|$)|sync(\/|$))/;
+
+/** Accounts need the database, both peppers, the document versions and mail. */
+const accountsReady = (env) => !!env.DB && secretsReady(env) && !!env.TERMS_VERSION && !!env.PRIVACY_VERSION && mailReady(env);
 
 const json = (body, status, headers) => new Response(JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers },
@@ -38,11 +55,15 @@ const json = (body, status, headers) => new Response(JSON.stringify(body), {
 const fail = (code, message, status, headers, extra = {}) => json({ ok: false, code, message, ...extra }, status, headers);
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const cors = corsHeaders(request, env);
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (url.pathname === '/v1/health') return json({ ok: true }, 200, cors);
+    /* local development of sign-in: read the stub's last message (never deployed: needs DEV_MAIL and localhost) */
+    if (url.pathname === '/v1/dev/mail' && env.DEV_MAIL === '1' && ['localhost', '127.0.0.1'].includes(url.hostname) && env.MAIL_PROVIDER === 'stub') {
+      return json({ ok: true, message: devLastMessage(env, String(url.searchParams.get('to') || '').toLowerCase()) }, 200, cors);
+    }
     /* RevenueCat's webhook carries its own Authorization value, not the app token */
     if (request.method === 'POST' && url.pathname === '/v1/rc-webhook') {
       const { status } = await webhook(request, env);
@@ -51,8 +72,43 @@ export default {
     if (request.headers.get('Origin') && !cors['Access-Control-Allow-Origin']) return fail('unauthorized', 'Origin not allowed.', 403, cors);
 
     if (!env.APP_TOKEN || request.headers.get('X-Stackd-App') !== env.APP_TOKEN) return fail('unauthorized', 'Unknown app.', 401, cors);
-    const sub = request.headers.get('X-Stackd-Subscriber') || '';
+
+    /* Who is asking (architecture §30): a session when the request carries
+       one, else the anonymous subscriber id of 1.5.0. A session ignores
+       X-Stackd-Subscriber for identity (AC-08.3). */
+    const now = clock(env);
+    const isAccountRoute = ACCOUNT_ROUTE.test(url.pathname);
+    let ident;
+    try {
+      if (isAccountRoute && !accountsReady(env)) throw new AuthError('misconfigured', 'Accounts are not set up on this server.', 503);
+      ident = await identify(request, env, now);
+      /* a cookie travels by itself, so a request carrying one must say where it comes from */
+      if (ident.kind === 'account' && ident.via === 'cookie' && !cors['Access-Control-Allow-Origin']) {
+        throw new AuthError('unauthorized', 'Origin required.', 403);
+      }
+      if (isAccountRoute) {
+        const route = { path: url.pathname, method: request.method, ident, now, cors };
+        const c = { later: (p) => later(ctx, p) };
+        if (url.pathname.startsWith('/v1/auth/')) return await authRoute(request, env, c, route);
+        if (url.pathname.startsWith('/v1/account')) return await accountRoute(request, env, c, route);
+        return await syncRoute(request, env, c, route);
+      }
+    } catch (e) {
+      if (e instanceof AuthError) return fail(e.code, e.message, e.status, cors, e.extra);
+      console.error('unhandled', e?.stack || e);
+      return fail('provider_unavailable', 'Something went wrong. Try again.', 500, cors);
+    }
+
+    const sub = ident.kind === 'account' ? ident.userId : request.headers.get('X-Stackd-Subscriber') || '';
     if (!SUB_ID.test(sub)) return fail('bad_request', 'Missing subscriber id.', 400, cors);
+    /* an account the owner flagged as tester in the database counts as if its
+       id were on the TESTERS list, so no tester's email is in this repository (AC-08.6) */
+    if (ident.kind === 'account' && ident.tester) env = { ...env, TESTERS: `${env.TESTERS || ''},${sub}` };
+    /* the device ids linked at sign-in: this period's usage under them still counts (AC-08.2) */
+    if (ident.kind === 'account') {
+      const { results } = await env.DB.prepare('SELECT subscriber_id FROM legacy_ids WHERE user_id = ?').bind(sub).all();
+      env = { ...env, LEGACY_IDS: results.map((r) => r.subscriber_id) };
+    }
 
     try {
       if (request.method === 'GET' && url.pathname === '/v1/allowance') return await handleAllowance(env, sub, cors);
@@ -67,13 +123,18 @@ export default {
       return fail('provider_unavailable', 'Something went wrong. Try again.', 500, cors);
     }
   },
+
+  /* the daily clean-up ([triggers] in wrangler.toml) */
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(retention(env, event?.scheduledTime || Date.now()));
+  },
 };
 
 async function currentAllowance(env, sub) {
   const ent = await resolve(env, sub);
   const tier = isTier(ent.tier) ? ent.tier : 'free';
   const key = periodKey(tier, ent.renewsAt);
-  const used = tier === 'free' ? { audioSeconds: 0, summaries: 0 } : await getUsed(env.POOL, sub, key);
+  const used = tier === 'free' ? { audioSeconds: 0, summaries: 0 } : await getUsed(env.POOL, sub, key, env.LEGACY_IDS);
   return { ent: { ...ent, tier }, key, allowance: allowance(tier, used, ent.renewsAt) };
 }
 
@@ -95,7 +156,7 @@ async function handleSummarise(request, env, sub, cors) {
 
   const { ent, key, allowance: before } = await currentAllowance(env, sub);
   if (ent.tier === 'free') return fail('plan_required', 'Summarising needs a plan.', 403, cors, { allowance: before });
-  const r = await reserve(env.POOL, sub, key, ent.tier, { summaries: 1 });
+  const r = await reserve(env.POOL, sub, key, ent.tier, { summaries: 1 }, env.LEGACY_IDS);
   if (!r.ok) {
     return fail('allowance_exhausted', "You've used this period's summaries.", 429, cors, { resetsAt: before.renewsAt, allowance: before });
   }
@@ -122,7 +183,7 @@ async function handleTranscribe(request, env, sub, cors) {
   const { ent, key, allowance: before } = await currentAllowance(env, sub);
   if (ent.tier === 'free') return fail('plan_required', 'Transcribing needs a plan.', 403, cors, { allowance: before });
   const reservedSeconds = Math.ceil(durationMs / 60000) * 60;     // charged by the minute, rounded up
-  const r = await reserve(env.POOL, sub, key, ent.tier, { audioSeconds: reservedSeconds });
+  const r = await reserve(env.POOL, sub, key, ent.tier, { audioSeconds: reservedSeconds }, env.LEGACY_IDS);
   if (!r.ok) return fail('allowance_exhausted', "You've used this period's audio minutes.", 429, cors, { resetsAt: before.renewsAt, allowance: before });
 
   let p, providerId;
@@ -157,7 +218,7 @@ async function handlePoll(jobId, env, sub, cors) {
     const result = { segments: r.segments, speakers: r.speakers || {} };
     await updateJob(env.POOL, { ...job, state: 'done', result });
     const { ent } = await currentAllowance(env, sub);
-    return json({ ok: true, state: 'done', transcript: result, allowance: allowance(ent.tier, await getUsed(env.POOL, sub, job.periodKey), ent.renewsAt) }, 200, cors);
+    return json({ ok: true, state: 'done', transcript: result, allowance: allowance(ent.tier, await getUsed(env.POOL, sub, job.periodKey, env.LEGACY_IDS), ent.renewsAt) }, 200, cors);
   }
   if (r.state === 'error') {
     await release(env.POOL, sub, job.periodKey, { audioSeconds: job.reservedSeconds });   // a failed step is not charged

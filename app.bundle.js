@@ -56,10 +56,10 @@
     while (next <= today) next = step(next);
     return next;
   }
-  function isOverdue(due, dueTime = null, now = /* @__PURE__ */ new Date()) {
+  function isOverdue(due, dueTime = null, now2 = /* @__PURE__ */ new Date()) {
     if (!due) return false;
     const end = dueTime ? /* @__PURE__ */ new Date(`${due}T${dueTime}:00`) : /* @__PURE__ */ new Date(`${due}T23:59:59`);
-    return now > end;
+    return now2 > end;
   }
   var DEFAULT_REMINDER_TIME = "09:00";
   function reminderInstant(due, dueTime, reminder) {
@@ -72,12 +72,12 @@
     }
     return d.getTime() - reminder * 6e4;
   }
-  function fmtDue(due, { full = false, dueTime = null, now = /* @__PURE__ */ new Date(), format = DEFAULT_FORMAT } = {}) {
+  function fmtDue(due, { full = false, dueTime = null, now: now2 = /* @__PURE__ */ new Date(), format = DEFAULT_FORMAT } = {}) {
     const d = parse(due);
-    const today = new Date(now);
+    const today = new Date(now2);
     today.setHours(0, 0, 0, 0);
     const days = Math.round((d - today) / 864e5);
-    const overdue = days < 0 || days === 0 && isOverdue(due, dueTime, now);
+    const overdue = days < 0 || days === 0 && isOverdue(due, dueTime, now2);
     const cls = overdue ? "tag-overdue" : days <= 3 ? "tag-soon" : "tag-neutral";
     let label;
     if (days < 0) label = "Overdue";
@@ -105,8 +105,8 @@
     const s = Math.max(0, Math.round(ms / 1e3)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
     return h ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
   }
-  function fmtRelative(ts, now = Date.now(), format = DEFAULT_FORMAT) {
-    const days = Math.floor((now - ts) / 864e5);
+  function fmtRelative(ts, now2 = Date.now(), format = DEFAULT_FORMAT) {
+    const days = Math.floor((now2 - ts) / 864e5);
     if (days <= 0) return "today";
     if (days === 1) return "yesterday";
     if (days < 7) return `${days} days ago`;
@@ -132,25 +132,25 @@
     if (format === "ymd") return `${y}-${m}-${day}`;
     return `${day}/${m}/${y}`;
   }
-  function fmtDateOrRelative(ts, format = DEFAULT_FORMAT, now = Date.now()) {
+  function fmtDateOrRelative(ts, format = DEFAULT_FORMAT, now2 = Date.now()) {
     const a = new Date(ts);
     a.setHours(0, 0, 0, 0);
-    const b = new Date(now);
+    const b = new Date(now2);
     b.setHours(0, 0, 0, 0);
     const days = Math.round((b - a) / 864e5);
     if (days === 0) return "Today";
     if (days === 1) return "Yesterday";
     return fmtDate(ts, format);
   }
-  function daysLeft(deletedAt, retentionDays, now = Date.now()) {
-    return Math.max(0, Math.ceil((deletedAt + retentionDays * 864e5 - now) / 864e5));
+  function daysLeft(deletedAt, retentionDays, now2 = Date.now()) {
+    return Math.max(0, Math.ceil((deletedAt + retentionDays * 864e5 - now2) / 864e5));
   }
   function monthGrid(year, month) {
     const first = new Date(year, month, 1);
     const lead = (first.getDay() + 6) % 7;
-    const start = new Date(year, month, 1 - lead);
+    const start2 = new Date(year, month, 1 - lead);
     return Array.from({ length: 42 }, (_, i) => {
-      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      const d = new Date(start2.getFullYear(), start2.getMonth(), start2.getDate() + i);
       return { iso: toISO(d), day: d.getDate(), inMonth: d.getMonth() === month };
     });
   }
@@ -199,14 +199,14 @@
       };
     }).filter(Boolean).sort((a, b) => a.fireAt - b.fireAt);
   }
-  var isTimely = (e, now) => now - e.fireAt <= WEB_GRACE_MS || !isOverdue(e.due, e.dueTime, new Date(now));
-  var phraseAt = (e, now) => now - e.fireAt > LATE_TEXT_MS ? now : e.fireAt;
+  var isTimely = (e, now2) => now2 - e.fireAt <= WEB_GRACE_MS || !isOverdue(e.due, e.dueTime, new Date(now2));
+  var phraseAt = (e, now2) => now2 - e.fireAt > LATE_TEXT_MS ? now2 : e.fireAt;
   var ledgerKey = (e) => `${e.taskId}:${e.fireAt}`;
-  function dueForWeb(plan, now, handled = {}) {
+  function dueForWeb(plan, now2, handled = {}) {
     const fire = [], lapse = [];
     for (const e of plan) {
-      if (e.fireAt > now || e.firedAt !== null || handled[ledgerKey(e)]) continue;
-      if (isTimely(e, now)) fire.push({ ...e, ...reminderText(e, e.board, phraseAt(e, now)) });
+      if (e.fireAt > now2 || e.firedAt !== null || handled[ledgerKey(e)]) continue;
+      if (isTimely(e, now2)) fire.push({ ...e, ...reminderText(e, e.board, phraseAt(e, now2)) });
       else lapse.push(e);
     }
     return { fire, lapse };
@@ -219,13 +219,13 @@
       body: names.length > 3 ? `${shown} and ${names.length - 3} more` : shown
     };
   }
-  function pruneLedger(ledger, now, maxAgeMs = 30 * 864e5) {
-    return Object.fromEntries(Object.entries(ledger).filter(([, at]) => now - at < maxAgeMs));
+  function pruneLedger(ledger, now2, maxAgeMs = 30 * 864e5) {
+    return Object.fromEntries(Object.entries(ledger).filter(([, at]) => now2 - at < maxAgeMs));
   }
-  var pastUnfired = (plan, now) => plan.filter((e) => e.firedAt === null && e.fireAt <= now);
-  function deliveredSince(record2, pendingTaskIds, tasks, now) {
+  var pastUnfired = (plan, now2) => plan.filter((e) => e.firedAt === null && e.fireAt <= now2);
+  function deliveredSince(record2, pendingTaskIds, tasks, now2) {
     const byId = new Map(tasks.map((t) => [t.id, t]));
-    return Object.entries(record2).filter(([taskId, r]) => r.fireAt <= now && !pendingTaskIds.has(taskId)).filter(([taskId, r]) => {
+    return Object.entries(record2).filter(([taskId, r]) => r.fireAt <= now2 && !pendingTaskIds.has(taskId)).filter(([taskId, r]) => {
       const t = byId.get(taskId);
       return t && t.reminderFiredAt == null && reminderKey(t) === r.key;
     }).map(([taskId, r]) => ({ taskId, fireAt: r.fireAt }));
@@ -239,9 +239,9 @@
     }
     return held;
   }
-  function nativePlan(plan, now, held = /* @__PURE__ */ new Map()) {
-    const isHeld = (e) => e.fireAt <= now && held.has(e.taskId);
-    const wanted = plan.filter((e) => e.firedAt === null && (e.fireAt > now || held.has(e.taskId) || isTimely(e, now))).slice(0, MAX_NATIVE);
+  function nativePlan(plan, now2, held = /* @__PURE__ */ new Map()) {
+    const isHeld = (e) => e.fireAt <= now2 && held.has(e.taskId);
+    const wanted = plan.filter((e) => e.firedAt === null && (e.fireAt > now2 || held.has(e.taskId) || isTimely(e, now2))).slice(0, MAX_NATIVE);
     const ids = /* @__PURE__ */ new Map();
     const used = /* @__PURE__ */ new Set();
     for (const e of wanted) {
@@ -260,7 +260,7 @@
     }
     return wanted.map((e) => {
       if (isHeld(e)) return { ...e, id: ids.get(e.taskId), sig: held.get(e.taskId).sig, held: true };
-      const text2 = e.fireAt <= now ? reminderText(e, e.board, phraseAt(e, now)) : {};
+      const text2 = e.fireAt <= now2 ? reminderText(e, e.board, phraseAt(e, now2)) : {};
       const out = { ...e, ...text2, id: ids.get(e.taskId) };
       return { ...out, sig: `${out.fireAt}|${out.title}|${out.body}` };
     });
@@ -272,8 +272,8 @@
     const schedule = allowSchedule ? desired.filter((e) => have.get(e.id) !== e.sig) : [];
     return { cancel, schedule };
   }
-  function nativeNotification(e, now) {
-    const floor = Number.isFinite(now) ? now + NATIVE_LEAD_MS : -Infinity;
+  function nativeNotification(e, now2) {
+    const floor = Number.isFinite(now2) ? now2 + NATIVE_LEAD_MS : -Infinity;
     return {
       id: e.id,
       title: e.title,
@@ -531,20 +531,20 @@
     const v2 = read(STORE_KEY);
     if (v2) return withSettings(v2);
     const v1 = read(LEGACY_KEY);
-    const state = withSettings(v1 ? upgradeV1(v1) : seed());
-    localStorage.setItem(STORE_KEY, JSON.stringify(state));
-    return state;
+    const state3 = withSettings(v1 ? upgradeV1(v1) : seed());
+    localStorage.setItem(STORE_KEY, JSON.stringify(state3));
+    return state3;
   }
-  function withSettings(state) {
-    state.theme ??= "system";
-    state.priorities ??= defaultPriorities();
-    state.labels ??= [];
-    state.notes ??= [];
-    state.notesSort ??= "created-desc";
-    if (state.sort === "due") state.sort = "due-asc";
-    else if (state.sort === "priority") state.sort = "priority-desc";
-    else if (!TASK_SORTS.some(([v]) => v === state.sort)) state.sort = "manual";
-    state.lists.forEach((l) => {
+  function withSettings(state3) {
+    state3.theme ??= "system";
+    state3.priorities ??= defaultPriorities();
+    state3.labels ??= [];
+    state3.notes ??= [];
+    state3.notesSort ??= "created-desc";
+    if (state3.sort === "due") state3.sort = "due-asc";
+    else if (state3.sort === "priority") state3.sort = "priority-desc";
+    else if (!TASK_SORTS.some(([v]) => v === state3.sort)) state3.sort = "manual";
+    state3.lists.forEach((l) => {
       l.lanes ??= defaultLanes();
       const i = l.lanes.findIndex((x) => x.id === DONE_LANE);
       if (i !== -1 && i !== l.lanes.length - 1) l.lanes.push(...l.lanes.splice(i, 1));
@@ -552,16 +552,16 @@
       l.archivedAt = l.status === "archived" ? l.archivedAt ?? Date.now() : null;
       l.deletedAt = l.status === "deleted" ? l.deletedAt ?? Date.now() : null;
     });
-    if (state.lists.length && !state.lists.some((l) => l.status === "active")) {
-      Object.assign(state.lists[0], { status: "active", archivedAt: null, deletedAt: null });
+    if (state3.lists.length && !state3.lists.some((l) => l.status === "active")) {
+      Object.assign(state3.lists[0], { status: "active", archivedAt: null, deletedAt: null });
     }
-    if (state.lists.length && state.lists.find((l) => l.id === state.currentList)?.status !== "active") {
-      state.currentList = state.lists.find((l) => l.status === "active").id;
+    if (state3.lists.length && state3.lists.find((l) => l.id === state3.currentList)?.status !== "active") {
+      state3.currentList = state3.lists.find((l) => l.status === "active").id;
     }
-    state.meetings ??= [];
-    if (!MEETINGS_SORTS.some(([v]) => v === state.meetingsSort)) state.meetingsSort = "created-desc";
-    state.ai = { proxyUrl: null, disclosed: false, consented: false, ...state.ai || {} };
-    state.plan = {
+    state3.meetings ??= [];
+    if (!MEETINGS_SORTS.some(([v]) => v === state3.meetingsSort)) state3.meetingsSort = "created-desc";
+    state3.ai = { proxyUrl: null, disclosed: false, consented: false, ...state3.ai || {} };
+    state3.plan = {
       tier: "free",
       subscriberId: uid() + uid(),
       renewsAt: null,
@@ -570,15 +570,15 @@
       summariesLeft: 0,
       summariesTotal: 0,
       checkedAt: 0,
-      ...state.plan || {}
+      ...state3.plan || {}
     };
-    if (!PLAN_TIERS.includes(state.plan.tier)) state.plan.tier = "free";
-    if (!isDateFormat(state.dateFormat)) state.dateFormat = defaultDateFormat();
-    setDefaultDateFormat(state.dateFormat);
-    return state;
+    if (!PLAN_TIERS.includes(state3.plan.tier)) state3.plan.tier = "free";
+    if (!isDateFormat(state3.dateFormat)) state3.dateFormat = defaultDateFormat();
+    setDefaultDateFormat(state3.dateFormat);
+    return state3;
   }
   function upgradeV1(v1) {
-    const now = Date.now();
+    const now2 = Date.now();
     return {
       ...v1,
       version: 2,
@@ -590,16 +590,16 @@
           ...t,
           dueTime: hasSchedule ? time2 : null,
           reminder: hasSchedule ? 0 : null,
-          createdAt: now,
-          updatedAt: now
+          createdAt: now2,
+          updatedAt: now2
         };
-        armReminder(task, now);
+        armReminder(task, now2);
         return task;
       })
     };
   }
   function blankTask(listId, title, extra = {}) {
-    const now = Date.now();
+    const now2 = Date.now();
     return {
       id: uid(),
       listId,
@@ -624,13 +624,13 @@
       origin: null,
       from: null,
       // { meetingId, actionId } when made from an action card (1.5.0)
-      createdAt: now,
-      updatedAt: now,
+      createdAt: now2,
+      updatedAt: now2,
       ...extra
     };
   }
   function blankNote(extra = {}) {
-    const now = Date.now();
+    const now2 = Date.now();
     return {
       id: uid(),
       order: 0,
@@ -642,18 +642,18 @@
       status: "active",
       archivedAt: null,
       deletedAt: null,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: now2,
+      updatedAt: now2,
       ...extra
     };
   }
   function blankMeeting(extra = {}) {
-    const now = Date.now();
+    const now2 = Date.now();
     return {
       id: uid(),
       title: "",
-      createdAt: now,
-      updatedAt: now,
+      createdAt: now2,
+      updatedAt: now2,
       recording: null,
       transcript: null,
       minutes: null,
@@ -739,9 +739,9 @@
   var taskById = (id) => S.tasks.find((t) => t.id === id);
   var isLive = (l) => !!l && (l.status ?? "active") === "active";
   var activeLists = () => S.lists.filter(isLive);
-  var folderBoards = (status) => {
-    const key = status === "archived" ? "archivedAt" : "deletedAt";
-    return S.lists.filter((l) => l.status === status).sort((a, b) => b[key] - a[key]);
+  var folderBoards = (status2) => {
+    const key = status2 === "archived" ? "archivedAt" : "deletedAt";
+    return S.lists.filter((l) => l.status === status2).sort((a, b) => b[key] - a[key]);
   };
   var boardCardCount = (listId) => S.tasks.filter((t) => t.listId === listId && t.status === "active").length;
   var active = () => {
@@ -751,9 +751,9 @@
   var tasksOf = (listId) => active().filter((t) => t.listId === listId);
   var openCount = (listId) => tasksOf(listId).filter((t) => !t.done).length;
   var isGone = (x) => x.status === "deleted" || x.listId !== void 0 && listById(x.listId)?.status === "deleted";
-  function folderTasks(status) {
-    const key = status === "archived" ? "archivedAt" : "deletedAt";
-    return S.tasks.filter((t) => t.status === status).sort((a, b) => b[key] - a[key]);
+  function folderTasks(status2) {
+    const key = status2 === "archived" ? "archivedAt" : "deletedAt";
+    return S.tasks.filter((t) => t.status === status2).sort((a, b) => b[key] - a[key]);
   }
   var tagged = () => [...S.tasks, ...S.notes].filter((x) => !isGone(x));
   var allTags = () => normalizeTags([...S.labels, ...tagged().flatMap((x) => x.tags)]);
@@ -776,9 +776,9 @@
   function noteTitle(n) {
     return n.title.trim() || toText(n.body).split("\n").find((l) => l.trim())?.trim() || (n.checklist || []).map((c) => c.text.trim()).find(Boolean) || "Untitled";
   }
-  function folderNotes(status) {
-    const key = status === "archived" ? "archivedAt" : "deletedAt";
-    return S.notes.filter((n) => n.status === status).sort((a, b) => b[key] - a[key]);
+  function folderNotes(status2) {
+    const key = status2 === "archived" ? "archivedAt" : "deletedAt";
+    return S.notes.filter((n) => n.status === status2).sort((a, b) => b[key] - a[key]);
   }
   var meetingById = (id) => S.meetings.find((m) => m.id === id);
   var activeMeetings = () => S.meetings.filter((m) => m.status === "active");
@@ -791,9 +791,9 @@
     }
     return ms;
   }
-  function folderMeetings(status) {
-    const key = status === "archived" ? "archivedAt" : "deletedAt";
-    return S.meetings.filter((m) => m.status === status).sort((a, b) => b[key] - a[key]);
+  function folderMeetings(status2) {
+    const key = status2 === "archived" ? "archivedAt" : "deletedAt";
+    return S.meetings.filter((m) => m.status === status2).sort((a, b) => b[key] - a[key]);
   }
   var actionCounts = (m) => ({
     proposed: m.actions.filter((a) => a.status === "proposed").length,
@@ -801,7 +801,7 @@
   });
   var minutesStale = (m) => !!(m.minutes && m.transcript && m.transcript.updatedAt > m.minutes.transcriptUpdatedAt);
   var meetingIsEmpty = (m) => !m.recording && !m.transcript && !m.title.trim();
-  var folderCount = (status) => folderTasks(status).length + folderNotes(status).length + folderMeetings(status).length + folderBoards(status).length;
+  var folderCount = (status2) => folderTasks(status2).length + folderNotes(status2).length + folderMeetings(status2).length + folderBoards(status2).length;
   var tagUseCounts = (name) => ({
     tasks: S.tasks.filter((t) => !isGone(t) && t.tags.some((x) => sameTag(x, name))).length,
     notes: S.notes.filter((n) => n.status !== "deleted" && n.tags.some((x) => sameTag(x, name))).length
@@ -953,15 +953,15 @@
       UI.screen = "notes";
     }
   };
-  function updateNote(id, patch) {
+  function updateNote(id, patch2) {
     const n = noteById(id);
     if (!n || n.status !== "active") return;
-    if (patch.title !== void 0) n.title = String(patch.title);
-    if (patch.body !== void 0) n.body = sanitize(patch.body);
-    if (patch.color !== void 0) n.color = NOTE_COLORS.includes(patch.color) ? patch.color : null;
-    if (patch.tags !== void 0) n.tags = normalizeTags(patch.tags);
-    if (patch.checklist !== void 0) {
-      n.checklist = patch.checklist === null ? null : patch.checklist.map((c) => ({ id: c.id || uid(), text: String(c.text ?? ""), done: !!c.done }));
+    if (patch2.title !== void 0) n.title = String(patch2.title);
+    if (patch2.body !== void 0) n.body = sanitize(patch2.body);
+    if (patch2.color !== void 0) n.color = NOTE_COLORS.includes(patch2.color) ? patch2.color : null;
+    if (patch2.tags !== void 0) n.tags = normalizeTags(patch2.tags);
+    if (patch2.checklist !== void 0) {
+      n.checklist = patch2.checklist === null ? null : patch2.checklist.map((c) => ({ id: c.id || uid(), text: String(c.text ?? ""), done: !!c.done }));
     }
     touchNote(n);
     persistQuiet();
@@ -1102,10 +1102,10 @@
     commit();
     return m;
   }
-  function updateMeeting(id, patch) {
+  function updateMeeting(id, patch2) {
     const m = meetingById(id);
     if (!m || m.status !== "active") return;
-    if (patch.title !== void 0) m.title = String(patch.title);
+    if (patch2.title !== void 0) m.title = String(patch2.title);
     touchMeeting(m);
     persistQuiet();
   }
@@ -1125,14 +1125,14 @@
   function setTranscript(id, { source, fileName = null, segments, speakers }) {
     const m = meetingById(id);
     if (!m || m.status !== "active") return;
-    const now = Date.now();
+    const now2 = Date.now();
     m.transcript = {
       source,
       fileName,
       segments: segments.map((s) => ({ id: s.id || uid(), speaker: s.speaker, startMs: s.startMs ?? null, text: String(s.text ?? "").trim() })).filter((s) => s.text),
       speakers: { ...speakers },
-      createdAt: now,
-      updatedAt: now
+      createdAt: now2,
+      updatedAt: now2
     };
     m.minutes = null;
     m.actions = m.actions.filter((a) => a.status === "added");
@@ -1153,12 +1153,12 @@
   function setMinutes(id, minutes, actions = []) {
     const m = meetingById(id);
     if (!m || !m.transcript) return;
-    const now = Date.now();
+    const now2 = Date.now();
     m.minutes = {
       summary: String(minutes?.summary ?? "").trim(),
       decisions: (minutes?.decisions || []).map((x) => String(x).trim()).filter(Boolean),
       openQuestions: (minutes?.openQuestions || []).map((x) => String(x).trim()).filter(Boolean),
-      generatedAt: now,
+      generatedAt: now2,
       transcriptUpdatedAt: m.transcript.updatedAt
     };
     m.actions = [
@@ -1177,20 +1177,20 @@
     touchMeeting(m);
     commit();
   }
-  function editMinutes(id, patch) {
+  function editMinutes(id, patch2) {
     const m = meetingById(id);
     if (!m?.minutes || m.status !== "active") return;
-    if (patch.summary !== void 0) m.minutes.summary = String(patch.summary);
-    if (patch.decisions !== void 0) m.minutes.decisions = patch.decisions.map((x) => String(x));
-    if (patch.openQuestions !== void 0) m.minutes.openQuestions = patch.openQuestions.map((x) => String(x));
+    if (patch2.summary !== void 0) m.minutes.summary = String(patch2.summary);
+    if (patch2.decisions !== void 0) m.minutes.decisions = patch2.decisions.map((x) => String(x));
+    if (patch2.openQuestions !== void 0) m.minutes.openQuestions = patch2.openQuestions.map((x) => String(x));
     touchMeeting(m);
     persistQuiet();
   }
-  function setJobState(id, patch) {
+  function setJobState(id, patch2) {
     const m = meetingById(id);
     if (!m) return;
-    if (patch.jobs !== void 0) m.jobs = patch.jobs;
-    if (patch.lastError !== void 0) m.lastError = patch.lastError;
+    if (patch2.jobs !== void 0) m.jobs = patch2.jobs;
+    if (patch2.lastError !== void 0) m.lastError = patch2.lastError;
     commit();
   }
   function setPlanCache(a) {
@@ -1230,13 +1230,13 @@
     commit();
   }
   var actionOf = (m, actionId) => m?.actions.find((a) => a.id === actionId);
-  function editAction(id, actionId, patch) {
+  function editAction(id, actionId, patch2) {
     const m = meetingById(id);
     const a = actionOf(m, actionId);
     if (!a || a.status !== "proposed") return;
-    if (patch.title !== void 0) a.title = String(patch.title);
-    if (patch.due !== void 0) a.due = patch.due || null;
-    if (patch.priority !== void 0) a.priority = priorityById(patch.priority) ? patch.priority : "none";
+    if (patch2.title !== void 0) a.title = String(patch2.title);
+    if (patch2.due !== void 0) a.due = patch2.due || null;
+    if (patch2.priority !== void 0) a.priority = priorityById(patch2.priority) ? patch2.priority : "none";
     touchMeeting(m);
     persistQuiet();
   }
@@ -1250,11 +1250,11 @@
     commit();
     return prev;
   }
-  function restoreAction(id, actionId, status = "proposed") {
+  function restoreAction(id, actionId, status2 = "proposed") {
     const m = meetingById(id);
     const a = actionOf(m, actionId);
     if (!a || a.status !== "dismissed") return;
-    a.status = status === "added" && a.taskId ? "added" : "proposed";
+    a.status = status2 === "added" && a.taskId ? "added" : "proposed";
     touchMeeting(m);
     commit();
   }
@@ -1351,30 +1351,30 @@
     touch(t);
     commit();
   }
-  function armReminder(t, now = Date.now()) {
+  function armReminder(t, now2 = Date.now()) {
     const at = reminderInstant(t.due, t.dueTime, t.reminder);
-    t.reminderFiredAt = at !== null && at <= now ? now : null;
+    t.reminderFiredAt = at !== null && at <= now2 ? now2 : null;
   }
   function markReminderFired(id, at = Date.now()) {
     const t = taskById(id);
     if (t) t.reminderFiredAt = at;
     try {
-      const doc = JSON.parse(localStorage.getItem(STORE_KEY));
-      const stored = doc?.tasks?.find((x) => x.id === id);
+      const doc2 = JSON.parse(localStorage.getItem(STORE_KEY));
+      const stored = doc2?.tasks?.find((x) => x.id === id);
       if (stored && stored.reminderFiredAt !== at) {
         stored.reminderFiredAt = at;
-        localStorage.setItem(STORE_KEY, JSON.stringify(doc));
+        localStorage.setItem(STORE_KEY, JSON.stringify(doc2));
       }
     } catch {
     }
   }
-  function setSchedule(id, { start = null, due = null, dueTime = null, recur = "none", reminder = null }) {
+  function setSchedule(id, { start: start2 = null, due = null, dueTime = null, recur = "none", reminder = null }) {
     const t = taskById(id);
     if (!t) return;
     const before = reminderKey(t);
     t.due = due || null;
     t.dueTime = t.due ? dueTime || null : null;
-    t.start = start && (!t.due || start <= t.due) ? start : null;
+    t.start = start2 && (!t.due || start2 <= t.due) ? start2 : null;
     t.recur = t.due ? recur : "none";
     t.reminder = t.due ? reminder : null;
     if (reminderKey(t) !== before) armReminder(t);
@@ -1479,14 +1479,14 @@
     commit();
   }
   var canRemoveList = (id) => activeLists().some((l) => l.id !== id);
-  function binList(id, status) {
+  function binList(id, status2) {
     const l = listById(id);
-    if (!l || l.status === status || isLive(l) && !canRemoveList(id)) return null;
+    if (!l || l.status === status2 || isLive(l) && !canRemoveList(id)) return null;
     const prev = { status: l.status ?? "active", archivedAt: l.archivedAt ?? null };
-    const now = Date.now();
-    l.status = status;
-    l.archivedAt = status === "archived" ? now : null;
-    l.deletedAt = status === "deleted" ? now : null;
+    const now2 = Date.now();
+    l.status = status2;
+    l.archivedAt = status2 === "archived" ? now2 : null;
+    l.deletedAt = status2 === "deleted" ? now2 : null;
     if (S.currentList === id) S.currentList = activeLists()[0].id;
     if (UI.screen === "detail" && taskById(UI.detailId)?.listId === id) {
       UI.detailId = null;
@@ -1704,17 +1704,65 @@
     S.meetings = S.meetings.filter((m) => m.status !== "deleted");
     commit();
   }
-  function purgeDeleted(now = Date.now()) {
-    const keep = (x) => x.status !== "deleted" || now - x.deletedAt < RETENTION_MS;
+  function purgeDeleted(now2 = Date.now()) {
+    const keep2 = (x) => x.status !== "deleted" || now2 - x.deletedAt < RETENTION_MS;
     const before = S.tasks.length + S.notes.length + S.meetings.length + S.lists.length;
-    S.lists.filter((l) => !keep(l)).forEach((l) => dropList(l.id));
-    S.tasks = S.tasks.filter(keep);
-    S.notes = S.notes.filter(keep);
-    dropMedia(S.meetings.filter((m) => !keep(m)));
-    S.meetings = S.meetings.filter(keep);
+    S.lists.filter((l) => !keep2(l)).forEach((l) => dropList(l.id));
+    S.tasks = S.tasks.filter(keep2);
+    S.notes = S.notes.filter(keep2);
+    dropMedia(S.meetings.filter((m) => !keep2(m)));
+    S.meetings = S.meetings.filter(keep2);
     const removed = before - S.tasks.length - S.notes.length - S.meetings.length - S.lists.length;
     if (removed) save();
     return removed;
+  }
+  function isUntouchedSeed(state3 = S) {
+    const s = seed();
+    const titles = new Set(s.tasks.map((t) => t.title));
+    const boards = new Set(s.lists.map((l) => l.id));
+    return !state3.notes.length && !state3.meetings.length && !state3.labels.length && state3.lists.length === s.lists.length && state3.lists.every((l) => boards.has(l.id) && (l.status ?? "active") === "active") && state3.tasks.length === s.tasks.length && state3.tasks.every((t) => titles.has(t.title) && t.status === "active" && t.updatedAt === t.createdAt);
+  }
+  var KIND_LIST = { list: "lists", task: "tasks", note: "notes", meeting: "meetings" };
+  function applyRemote({ upserts = [], deletes = [] }) {
+    if (!upserts.length && !deletes.length) return;
+    const now2 = Date.now();
+    for (const { kind, record: record2 } of upserts) {
+      if (kind === "settings") {
+        if (isDateFormat(record2.dateFormat)) {
+          S.dateFormat = record2.dateFormat;
+          setDefaultDateFormat(record2.dateFormat);
+        }
+        if (record2.priorities?.length || !S.priorities.length) S.priorities = record2.priorities;
+        S.labels = record2.labels || [];
+        continue;
+      }
+      const arr = S[KIND_LIST[kind]];
+      if (!arr) continue;
+      const i = arr.findIndex((x) => x.id === record2.id);
+      if (kind === "task") {
+        const old = i === -1 ? null : arr[i];
+        if (!old || reminderKey(old) !== reminderKey(record2)) armReminder(record2, now2);
+        doneOrigin.delete(record2.id);
+      }
+      if (i === -1) arr.push(record2);
+      else arr[i] = record2;
+    }
+    for (const { kind, id } of deletes) {
+      const key = KIND_LIST[kind];
+      if (!key) continue;
+      if (kind === "meeting") dropMedia(S.meetings.filter((m) => m.id === id));
+      S[key] = S[key].filter((x) => x.id !== id);
+    }
+    if (!S.lists.length) S.lists.push({ id: uid(), name: "Board", lanes: defaultLanes() });
+    withSettings(S);
+    const gone = (id) => !taskById(id) && !noteById(id) && !meetingById(id);
+    if (["detail", "note", "meeting"].includes(UI.screen) && gone(UI.detailId)) {
+      UI.screen = UI.screen === "note" ? "notes" : UI.screen === "meeting" ? "meetings" : "list";
+      UI.detailId = null;
+    }
+    save();
+    renderer();
+    afterCommit();
   }
   function exportRecords() {
     return JSON.parse(JSON.stringify({
@@ -1725,7 +1773,7 @@
       settings: { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels }
     }));
   }
-  function replaceRecords({ lists, tasks, notes, meetings, settings }) {
+  function replaceRecords({ lists, tasks, notes, meetings, settings: settings2 }) {
     const before = {
       lists: S.lists,
       tasks: S.tasks,
@@ -1737,11 +1785,11 @@
       currentList: S.currentList
     };
     const mine = new Map(S.meetings.map((m) => [m.id, m]));
-    const now = Date.now();
+    const now2 = Date.now();
     S.lists = lists;
     S.tasks = tasks;
     S.tasks.forEach((t) => {
-      if (t.reminderFiredAt === null) armReminder(t, now);
+      if (t.reminderFiredAt === null) armReminder(t, now2);
     });
     S.notes = notes;
     S.meetings = meetings.map((m) => {
@@ -1753,9 +1801,9 @@
         lastError: local?.lastError ?? null
       };
     });
-    if (isDateFormat(settings.dateFormat)) S.dateFormat = settings.dateFormat;
-    S.priorities = settings.priorities;
-    S.labels = settings.labels;
+    if (isDateFormat(settings2.dateFormat)) S.dateFormat = settings2.dateFormat;
+    S.priorities = settings2.priorities;
+    S.labels = settings2.labels;
     withSettings(S);
     if (!isLive(listById(S.currentList))) S.currentList = activeLists()[0].id;
     doneOrigin.clear();
@@ -1817,9 +1865,9 @@
       } catch {
         done2();
       }
-    }).then((state) => {
-      if (state === "granted") checkNow();
-      return state;
+    }).then((state3) => {
+      if (state3 === "granted") checkNow();
+      return state3;
     });
   }
   var openTaskFn = () => {
@@ -1843,21 +1891,21 @@
     if (isNative() || checking || reminderPermission() !== "granted") return;
     checking = true;
     try {
-      const doc = readJSON(STORE_KEY) || S;
-      const now = Date.now();
-      const ledger = pruneLedger(readJSON(LEDGER_KEY) || {}, now);
+      const doc2 = readJSON(STORE_KEY) || S;
+      const now2 = Date.now();
+      const ledger = pruneLedger(readJSON(LEDGER_KEY) || {}, now2);
       const handled = { ...ledger };
-      for (const k of handledHere) handled[k] = now;
-      const { fire, lapse } = dueForWeb(planReminders(doc.tasks || [], doc.lists || []), now, handled);
+      for (const k of handledHere) handled[k] = now2;
+      const { fire, lapse } = dueForWeb(planReminders(doc2.tasks || [], doc2.lists || []), now2, handled);
       if (!fire.length && !lapse.length) return;
       for (const e of [...fire, ...lapse]) {
         handledHere.add(ledgerKey(e));
-        ledger[ledgerKey(e)] = now;
-        markReminderFired(e.taskId, now);
+        ledger[ledgerKey(e)] = now2;
+        markReminderFired(e.taskId, now2);
       }
       writeJSON(LEDGER_KEY, ledger);
       if (fire.length >= SUMMARY_AT) {
-        await show({ ...summaryText(fire), tag: `reminders:${now}`, taskId: fire[0].taskId });
+        await show({ ...summaryText(fire), tag: `reminders:${now2}`, taskId: fire[0].taskId });
       } else {
         for (const e of fire) await show({ title: e.title, body: e.body, tag: `reminder:${ledgerKey(e)}`, taskId: e.taskId });
       }
@@ -1887,7 +1935,7 @@
   }
   function startWebClock() {
     if (typeof Notification === "undefined" || reminderPermission() === "file") return;
-    const run = () => {
+    const run2 = () => {
       checkNow();
       setInterval(checkNow, CHECK_MS);
       document.addEventListener("visibilitychange", () => {
@@ -1897,8 +1945,8 @@
       addEventListener("pageshow", checkNow);
     };
     if (navigator.locks?.request) {
-      navigator.locks.request("stackd-reminder-clock", () => new Promise(() => run())).catch(run);
-    } else run();
+      navigator.locks.request("stackd-reminder-clock", () => new Promise(() => run2())).catch(run2);
+    } else run2();
   }
   var syncing = null;
   var dirty = false;
@@ -1928,16 +1976,16 @@
     const pending = (await ln.getPending())?.notifications || [];
     const record2 = readJSON(SCHEDULED_KEY) || {};
     const pendingByTask = new Map(pending.filter((p) => p.extra?.taskId).map((p) => [p.extra.taskId, p]));
-    let now = Date.now();
-    for (const d of deliveredSince(record2, new Set(pendingByTask.keys()), S.tasks, now)) markReminderFired(d.taskId, d.fireAt);
+    let now2 = Date.now();
+    for (const d of deliveredSince(record2, new Set(pendingByTask.keys()), S.tasks, now2)) markReminderFired(d.taskId, d.fireAt);
     let plan = planReminders(S.tasks, S.lists);
     const held = heldRequests(plan, pendingByTask, record2);
-    for (const e of pastUnfired(plan, now)) {
-      if (!held.has(e.taskId) && !isTimely(e, now)) markReminderFired(e.taskId, now);
+    for (const e of pastUnfired(plan, now2)) {
+      if (!held.has(e.taskId) && !isTimely(e, now2)) markReminderFired(e.taskId, now2);
     }
-    now = Date.now();
+    now2 = Date.now();
     plan = planReminders(S.tasks, S.lists);
-    const desired = nativePlan(plan, now, held);
+    const desired = nativePlan(plan, now2, held);
     const { cancel, schedule } = diffNative(desired, pending, { allowSchedule: granted });
     if (cancel.length) await ln.cancel({ notifications: cancel.map((id) => ({ id })) });
     if (schedule.length) await ln.schedule({ notifications: schedule.map((e) => nativeNotification(e, Date.now())) });
@@ -2265,12 +2313,12 @@
   var toastEl = null;
   var toastTimer = null;
   var TOAST_FADE_MS = 250;
-  function dismissToast({ now = false } = {}) {
+  function dismissToast({ now: now2 = false } = {}) {
     clearTimeout(toastTimer);
     const el = toastEl;
     toastEl = null;
     if (!el) return;
-    if (now) {
+    if (now2) {
       el.remove();
       return;
     }
@@ -2286,24 +2334,24 @@
     el.innerHTML = `<span class="toast-msg">${esc(message)}</span>${action ? `<button class="toast-action">${esc(action.label)}</button>` : ""}`;
     document.body.appendChild(el);
     toastEl = el;
-    let remaining = ms, started = Date.now();
-    const start = () => {
-      started = Date.now();
+    let remaining = ms, started2 = Date.now();
+    const start2 = () => {
+      started2 = Date.now();
       clearTimeout(toastTimer);
       toastTimer = setTimeout(() => dismissToast(), remaining);
     };
     const pause = () => {
       clearTimeout(toastTimer);
-      remaining = Math.max(1500, remaining - (Date.now() - started));
+      remaining = Math.max(1500, remaining - (Date.now() - started2));
     };
     el.addEventListener("pointerdown", pause);
-    el.addEventListener("pointerup", start);
-    el.addEventListener("pointercancel", start);
+    el.addEventListener("pointerup", start2);
+    el.addEventListener("pointercancel", start2);
     if (action) el.querySelector(".toast-action").addEventListener("click", () => {
       dismissToast();
       action.onClick();
     });
-    start();
+    start2();
   }
   function pinToViewport(ov) {
     const vv = window.visualViewport;
@@ -2569,20 +2617,20 @@
       }).join("");
     }
     function syncFields() {
-      const set = (sel, prop, val) => {
+      const set2 = (sel, prop, val) => {
         const el = q(sel);
         if (prop === "value" && el === document.activeElement) return;
         if (el[prop] !== val) el[prop] = val;
       };
-      set('[data-on="start"]', "checked", !!d.start);
-      set('[data-on="due"]', "checked", !!d.due);
-      set('[data-f="start"]', "value", d.start || "");
-      set('[data-f="due"]', "value", d.due || "");
-      set('[data-f="dueTime"]', "value", d.dueTime || "");
-      set('[data-f="recur"]', "value", d.recur);
-      set('[data-f="reminder"]', "value", d.reminder === null ? "" : String(d.reminder));
-      set('[data-f="start"]', "disabled", !d.start);
-      for (const f of ["due", "dueTime", "recur", "reminder"]) set(`[data-f="${f}"]`, "disabled", !d.due);
+      set2('[data-on="start"]', "checked", !!d.start);
+      set2('[data-on="due"]', "checked", !!d.due);
+      set2('[data-f="start"]', "value", d.start || "");
+      set2('[data-f="due"]', "value", d.due || "");
+      set2('[data-f="dueTime"]', "value", d.dueTime || "");
+      set2('[data-f="recur"]', "value", d.recur);
+      set2('[data-f="reminder"]', "value", d.reminder === null ? "" : String(d.reminder));
+      set2('[data-f="start"]', "disabled", !d.start);
+      for (const f of ["due", "dueTime", "recur", "reminder"]) set2(`[data-f="${f}"]`, "disabled", !d.due);
       sheet2.querySelectorAll("[data-row]").forEach((r) => r.classList.toggle("armed", r.dataset.row === armed2));
       if (invalid()) q("[data-hint]").innerHTML = '<span class="error">Start must be on or before the due date</span>';
       else q("[data-hint]").textContent = reminderHint(d, done2);
@@ -2651,8 +2699,8 @@
         const at = d.due ? reminderInstant(d.due, d.dueTime, d.reminder) : null;
         const willFire = at !== null && at > Date.now() && !done2;
         if (willFire && reminderPermission() === "default") {
-          requestReminderPermission().then((state) => {
-            if (state === "denied") toast("Notifications are blocked, so this reminder will not show");
+          requestReminderPermission().then((state3) => {
+            if (state3 === "denied") toast("Notifications are blocked, so this reminder will not show");
           });
         }
         close();
@@ -3053,20 +3101,20 @@
     const db = await open();
     const tx = db.transaction([RECS, CHUNKS], "readwrite");
     const recs = tx.objectStore(RECS);
-    const row = await result(recs.get(key));
-    if (!row) throw new Error("recording row missing");
-    tx.objectStore(CHUNKS).put({ key, i: row.chunks, blob: chunk });
-    recs.put({ ...row, chunks: row.chunks + 1, sizeBytes: row.sizeBytes + chunk.size, durationMs, updatedAt: Date.now() });
+    const row2 = await result(recs.get(key));
+    if (!row2) throw new Error("recording row missing");
+    tx.objectStore(CHUNKS).put({ key, i: row2.chunks, blob: chunk });
+    recs.put({ ...row2, chunks: row2.chunks + 1, sizeBytes: row2.sizeBytes + chunk.size, durationMs, updatedAt: Date.now() });
     await done(tx);
-    return { chunks: row.chunks + 1, sizeBytes: row.sizeBytes + chunk.size };
+    return { chunks: row2.chunks + 1, sizeBytes: row2.sizeBytes + chunk.size };
   }
   async function finish(key, durationMs) {
     const db = await open();
     const tx = db.transaction(RECS, "readwrite");
-    const row = await result(tx.objectStore(RECS).get(key));
-    if (row) tx.objectStore(RECS).put({ ...row, durationMs, updatedAt: Date.now() });
+    const row2 = await result(tx.objectStore(RECS).get(key));
+    if (row2) tx.objectStore(RECS).put({ ...row2, durationMs, updatedAt: Date.now() });
     await done(tx);
-    return row ? { ...row, durationMs } : null;
+    return row2 ? { ...row2, durationMs } : null;
   }
   async function list() {
     const db = await open();
@@ -3075,11 +3123,11 @@
   async function blob(key) {
     const db = await open();
     const tx = db.transaction([RECS, CHUNKS]);
-    const row = await result(tx.objectStore(RECS).get(key));
-    if (!row) return null;
+    const row2 = await result(tx.objectStore(RECS).get(key));
+    if (!row2) return null;
     const rows = await result(tx.objectStore(CHUNKS).getAll(range(key)));
     rows.sort((a, b) => a.i - b.i);
-    return new Blob(rows.map((r) => r.blob), { type: row.mimeType });
+    return new Blob(rows.map((r) => r.blob), { type: row2.mimeType });
   }
   async function remove(key) {
     if (!available()) return;
@@ -3090,8 +3138,8 @@
     await done(tx);
   }
   async function orphans(referenced) {
-    const keep = new Set(referenced);
-    return (await list()).filter((r) => !keep.has(r.key));
+    const keep2 = new Set(referenced);
+    return (await list()).filter((r) => !keep2.has(r.key));
   }
   var persisted = null;
   async function persist() {
@@ -3113,6 +3161,67 @@
     }
   }
   var fmtBytes = (n) => n >= 1024 * 1024 ? `${Math.round(n / 1024 / 1024 * 10) / 10} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+
+  // src/net.js
+  var TIMEOUT_MS = 2e4;
+  var client = () => {
+    const p = globalThis.Capacitor?.isNativePlatform?.() ? globalThis.Capacitor.getPlatform?.() : "web";
+    return p === "ios" || p === "android" ? p : "web";
+  };
+  var bearer = null;
+  function setBearer(t) {
+    bearer = t || null;
+  }
+  function authHeaders() {
+    const h = { "X-Stackd-Client": client() };
+    if (bearer) h.Authorization = `Bearer ${bearer}`;
+    return h;
+  }
+  var fetchImpl = (...args) => globalThis.fetch(...args);
+  var signedOutHandlers = /* @__PURE__ */ new Set();
+  function onSignedOut(fn) {
+    signedOutHandlers.add(fn);
+  }
+  function signedOut() {
+    signedOutHandlers.forEach((fn) => fn());
+  }
+  async function request(path, { method = "GET", body, signal, timeout = TIMEOUT_MS, raw = false } = {}) {
+    const ctl = new AbortController();
+    const timer2 = setTimeout(() => ctl.abort(), timeout);
+    signal?.addEventListener("abort", () => ctl.abort());
+    let res;
+    try {
+      res = await fetchImpl(proxyUrl() + path, {
+        method,
+        headers: { "X-Stackd-App": APP_TOKEN, ...authHeaders(), ...body === void 0 ? {} : { "Content-Type": "application/json" } },
+        body: body === void 0 ? void 0 : JSON.stringify(body),
+        credentials: "include",
+        signal: ctl.signal
+      });
+    } catch (e) {
+      clearTimeout(timer2);
+      const err = new Error(e?.name === "AbortError" ? "That took too long. Try again." : "No connection. Try again when you are back online.");
+      err.code = e?.name === "AbortError" ? "timeout" : "offline";
+      throw err;
+    }
+    clearTimeout(timer2);
+    if (res.status === 204) return { ok: true };
+    if (raw && res.ok) return res;
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+    }
+    if (!res.ok || data?.ok === false) {
+      const { ok, message, code, ...extra } = data || {};
+      const err = Object.assign(new Error(message || `The service answered ${res.status}.`), extra);
+      err.code = code || "provider_unavailable";
+      err.status = res.status;
+      if (err.code === "signed_out") signedOut();
+      throw err;
+    }
+    return data;
+  }
 
   // src/ai.js
   var STEPS = ["transcribe", "summarise"];
@@ -3149,10 +3258,11 @@
     if (!isOnline()) return { code: "offline", message: MESSAGES.offline };
     return { code: "provider_unavailable", message: MESSAGES.provider_unavailable };
   }
-  var fetchImpl = (...args) => globalThis.fetch(...args);
+  var fetchImpl2 = (...args) => globalThis.fetch(...args);
   var uploadImpl = (url, formData, { headers, onProgress, signal }) => new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
+    xhr.withCredentials = true;
     Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
     xhr.responseType = "text";
     xhr.upload.onprogress = (e) => {
@@ -3165,12 +3275,13 @@
     xhr.send(formData);
   });
   var blobImpl = (key) => blob(key);
-  var headersFor = () => ({ "X-Stackd-App": APP_TOKEN, "X-Stackd-Subscriber": S.plan.subscriberId });
+  var headersFor = () => ({ "X-Stackd-App": APP_TOKEN, "X-Stackd-Subscriber": S.plan.subscriberId, ...authHeaders() });
   async function call(path, { method = "GET", body, signal } = {}) {
-    const res = await fetchImpl(proxyUrl() + path, {
+    const res = await fetchImpl2(proxyUrl() + path, {
       method,
-      headers: { "Content-Type": "application/json", "X-Stackd-App": APP_TOKEN, "X-Stackd-Subscriber": S.plan.subscriberId },
+      headers: { "Content-Type": "application/json", ...headersFor() },
       body: body === void 0 ? void 0 : JSON.stringify(body),
+      credentials: "include",
       signal
     });
     let data = null;
@@ -3183,6 +3294,7 @@
       const err = new Error(data?.message || `The service answered ${res.status}.`);
       err.code = data?.code || (res.status === 401 ? "unauthorized" : "provider_unavailable");
       err.resetsAt = data?.resetsAt ?? null;
+      if (err.code === "signed_out") signedOut();
       throw err;
     }
     return data;
@@ -3220,22 +3332,22 @@
     onPlanError = fn;
   }
   var isRunning = (meetingId, step) => inflight.has(`${meetingId}:${step}`);
-  function apply(meetingId, patch) {
-    if (patch) setJobState(meetingId, patch);
+  function apply(meetingId, patch2) {
+    if (patch2) setJobState(meetingId, patch2);
   }
   async function summarise(meetingId) {
     const m = meetingById(meetingId);
     const key = `${meetingId}:summarise`;
     if (!m || m.status !== "active" || !m.transcript || inflight.has(key)) return;
-    const now = Date.now();
+    const now2 = Date.now();
     if (!isOnline()) {
-      apply(meetingId, reduce(m, { type: "error", step: "summarise", code: "offline", message: MESSAGES.offline, at: now }));
+      apply(meetingId, reduce(m, { type: "error", step: "summarise", code: "offline", message: MESSAGES.offline, at: now2 }));
       return;
     }
     const ac = new AbortController();
     inflight.set(key, ac);
-    const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
-    apply(meetingId, reduce(m, { type: "start", step: "summarise", id: uid(), at: now }));
+    const timer2 = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
+    apply(meetingId, reduce(m, { type: "start", step: "summarise", id: uid(), at: now2 }));
     try {
       const t = m.transcript;
       const data = await call("/v1/summarise", {
@@ -3264,7 +3376,7 @@
       settle();
     }
     function settle() {
-      clearTimeout(timer);
+      clearTimeout(timer2);
       inflight.delete(key);
     }
   }
@@ -3274,15 +3386,15 @@
     const m = meetingById(meetingId);
     const key = `${meetingId}:transcribe`;
     if (!m || m.status !== "active" || !m.recording || inflight.has(key)) return;
-    const now = Date.now();
+    const now2 = Date.now();
     if (!isOnline()) {
-      apply(meetingId, reduce(m, { type: "error", step: "transcribe", code: "offline", message: MESSAGES.offline, at: now }));
+      apply(meetingId, reduce(m, { type: "error", step: "transcribe", code: "offline", message: MESSAGES.offline, at: now2 }));
       return;
     }
     const ac = new AbortController();
     inflight.set(key, ac);
     progress.set(meetingId, { pct: 0, onProgress });
-    apply(meetingId, reduce(m, { type: "start", step: "transcribe", id: uid(), at: now, phase: "upload" }));
+    apply(meetingId, reduce(m, { type: "start", step: "transcribe", id: uid(), at: now2, phase: "upload" }));
     try {
       const blob2 = await blobImpl(m.recording.key);
       if (!blob2 || !blob2.size) throw Object.assign(new Error("The recording is missing from this device."), { code: "invalid_audio" });
@@ -3392,12 +3504,12 @@
     await call("/v1/allowance");
     return S.plan;
   }
-  function resumeJobs(now = Date.now()) {
+  function resumeJobs(now2 = Date.now()) {
     S.meetings.forEach((m) => {
-      const running = STEPS.filter((s) => inflight.has(`${m.id}:${s}`) || inflight.has(`${m.id}:${s}:poll`));
-      apply(m.id, reduce(m, { type: "resume", inflight: running, at: now }));
+      const running2 = STEPS.filter((s) => inflight.has(`${m.id}:${s}`) || inflight.has(`${m.id}:${s}:poll`));
+      apply(m.id, reduce(m, { type: "resume", inflight: running2, at: now2 }));
       const t = m.jobs?.transcribe;
-      if (t && t.phase === "wait" && /^job_/.test(t.id || "") && !running.includes("transcribe") && isOnline()) pollTranscription(m.id, t.id);
+      if (t && t.phase === "wait" && /^job_/.test(t.id || "") && !running2.includes("transcribe") && isOnline()) pollTranscription(m.id, t.id);
     });
   }
 
@@ -3419,6 +3531,25 @@
       console.warn("purchases: configure failed", e?.message || e);
     }
     return configured;
+  }
+  async function identify(userId) {
+    if (!configured) return;
+    try {
+      await plugin3().logIn({ appUserID: userId });
+      await plugin3().syncPurchases();
+      offeringsCache = null;
+    } catch (e) {
+      console.warn("purchases: identify failed", e?.message || e);
+    }
+  }
+  async function anonymous(subscriberId) {
+    if (!configured) return;
+    try {
+      await plugin3().logIn({ appUserID: subscriberId });
+      offeringsCache = null;
+    } catch (e) {
+      console.warn("purchases: anonymous failed", e?.message || e);
+    }
   }
   async function offerings({ force = false } = {}) {
     if (!configured) return {};
@@ -3475,6 +3606,8 @@
   var TERMS_URL = `${APP_ORIGIN}/terms.html`;
   var PRIVACY_URL = `${APP_ORIGIN}/privacy.html`;
   var DELETION_URL = `${APP_ORIGIN}/account-deletion.html`;
+  var TERMS_VERSION = "2026-10-20";
+  var PRIVACY_VERSION = "2026-10-20";
   function isLegacyOrigin(host = globalThis.location?.hostname || "") {
     return /(^|\.)github\.io$/i.test(host);
   }
@@ -3494,10 +3627,10 @@
     return { locked: false, hint: `${fmtDuration(p.audioSecondsLeft * 1e3)} of audio left` };
   }
   var prices = {};
-  function cardHTML(tier, current) {
+  function cardHTML(tier, current2) {
     const price = prices[tier] || PLAN_PRICES[tier];
-    const isCurrent = current === tier;
-    const action = !available2() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : `<button type="button" class="btn ${current === "free" || current === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current === "free" || current === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current) ? "Upgrade" : "Switch"}</button>`;
+    const isCurrent = current2 === tier;
+    const action = !available2() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : `<button type="button" class="btn ${current2 === "free" || current2 === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current2 === "free" || current2 === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current2) ? "Upgrade" : "Switch"}</button>`;
     return `
   <div class="plan-card ${isCurrent ? "is-current" : ""}">
     <div class="plan-head">
@@ -3516,18 +3649,18 @@
   </div>`;
   function planSectionHTML() {
     const p = S.plan;
-    const current = p.tier;
-    const paid = PAID_TIERS.includes(current);
-    const status = !p.checkedAt ? "Not checked yet" : current === "free" ? "Free · the AI steps need a plan" : current === "tester" ? "Tester · allowance resets daily" : `Renews ${p.renewsAt ? fmtDate(p.renewsAt, S.dateFormat) : "monthly"}`;
-    const bars = p.checkedAt && current !== "free" ? `
+    const current2 = p.tier;
+    const paid = PAID_TIERS.includes(current2);
+    const status2 = !p.checkedAt ? "Not checked yet" : current2 === "free" ? "Free · the AI steps need a plan" : current2 === "tester" ? "Tester · allowance resets daily" : `Renews ${p.renewsAt ? fmtDate(p.renewsAt, S.dateFormat) : "monthly"}`;
+    const bars = p.checkedAt && current2 !== "free" ? `
     ${bar("Audio", p.audioSecondsLeft, p.audioSecondsTotal, `${fmtDuration(p.audioSecondsLeft * 1e3)} of ${fmtDuration(p.audioSecondsTotal * 1e3)}`)}
     ${bar("Summaries", p.summariesLeft, p.summariesTotal, `${p.summariesLeft} of ${p.summariesTotal}`)}` : "";
     return `
   <span class="section-title list-label" id="settings-plan">Plan</span>
   <div class="card plan-current">
     <div class="plan-head">
-      <span class="plan-name">${planName(current)}</span>
-      <span class="hint">${esc(status)}</span>
+      <span class="plan-name">${planName(current2)}</span>
+      <span class="hint">${esc(status2)}</span>
     </div>
     ${bars}
     <div class="plan-actions">
@@ -3537,7 +3670,7 @@
     </div>
   </div>
   <div class="plan-cards">
-    ${PAID_TIERS.map((t) => cardHTML(t, current)).join("")}
+    ${PAID_TIERS.map((t) => cardHTML(t, current2)).join("")}
   </div>
   <p class="hint set-hint">${available2() ? "Monthly subscriptions renew automatically until cancelled in your store account. The allowance resets on the renewal date; unused minutes and summaries do not carry over." : "Subscribe in the Stack’d app on iPhone or Android; the plan then applies there. Monthly subscriptions renew until cancelled."}
     <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>`;
@@ -3670,11 +3803,11 @@
   var DISCLOSURE = "The transcript, with the speaker names you gave, is sent to our server and to an AI model provider to write the minutes and find the actions. Nothing is kept there after the result comes back, and nothing is sent until you press this button.";
   function summariseCtaHTML(m) {
     if (!m.transcript) return "";
-    const running = m.jobs?.summarise || isRunning(m.id, "summarise");
+    const running2 = m.jobs?.summarise || isRunning(m.id, "summarise");
     const err = m.lastError?.step === "summarise" ? m.lastError : null;
     const offline = !isOnline();
     const stale = minutesStale(m);
-    if (running) {
+    if (running2) {
       return `
     <div class="cta cta-running" role="status" aria-live="polite">
       <span class="spin" aria-hidden="true"></span>
@@ -3682,7 +3815,7 @@
       <span class="hint">keeps going if you leave this screen</span>
     </div>`;
     }
-    const state = aiButtonState("summarise");
+    const state3 = aiButtonState("summarise");
     const planErr = err && (err.code === "plan_required" || err.code === "allowance_exhausted");
     const label = err && !planErr ? "Retry" : m.minutes ? "Regenerate" : "Summarise into minutes and actions";
     return `
@@ -3690,10 +3823,10 @@
     ${err && !planErr ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
     ${err?.code === "allowance_exhausted" ? `<div class="notice"><span>${esc(err.message)}</span><button type="button" class="btn btn-sm btn-ghost" data-plan-sheet="allowance_exhausted">Upgrade</button></div>` : ""}
     <span class="cta-row">
-      <button type="button" class="btn ${m.minutes ? "btn-secondary" : "btn-primary"} ${state.locked ? "is-locked" : ""}" data-summarise ${offline ? "disabled" : ""} ${state.locked ? 'data-locked="1"' : ""}>
-        ${icon(state.locked ? "lock" : "sparkle", 18)}${label}
+      <button type="button" class="btn ${m.minutes ? "btn-secondary" : "btn-primary"} ${state3.locked ? "is-locked" : ""}" data-summarise ${offline ? "disabled" : ""} ${state3.locked ? 'data-locked="1"' : ""}>
+        ${icon(state3.locked ? "lock" : "sparkle", 18)}${label}
       </button>
-      ${state.hint ? `<span class="hint cta-hint">${esc(state.hint)}</span>` : ""}
+      ${state3.hint ? `<span class="hint cta-hint">${esc(state3.hint)}</span>` : ""}
     </span>
     ${stale && m.minutes ? '<span class="tag tag-soon">Transcript edited since</span>' : ""}
     ${offline ? '<span class="hint">Needs a connection</span>' : ""}
@@ -3728,12 +3861,12 @@
   var generatedLine = (mm) => `Generated by AI · ${fmtDate(mm.generatedAt, S.dateFormat)} ${fmtClock(mm.generatedAt)} · check before you rely on it.`;
   function sectionHTML(key, title, value, { readOnly, list: list3 }) {
     const text2 = list3 ? value.join("\n") : value;
-    const empty = !text2.trim();
+    const empty2 = !text2.trim();
     if (readOnly) {
       return `
     <div class="min-section">
       <span class="section-title">${title}</span>
-      ${empty ? '<p class="min-empty">None noted</p>' : list3 ? `<ul class="min-list">${value.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="min-text">${esc(text2)}</p>`}
+      ${empty2 ? '<p class="min-empty">None noted</p>' : list3 ? `<ul class="min-list">${value.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="min-text">${esc(text2)}</p>`}
     </div>`;
     }
     return `
@@ -3774,12 +3907,12 @@
       }
     });
     if (readOnly) return;
-    let timer = null;
+    let timer2 = null;
     const pending = {};
     const flush = () => {
-      if (!timer) return;
-      clearTimeout(timer);
-      timer = null;
+      if (!timer2) return;
+      clearTimeout(timer2);
+      timer2 = null;
       editMinutes(m.id, { ...pending });
       Object.keys(pending).forEach((k) => delete pending[k]);
     };
@@ -3789,8 +3922,8 @@
         grow(ta);
         const key = ta.dataset.min;
         pending[key] = key === "summary" ? ta.value : ta.value.split("\n").map((s) => s.trim()).filter(Boolean);
-        clearTimeout(timer);
-        timer = setTimeout(flush, 500);
+        clearTimeout(timer2);
+        timer2 = setTimeout(flush, 500);
       });
       ta.addEventListener("blur", flush);
     });
@@ -3818,14 +3951,14 @@
     }
   }
   var countsOf = (r) => ({ boards: r.lists.length, tasks: r.tasks.length, notes: r.notes.length, meetings: r.meetings.length });
-  function exportDocument(now = Date.now()) {
+  function exportDocument(now2 = Date.now()) {
     const records = exportRecords();
     records.meetings = records.meetings.map(({ recording, jobs, lastError, ...m }) => m);
-    return { app: FILE_APP, format: FILE_FORMAT, exportedAt: now, records };
+    return { app: FILE_APP, format: FILE_FORMAT, exportedAt: now2, records };
   }
-  var exportFileName = (now = Date.now()) => `stackd-export-${toISO(new Date(now))}.json`;
-  function exportFile(now = Date.now()) {
-    return new Blob([JSON.stringify(exportDocument(now))], { type: "application/json" });
+  var exportFileName = (now2 = Date.now()) => `stackd-export-${toISO(new Date(now2))}.json`;
+  function exportFile(now2 = Date.now()) {
+    return new Blob([JSON.stringify(exportDocument(now2))], { type: "application/json" });
   }
   var ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
   var SPEAKER = /^[A-Za-z0-9][\w .-]{0,39}$/;
@@ -3860,24 +3993,24 @@
     });
     return items;
   }
-  function lifecycle(r, now) {
-    const status = pick(r.status, STATUSES, "active");
+  function lifecycle(r, now2) {
+    const status2 = pick(r.status, STATUSES, "active");
     return {
-      status,
-      archivedAt: status === "archived" ? time(r.archivedAt) ?? now : null,
-      deletedAt: status === "deleted" ? time(r.deletedAt) ?? now : null
+      status: status2,
+      archivedAt: status2 === "archived" ? time(r.archivedAt) ?? now2 : null,
+      deletedAt: status2 === "deleted" ? time(r.deletedAt) ?? now2 : null
       // never null: purgeDeleted() would drop it at once
     };
   }
-  function stamps(r, now) {
-    const createdAt = time(r.createdAt) ?? now;
+  function stamps(r, now2) {
+    const createdAt = time(r.createdAt) ?? now2;
     return { createdAt, updatedAt: Math.max(createdAt, time(r.updatedAt) ?? createdAt) };
   }
   var checkItems = (v, field, what) => list2(v, what).map((c) => {
     obj(c, what);
     return { id: idOf(c.id, what), [field]: text(c[field]), done: flag(c.done) };
   });
-  function cleanBoard(r, now) {
+  function cleanBoard(r, now2) {
     obj(r, "a board that is not a record");
     let lanes = unique(list2(r.lanes, "lanes that are not a list").map((l) => {
       obj(l, "a lane that is not a record");
@@ -3887,7 +4020,7 @@
     if (!lanes.some((l) => l.id === DONE_LANE)) lanes.push({ id: DONE_LANE, name: "Done" });
     if (lanes.length === 1) lanes.unshift({ id: "backlog", name: "Backlog" });
     lanes = [...lanes.filter((l) => l.id !== DONE_LANE), lanes.find((l) => l.id === DONE_LANE)];
-    return { id: idOf(r.id, "a board"), name: text(r.name, 80).trim() || "Board", lanes, ...lifecycle(r, now) };
+    return { id: idOf(r.id, "a board"), name: text(r.name, 80).trim() || "Board", lanes, ...lifecycle(r, now2) };
   }
   function cleanPriority(r) {
     obj(r, "a priority that is not a record");
@@ -3900,7 +4033,7 @@
     const board = ctx.boards.get(r.listId) || ctx.firstBoard;
     const lane = board.lanes.some((l) => l.id === r.lane) ? r.lane : (board.lanes.find((l) => l.id !== DONE_LANE) || board.lanes[0]).id;
     const due = date(r.due);
-    const start = date(r.start);
+    const start2 = date(r.start);
     const o = r.origin;
     const origin = isObj(o) && typeof o.listId === "string" && ID.test(o.listId) ? { listId: o.listId, lane: typeof o.lane === "string" && ID.test(o.lane) ? o.lane : lane, order: num(o.order, 0) } : null;
     const f = r.from;
@@ -3916,7 +4049,7 @@
       priority: ctx.priorities.has(r.priority) ? r.priority : "none",
       tags: tagsOf(r.tags),
       subtasks: checkItems(r.subtasks, "title", "a subtask"),
-      start: start && (!due || start <= due) ? start : null,
+      start: start2 && (!due || start2 <= due) ? start2 : null,
       due,
       dueTime: due && typeof r.dueTime === "string" && HHMM.test(r.dueTime) ? r.dueTime : null,
       recur: due ? pick(r.recur, RECURS, "none") : "none",
@@ -3944,7 +4077,7 @@
       ...stamps(r, ctx.now)
     };
   }
-  function cleanTranscript(r, now) {
+  function cleanTranscript(r, now2) {
     const speakers = {};
     Object.entries(isObj(r.speakers) ? r.speakers : {}).forEach(([label, name]) => {
       if (!SPEAKER.test(label)) bad("a speaker label");
@@ -3961,7 +4094,7 @@
       fileName: typeof r.fileName === "string" && r.fileName ? r.fileName.slice(0, 200) : null,
       segments,
       speakers,
-      ...stamps(r, now)
+      ...stamps(r, now2)
     };
   }
   var lines = (v) => list2(v, "minutes that are not a list").filter((x) => typeof x === "string").map((x) => x.slice(0, 4e3));
@@ -4002,18 +4135,18 @@
       ...lifecycle(r, ctx.now)
     };
   }
-  function cleanRecords(raw, now = Date.now()) {
+  function cleanRecords(raw, now2 = Date.now()) {
     obj(raw, "no records");
-    const settings = obj(raw.settings, "no settings");
-    const lists = unique(list2(raw.lists, "boards that are not a list").map((r) => cleanBoard(r, now)), "boards");
+    const settings2 = obj(raw.settings, "no settings");
+    const lists = unique(list2(raw.lists, "boards that are not a list").map((r) => cleanBoard(r, now2)), "boards");
     if (!lists.some((l) => l.status === "active")) bad("no boards");
     const rawTasks = list2(raw.tasks, "tasks that are not a list");
     const rawNotes = list2(raw.notes, "notes that are not a list");
     const rawMeetings = list2(raw.meetings, "meetings that are not a list");
     if (rawTasks.length + rawNotes.length + rawMeetings.length > MAX_RECORDS) bad("too many records");
-    const priorities = unique(list2(settings.priorities, "priorities that are not a list").map(cleanPriority), "priorities");
+    const priorities = unique(list2(settings2.priorities, "priorities that are not a list").map(cleanPriority), "priorities");
     const ctx = {
-      now,
+      now: now2,
       firstBoard: lists.find((l) => l.status === "active"),
       boards: new Map(lists.map((l) => [l.id, l])),
       priorities: new Set(priorities.map((p) => p.id))
@@ -4024,32 +4157,82 @@
       notes: unique(rawNotes.map((r, i) => cleanNote(r, i, ctx)), "notes"),
       meetings: unique(rawMeetings.map((r, i) => cleanMeeting(r, i, ctx)), "meetings"),
       settings: {
-        dateFormat: isDateFormat(settings.dateFormat) ? settings.dateFormat : null,
+        dateFormat: isDateFormat(settings2.dateFormat) ? settings2.dateFormat : null,
         // null: keep this device's
         priorities,
-        labels: tagsOf(settings.labels)
+        labels: tagsOf(settings2.labels)
       }
     };
   }
-  function readDocument(doc, now = Date.now()) {
-    if (!isObj(doc) || doc.app !== FILE_APP || !Number.isInteger(doc.format)) {
+  function cleanRemote(kind, data, { lists, priorities, now: now2 = Date.now() }) {
+    obj(data, "a record that is not a record");
+    const ctx = {
+      now: now2,
+      firstBoard: lists.find((l) => (l.status ?? "active") === "active") || lists[0],
+      boards: new Map(lists.map((l) => [l.id, l])),
+      priorities: new Set(priorities.map((p) => p.id))
+    };
+    if (kind === "list") return cleanBoard(data, now2);
+    if (kind === "task") {
+      if (!ctx.firstBoard) bad("a task with no board");
+      return cleanTask(data, 0, ctx);
+    }
+    if (kind === "note") return cleanNote(data, 0, ctx);
+    if (kind === "meeting") return cleanMeeting(data, 0, ctx);
+    if (kind === "settings") {
+      return {
+        dateFormat: isDateFormat(data.dateFormat) ? data.dateFormat : null,
+        priorities: unique(list2(data.priorities, "priorities that are not a list").map(cleanPriority), "priorities"),
+        labels: tagsOf(data.labels)
+      };
+    }
+    return bad("an unknown kind");
+  }
+  var BACKUP_KEY = "stackd-v2-backup";
+  var BACKUP_DAYS = 30;
+  function keep(reason2, now2 = Date.now()) {
+    localStorage.setItem(BACKUP_KEY, JSON.stringify({ savedAt: now2, reason: reason2, doc: exportDocument(now2) }));
+  }
+  function slot() {
+    try {
+      const v = JSON.parse(localStorage.getItem(BACKUP_KEY));
+      return isObj(v) && isObj(v.doc) ? v : null;
+    } catch {
+      return null;
+    }
+  }
+  function info(now2 = Date.now()) {
+    const v = slot();
+    if (!v || now2 - v.savedAt > BACKUP_DAYS * 864e5) return null;
+    return { savedAt: v.savedAt, reason: v.reason, counts: countsOf(v.doc.records) };
+  }
+  function purgeOld(now2 = Date.now()) {
+    if (slot() && !info(now2)) localStorage.removeItem(BACKUP_KEY);
+  }
+  function backupRecords(now2 = Date.now()) {
+    const v = slot();
+    return v ? readDocument(v.doc, now2) : null;
+  }
+  var dropBackup = () => localStorage.removeItem(BACKUP_KEY);
+  function readDocument(doc2, now2 = Date.now()) {
+    if (!isObj(doc2) || doc2.app !== FILE_APP || !Number.isInteger(doc2.format)) {
       throw new ImportError("not_stackd", "This is not a Stack'd file.");
     }
-    if (doc.format > FILE_FORMAT) {
+    if (doc2.format > FILE_FORMAT) {
       throw new ImportError("newer", "This file comes from a newer version of Stack'd. Update the app, then import it.");
     }
-    return cleanRecords(doc.records, now);
+    return cleanRecords(doc2.records, now2);
   }
   async function importFile(file, { confirm } = {}) {
     if (!canImport()) throw new ImportError("signed_in", "Sign out on this device before importing a file.");
     if (file.size > MAX_FILE_BYTES) throw new ImportError("too_large", "This file is too large to import.");
-    let doc;
+    let doc2;
     try {
-      doc = JSON.parse(await file.text());
+      doc2 = JSON.parse(await file.text());
     } catch {
       throw new ImportError("not_stackd", "This is not a Stack'd file.");
     }
-    const records = readDocument(doc);
+    const records = readDocument(doc2);
     const counts = countsOf(records);
     if (confirm) {
       const incoming = new Set(records.meetings.map((m) => m.id));
@@ -4057,7 +4240,7 @@
         counts,
         current: countsOf(S),
         recordingsLost: S.meetings.filter((m) => m.recording && !incoming.has(m.id)).length,
-        exportedAt: time(doc.exportedAt)
+        exportedAt: time(doc2.exportedAt)
       });
       if (!ok) return null;
     }
@@ -4069,11 +4252,1272 @@
     return { counts };
   }
 
+  // src/ui/pinpad.js
+  var PIN_LENGTH = 4;
+  function pinpadHTML({ label = "Enter your PIN", error = "", disabled = false } = {}) {
+    const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
+    return `
+  <div class="pinpad ${disabled ? "is-disabled" : ""}" data-pinpad>
+    <p class="pin-label" data-pin-label>${esc(label)}</p>
+    <div class="pin-dots" role="status" aria-live="polite" aria-label="0 of ${PIN_LENGTH} digits entered" data-pin-dots>
+      ${Array.from({ length: PIN_LENGTH }, () => '<span class="pin-dot"></span>').join("")}
+    </div>
+    <p class="pin-error" role="alert" data-pin-error>${esc(error)}</p>
+    <div class="pin-keys">
+      ${keys.map((k) => k === "" ? "<span></span>" : k === "del" ? `<button type="button" class="pin-key pin-del" data-key="del" aria-label="Delete last digit" ${disabled ? "disabled" : ""}>${icon("chevronLeft", 22)}</button>` : `<button type="button" class="pin-key" data-key="${k}" aria-label="${k}" ${disabled ? "disabled" : ""}>${k}</button>`).join("")}
+    </div>
+  </div>`;
+  }
+  function bindPinpad(root, { onComplete, onChange: onChange2 = null } = {}) {
+    const pad3 = root.querySelector("[data-pinpad]");
+    const dots = pad3.querySelectorAll(".pin-dot");
+    const live = pad3.querySelector("[data-pin-dots]");
+    let pin = "";
+    let busy = false;
+    const show2 = () => {
+      dots.forEach((d, i) => d.classList.toggle("on", i < pin.length));
+      live.setAttribute("aria-label", `${pin.length} of ${PIN_LENGTH} digits entered`);
+      onChange2?.(pin.length);
+    };
+    const press = (k) => {
+      if (busy || pad3.classList.contains("is-disabled")) return;
+      if (k === "del") pin = pin.slice(0, -1);
+      else if (/^\d$/.test(k) && pin.length < PIN_LENGTH) pin += k;
+      show2();
+      if (pin.length === PIN_LENGTH) {
+        const done2 = pin;
+        busy = true;
+        Promise.resolve(onComplete(done2)).finally(() => {
+          busy = false;
+        });
+      }
+    };
+    pad3.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-key]");
+      if (b) press(b.dataset.key);
+    });
+    const onKey = (e) => {
+      if (!pad3.isConnected) {
+        document.removeEventListener("keydown", onKey);
+        return;
+      }
+      if (e.target.closest?.("input, textarea, select")) return;
+      if (/^\d$/.test(e.key)) {
+        e.preventDefault();
+        press(e.key);
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        press("del");
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return {
+      clear() {
+        pin = "";
+        show2();
+      },
+      error(msg) {
+        pad3.querySelector("[data-pin-error]").textContent = msg || "";
+        if (msg) {
+          pad3.classList.remove("shake");
+          void pad3.offsetWidth;
+          pad3.classList.add("shake");
+        }
+        pin = "";
+        show2();
+      },
+      label(text2) {
+        pad3.querySelector("[data-pin-label]").textContent = text2;
+      },
+      disable(on) {
+        pad3.classList.toggle("is-disabled", on);
+        pad3.querySelectorAll(".pin-key").forEach((b) => {
+          b.disabled = on;
+        });
+      },
+      focus() {
+        pad3.querySelector(".pin-key")?.focus();
+      },
+      destroy() {
+        document.removeEventListener("keydown", onKey);
+      }
+    };
+  }
+
+  // src/secure.js
+  var plugin4 = () => globalThis.Capacitor?.Plugins?.SecureStorage;
+  var native = () => !!globalThis.Capacitor?.isNativePlatform?.();
+  var needed = () => native();
+  var available3 = () => native() && ["get", "set", "remove"].every((f) => typeof plugin4()?.[f] === "function");
+  async function get(key) {
+    if (!available3()) return null;
+    try {
+      return (await plugin4().get({ key }))?.value ?? null;
+    } catch {
+      return null;
+    }
+  }
+  async function set(key, value) {
+    if (!available3()) return false;
+    await plugin4().set({ key, value: String(value) });
+    return true;
+  }
+  async function remove2(key) {
+    if (!available3()) return;
+    try {
+      await plugin4().remove({ key });
+    } catch {
+    }
+  }
+
+  // src/account.js
+  var ACCOUNT_KEY2 = "stackd-account";
+  var AGE_KEY = "stackd-age-refused";
+  var AGE_REFUSAL_MS = 24 * 36e5;
+  var TOKEN_KEY = "stackd-session";
+  var state = null;
+  var listeners = /* @__PURE__ */ new Set();
+  function read2() {
+    try {
+      const v = JSON.parse(localStorage.getItem(ACCOUNT_KEY2));
+      return v && typeof v === "object" && v.userId ? v : null;
+    } catch {
+      return null;
+    }
+  }
+  function write(next, { quiet = false } = {}) {
+    state = next;
+    if (next) localStorage.setItem(ACCOUNT_KEY2, JSON.stringify(next));
+    else localStorage.removeItem(ACCOUNT_KEY2);
+    if (!quiet) listeners.forEach((fn) => fn(state));
+  }
+  function patch(fields, { quiet = false } = {}) {
+    if (state) write({ ...state, ...fields }, { quiet });
+  }
+  var signedIn = () => !!state;
+  var current = () => state;
+  function onChange(fn) {
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  }
+  var ready = Promise.resolve();
+  function init() {
+    state = read2();
+    onSignedOut(() => {
+      if (state) forget({ keepData: true, reason: "signed_out" });
+    });
+    if (state && client() !== "web") ready = get(TOKEN_KEY).then((t) => {
+      setBearer(t);
+      if (!t) forget({ keepData: true });
+    });
+  }
+  function availability() {
+    if (isLegacyOrigin()) return { ok: false, reason: "legacy" };
+    if (globalThis.location?.protocol === "file:") return { ok: false, reason: "file" };
+    if (needed() && !available3()) return { ok: false, reason: "secure" };
+    return { ok: true };
+  }
+  function ageRefusedUntil(now2 = Date.now()) {
+    const at = Number(localStorage.getItem(AGE_KEY)) || 0;
+    return at && now2 - at < AGE_REFUSAL_MS ? at + AGE_REFUSAL_MS : 0;
+  }
+  function checkAge(year, now2 = /* @__PURE__ */ new Date()) {
+    const y = Number(year);
+    const ok = Number.isInteger(y) && y >= 1900 && y <= now2.getFullYear() - 19;
+    if (!ok) localStorage.setItem(AGE_KEY, String(now2.getTime()));
+    return ok;
+  }
+  function deviceLabel(ua = globalThis.navigator?.userAgent || "", platform2 = client()) {
+    if (platform2 === "ios") return /iPad/.test(ua) ? "iPad" : "iPhone";
+    if (platform2 === "android") return "Android";
+    const os = /Windows/.test(ua) ? "Windows" : /Mac OS X|Macintosh/.test(ua) ? "macOS" : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Linux/.test(ua) ? "Linux" : "another system";
+    return `Browser on ${os}`;
+  }
+  var start = (email) => request("/v1/auth/start", { method: "POST", body: { email } });
+  var verify = (email, code) => request("/v1/auth/verify", { method: "POST", body: { email, code } });
+  async function established(answer, pin) {
+    const a = answer.account;
+    if (answer.token) {
+      if (!await set(TOKEN_KEY, answer.token)) throw Object.assign(new Error("This device cannot keep a session safely."), { code: "misconfigured" });
+      setBearer(answer.token);
+    }
+    write({
+      userId: a.id,
+      email: a.email,
+      sessionId: answer.sessionId,
+      platform: client(),
+      pinVersion: a.pinVersion,
+      accepted: a.accepted,
+      needsAccept: !!a.needsAccept,
+      lock: state?.userId === a.id ? state.lock : { after: "5m", biometrics: false },
+      lastActiveAt: Date.now(),
+      offlineFails: 0,
+      offlineWaitUntil: 0
+    });
+    pinProved.forEach((fn) => fn(pin));
+    return a;
+  }
+  var pinProved = /* @__PURE__ */ new Set();
+  function onPinProved(fn) {
+    pinProved.add(fn);
+  }
+  var common = () => ({ label: deviceLabel(), legacyId: S.plan.subscriberId });
+  async function register(email, ticket, pin) {
+    const a = await request("/v1/auth/register", {
+      method: "POST",
+      body: { email, ticket, pin, adult: true, termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION, ...common() }
+    });
+    return established(a, pin);
+  }
+  async function signIn(email, ticket, pin) {
+    return established(await request("/v1/auth/signin", { method: "POST", body: { email, ticket, pin, ...common() } }), pin);
+  }
+  async function resetPin(email, ticket, pin) {
+    return established(await request("/v1/auth/pin/reset", { method: "POST", body: { email, ticket, pin, label: deviceLabel() } }), pin);
+  }
+  async function checkPin(pin) {
+    const r = await request("/v1/auth/pin/check", { method: "POST", body: { pin }, timeout: 3e3 });
+    patch({ pinVersion: r.pinVersion });
+    pinProved.forEach((fn) => fn(pin));
+    return r;
+  }
+  async function changePin(pin, newPin) {
+    const r = await request("/v1/auth/pin/change", { method: "POST", body: { pin, newPin } });
+    patch({ pinVersion: r.pinVersion });
+    pinProved.forEach((fn) => fn(newPin));
+    return r;
+  }
+  async function accept() {
+    await request("/v1/account/accept", { method: "POST", body: { termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION } });
+    patch({ accepted: { terms: TERMS_VERSION, privacy: PRIVACY_VERSION }, needsAccept: false });
+  }
+  async function refresh2() {
+    const { account: a } = await request("/v1/account");
+    patch({ email: a.email, pinVersion: a.pinVersion, accepted: a.accepted, needsAccept: !!a.needsAccept });
+    return a;
+  }
+  var signOutDevice = (sessionId) => request("/v1/account/signout", { method: "POST", body: { sessionId } });
+  async function signOut({ everywhere = false, keepData = true } = {}) {
+    try {
+      await request("/v1/account/signout", { method: "POST", body: everywhere ? { all: true } : {} });
+    } catch (e) {
+      if (e.code !== "signed_out") {
+      }
+    }
+    forget({ keepData });
+  }
+  async function exportData() {
+    const res = await request("/v1/account/export", { raw: true, timeout: 6e4 });
+    return res.blob();
+  }
+  async function deleteAccount({ pin, ticket, keepData }) {
+    await request("/v1/account/delete", { method: "POST", body: ticket ? { ticket } : { pin } });
+    forget({ keepData });
+  }
+  var forgetHooks = /* @__PURE__ */ new Set();
+  function onForget(fn) {
+    forgetHooks.add(fn);
+  }
+  function forget({ keepData = true, reason: reason2 = "user" } = {}) {
+    if (!state) return;
+    const was = state;
+    setBearer(null);
+    remove2(TOKEN_KEY);
+    write(null);
+    forgetHooks.forEach((fn) => fn({ keepData, reason: reason2, was }));
+  }
+
+  // src/sync.js
+  var SYNC_KEY = "stackd-sync";
+  var BATCH = 200;
+  var DEBOUNCE_MS = 2e3;
+  var POLL_MS2 = 3e4;
+  function canonical(v) {
+    if (v === null || typeof v !== "object") return JSON.stringify(v ?? null);
+    if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
+    return `{${Object.keys(v).filter((k) => v[k] !== void 0).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}`;
+  }
+  function hash(text2) {
+    let h1 = 3735928559, h2 = 1103547991;
+    for (let i = 0; i < text2.length; i++) {
+      const c = text2.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 2654435761);
+      h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ h1 >>> 16, 2246822507) ^ Math.imul(h2 ^ h2 >>> 13, 3266489909);
+    h2 = Math.imul(h2 ^ h2 >>> 16, 2246822507) ^ Math.imul(h1 ^ h1 >>> 13, 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+  }
+  function toWire(kind, x) {
+    if (kind === "task") {
+      const { reminderFiredAt, ...t } = x;
+      return t;
+    }
+    if (kind === "meeting") {
+      const { recording, jobs, lastError, ...m } = x;
+      return m;
+    }
+    if (kind === "settings") return { dateFormat: x.dateFormat, priorities: x.priorities, labels: x.labels };
+    return { ...x };
+  }
+  function fromWire(kind, data, local) {
+    if (kind === "task") return { ...data, reminderFiredAt: local?.reminderFiredAt ?? null };
+    if (kind === "meeting") {
+      return { ...data, recording: local?.recording ?? null, jobs: local?.jobs ?? { transcribe: null, summarise: null }, lastError: local?.lastError ?? null };
+    }
+    return data;
+  }
+  var plural = { list: "lists", task: "tasks", note: "notes", meeting: "meetings" };
+  function collect(state3) {
+    const out = /* @__PURE__ */ new Map();
+    for (const kind of ["list", "task", "note", "meeting"]) {
+      for (const x of state3[plural[kind]] || []) out.set(`${kind}:${x.id}`, { kind, id: x.id, data: toWire(kind, x) });
+    }
+    out.set("settings:settings", { kind: "settings", id: "settings", data: toWire("settings", state3) });
+    return out;
+  }
+  var nextChangedAt = (now2, offset, previous = 0) => Math.max(Math.round(now2 + offset), previous + 1);
+  function diff(collected, shadow, now2, offset = 0) {
+    const changes = [];
+    for (const [key, r] of collected) {
+      const h = hash(canonical(r.data));
+      const s = shadow[key];
+      if (!s || s[0] !== h) changes.push({ key, hash: h, kind: r.kind, id: r.id, changedAt: nextChangedAt(now2, offset, s?.[1]), deleted: false, data: r.data });
+    }
+    for (const key of Object.keys(shadow)) {
+      if (collected.has(key) || shadow[key][0] === null) continue;
+      const [kind, id] = key.split(":");
+      changes.push({ key, hash: null, kind, id, changedAt: nextChangedAt(now2, offset, shadow[key][1]), deleted: true, data: null });
+    }
+    return changes;
+  }
+  var countsOf2 = (s) => ({ list: s.lists?.length || 0, task: s.tasks?.length || 0, note: s.notes?.length || 0, meeting: s.meetings?.length || 0 });
+  var empty = (c) => !c.task && !c.note && !c.meeting;
+  function mergePlan(local, remote) {
+    if (empty(remote.counts) && !remote.counts.list) return "upload";
+    if (local.untouched || empty(local.counts)) return "download";
+    return "ask";
+  }
+  function load() {
+    try {
+      const v = JSON.parse(localStorage.getItem(SYNC_KEY));
+      return v && v.userId === current()?.userId ? v : null;
+    } catch {
+      return null;
+    }
+  }
+  var doc = null;
+  var saveDoc = () => {
+    if (doc) localStorage.setItem(SYNC_KEY, JSON.stringify(doc));
+  };
+  var started = () => !!(signedIn() && (doc || load()));
+  var status = { state: "synced", pending: 0, lastSyncAt: null, paused: null };
+  var listeners2 = /* @__PURE__ */ new Set();
+  var state2 = () => status;
+  function onState(fn) {
+    listeners2.add(fn);
+  }
+  function setStatus(patchObj) {
+    status = { ...status, ...patchObj };
+    listeners2.forEach((fn) => fn(status));
+  }
+  var timer = null;
+  var running = null;
+  var again = false;
+  var blocked = () => false;
+  function setBlocked(fn) {
+    blocked = fn;
+  }
+  function request2(reason2 = "edit") {
+    if (!signedIn() || !(doc || (doc = load()))) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      run();
+    }, reason2 === "edit" ? DEBOUNCE_MS : 0);
+  }
+  async function now() {
+    if (!signedIn() || !(doc || (doc = load()))) return status;
+    clearTimeout(timer);
+    timer = null;
+    await run();
+    return status;
+  }
+  var editing = () => {
+    const a = globalThis.document?.activeElement;
+    return !!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable);
+  };
+  async function run() {
+    if (running) {
+      again = true;
+      return running;
+    }
+    running = (async () => {
+      try {
+        do {
+          again = false;
+          await once();
+        } while (again);
+      } finally {
+        running = null;
+      }
+    })();
+    return running;
+  }
+  async function once() {
+    if (!signedIn() || !doc || blocked()) return;
+    if (globalThis.navigator?.onLine === false) {
+      setStatus({ state: "offline", pending: diff(collect(S), doc.shadow, Date.now(), doc.serverOffset).length });
+      return;
+    }
+    if (editing()) {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        run();
+      }, DEBOUNCE_MS);
+      return;
+    }
+    setStatus({ state: "syncing" });
+    try {
+      let more = true;
+      while (more) {
+        const changes = diff(collect(S), doc.shadow, Date.now(), doc.serverOffset).slice(0, BATCH);
+        const sent = performance.now?.() ?? 0;
+        const r = await request("/v1/sync", { method: "POST", body: { cursor: doc.cursor, changes: changes.map(({ key, hash: _h, ...c }) => c) }, timeout: 6e4 });
+        const rtt = (performance.now?.() ?? 0) - sent;
+        doc.serverOffset = Math.round(r.serverTime + rtt / 2 - Date.now());
+        const refused = new Set((r.rejected || []).map((x) => `${x.kind}:${x.id}`));
+        for (const c of changes) if (!refused.has(c.key)) doc.shadow[c.key] = [c.hash, c.changedAt];
+        const gone = (r.rejected || []).filter((x) => x.reason === "deleted").map((x) => ({ kind: x.kind, id: x.id, changedAt: 0, deleted: true, data: null }));
+        applyInbound([...r.changes || [], ...gone]);
+        doc.cursor = r.cursor;
+        more = r.more || changes.length === BATCH;
+      }
+      doc.lastSyncAt = Date.now();
+      doc.paused = null;
+      saveDoc();
+      setStatus({ state: "synced", pending: 0, lastSyncAt: doc.lastSyncAt, paused: null });
+    } catch (e) {
+      saveDoc();
+      const pending = doc ? diff(collect(S), doc.shadow, Date.now(), doc.serverOffset).length : 0;
+      if (e.code === "offline" || e.code === "timeout") setStatus({ state: "offline", pending });
+      else setStatus({ state: "paused", pending, paused: { code: e.code, message: e.message, at: Date.now() } });
+      if (e.code === "pin_required") pinRequired.forEach((fn) => fn());
+      if (e.code === "accept_required") patch({ needsAccept: true });
+    }
+  }
+  var pinRequired = /* @__PURE__ */ new Set();
+  function onPinRequired(fn) {
+    pinRequired.add(fn);
+  }
+  function applyInbound(changes) {
+    if (!changes.length) return;
+    const upserts = [], deletes = [];
+    const incomingLists = changes.filter((c) => c.kind === "list" && !c.deleted).map((c) => c.data);
+    const lists = [...S.lists.filter((l) => !incomingLists.some((x) => x?.id === l.id)), ...incomingLists];
+    const settings2 = changes.find((c) => c.kind === "settings" && !c.deleted)?.data;
+    const priorities = Array.isArray(settings2?.priorities) ? settings2.priorities : S.priorities;
+    const order = { settings: 0, list: 1, task: 2, note: 3, meeting: 4 };
+    for (const c of [...changes].sort((a, b) => order[a.kind] - order[b.kind])) {
+      const key = `${c.kind}:${c.id}`;
+      if (c.deleted) {
+        doc.shadow[key] = [null, c.changedAt];
+        deletes.push({ kind: c.kind, id: c.id });
+        continue;
+      }
+      let clean;
+      try {
+        clean = cleanRemote(c.kind, c.data, { lists, priorities });
+      } catch {
+        continue;
+      }
+      const local = c.kind === "settings" ? null : (S[plural[c.kind]] || []).find((x) => x.id === c.id);
+      upserts.push({ kind: c.kind, record: c.kind === "settings" ? clean : fromWire(c.kind, clean, local), key, changedAt: c.changedAt });
+    }
+    applyRemote({ upserts, deletes });
+    const now2 = collect(S);
+    for (const u of upserts) {
+      const r = now2.get(u.key);
+      if (r) doc.shadow[u.key] = [hash(canonical(r.data)), u.changedAt];
+    }
+  }
+  async function firstPlan() {
+    const r = await request("/v1/sync/summary");
+    const local = { untouched: isUntouchedSeed(), counts: countsOf2(S) };
+    return { plan: mergePlan(local, { counts: r.counts }), local: local.counts, remote: r.counts, serverTime: r.serverTime };
+  }
+  async function firstSync(choice) {
+    const a = current();
+    if (!a) return;
+    doc = { userId: a.userId, cursor: 0, serverOffset: 0, shadow: {}, lastSyncAt: null, paused: null };
+    if (choice === "merge" || choice === "replace") keep(choice);
+    if (choice === "download" || choice === "replace") {
+      const all = [];
+      let cursor = 0, more = true;
+      while (more) {
+        const r = await request("/v1/sync", { method: "POST", body: { cursor, changes: [] }, timeout: 6e4 });
+        all.push(...r.changes);
+        cursor = r.cursor;
+        more = r.more;
+      }
+      const live = all.filter((c) => !c.deleted);
+      const lists = live.filter((c) => c.kind === "list").map((c) => cleanRemote("list", c.data, { lists: [], priorities: [] }));
+      const set2 = live.find((c) => c.kind === "settings");
+      const settings2 = set2 ? cleanRemote("settings", set2.data, { lists, priorities: [] }) : { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels };
+      const read3 = (kind) => live.filter((c) => c.kind === kind).flatMap((c) => {
+        try {
+          return [cleanRemote(kind, c.data, { lists, priorities: settings2.priorities })];
+        } catch {
+          return [];
+        }
+      });
+      if (lists.some((l) => l.status === "active")) {
+        replaceRecords({ lists, tasks: read3("task"), notes: read3("note"), meetings: read3("meeting"), settings: settings2 });
+      }
+      doc.cursor = cursor;
+      for (const [key, r] of collect(S)) {
+        const c = all.find((x) => `${x.kind}:${x.id}` === key);
+        doc.shadow[key] = [hash(canonical(r.data)), c?.changedAt || 0];
+      }
+      all.filter((c) => c.deleted).forEach((c) => {
+        doc.shadow[`${c.kind}:${c.id}`] = [null, c.changedAt];
+      });
+    }
+    saveDoc();
+    await run();
+  }
+  function reset() {
+    clearTimeout(timer);
+    timer = null;
+    doc = null;
+    localStorage.removeItem(SYNC_KEY);
+    setStatus({ state: "synced", pending: 0, lastSyncAt: null, paused: null });
+  }
+  onForget(reset);
+  var pendingCount = () => doc ? diff(collect(S), doc.shadow, Date.now(), doc.serverOffset).length : 0;
+
+  // src/ui/signin.js
+  var RESEND_S = 60;
+  var plural2 = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  var countsLine = (c) => [plural2(c.list, "board"), plural2(c.task, "task"), plural2(c.note, "note"), plural2(c.meeting, "meeting")].join(", ");
+  function openSignIn({ mode = null } = {}) {
+    const st = { mode, step: mode ? mode === "create" ? "age" : "email" : "choose", email: "", ticket: null, known: null, first: null, error: "", sentAt: 0 };
+    const history2 = [];
+    const { ov, close } = overlay('<div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="step-title"></div>');
+    const sheet2 = ov.querySelector(".sheet");
+    let pad3 = null;
+    let resendTimer = null;
+    const go = (step, { back: back2 = false } = {}) => {
+      if (!back2) history2.push(st.step);
+      st.step = step;
+      st.error = "";
+      draw3();
+    };
+    const back = () => {
+      const prev = history2.pop();
+      if (prev) go(prev, { back: true });
+      else close();
+    };
+    const busy = (on) => sheet2.querySelectorAll("button, input, select").forEach((b) => {
+      if (!b.dataset.keep) b.disabled = on;
+    });
+    const stepCount = () => {
+      const order = st.mode === "create" || st.known === false ? ["age", "email", "code", "pin"] : ["email", "code", "pin"];
+      const i = order.indexOf(st.step.startsWith("pin") ? "pin" : st.step);
+      return i === -1 ? "" : `Step ${i + 1} of ${order.length}`;
+    };
+    function head(title) {
+      return `
+      <div class="steps-head">
+        <button type="button" class="icon-btn" data-back data-keep aria-label="Back">${icon("chevronLeft")}</button>
+        <span class="hint">${stepCount()}</span>
+        <button type="button" class="icon-btn" data-close data-keep aria-label="Close">${icon("x")}</button>
+      </div>
+      <h2 id="step-title">${esc(title)}</h2>`;
+    }
+    function draw3() {
+      pad3?.destroy();
+      pad3 = null;
+      clearInterval(resendTimer);
+      const s = st.step;
+      let html = "";
+      if (s === "choose") {
+        html = `${head("Sync across your devices")}
+        <p class="step-text">An account keeps your boards, tasks, notes and meetings the same on your phone and your computer. Recordings stay on the device that made them.</p>
+        <button type="button" class="btn btn-primary btn-block" data-mode="create">Create an account</button>
+        <button type="button" class="btn btn-secondary btn-block" data-mode="signin">I have an account</button>`;
+      } else if (s === "age") {
+        const until = ageRefusedUntil();
+        const year = (/* @__PURE__ */ new Date()).getFullYear();
+        html = until ? `${head("Accounts are for adults")}
+           <p class="step-text">You can keep using Stack'd on this device without one.</p>
+           <button type="button" class="btn btn-secondary btn-block" data-close>Close</button>` : `${head("What year were you born?")}
+           <label class="sr-only" for="birth-year">Year of birth</label>
+           <select class="input" id="birth-year" data-year>
+             <option value="" selected disabled>Year</option>
+             ${Array.from({ length: 101 }, (_, i) => year - i).map((y) => `<option value="${y}">${y}</option>`).join("")}
+           </select>
+           <button type="button" class="btn btn-primary btn-block" data-next disabled>Continue</button>`;
+      } else if (s === "email") {
+        html = `${head(st.mode === "create" ? "Your email" : "Sign in with your email")}
+        <label class="sr-only" for="acct-email">Email</label>
+        <input class="input" id="acct-email" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="you@example.com" value="${esc(st.email)}" data-email>
+        <p class="hint">By continuing you accept the <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> and the <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy Policy</a>.</p>
+        <p class="step-error" role="alert">${esc(st.error)}</p>
+        <button type="button" class="btn btn-primary btn-block" data-next>Send a code</button>`;
+      } else if (s === "code") {
+        html = `${head("Enter the code")}
+        <p class="step-text">We sent a six-digit code to <strong>${esc(st.email)}</strong>. It is valid for 10 minutes.</p>
+        <label class="sr-only" for="acct-code">Code</label>
+        <input class="input code-input" id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" placeholder="000000" data-code>
+        <p class="step-error" role="alert">${esc(st.error)}</p>
+        <button type="button" class="btn btn-primary btn-block" data-next>Continue</button>
+        <button type="button" class="btn btn-ghost btn-block" data-resend>Send a new code</button>`;
+      } else if (s === "pin-new" || s === "pin-confirm" || s === "pin-enter" || s === "pin-reset" || s === "pin-reset-confirm") {
+        const titles = {
+          "pin-new": ["Choose a PIN", "Four digits. The same PIN works on all your devices."],
+          "pin-confirm": ["Enter it again", ""],
+          "pin-enter": ["Enter your PIN", ""],
+          "pin-reset": ["Choose a new PIN", "Your other devices will be signed out."],
+          "pin-reset-confirm": ["Enter it again", ""]
+        };
+        const [title, text2] = titles[s];
+        html = `${head(title)}
+        ${text2 ? `<p class="step-text">${esc(text2)}</p>` : ""}
+        ${pinpadHTML({ label: title, error: st.error })}
+        ${s === "pin-enter" ? '<button type="button" class="btn btn-ghost btn-block" data-forgot>Forgot your PIN? Reset it</button>' : ""}`;
+      } else if (s === "locked") {
+        html = `${head("Your PIN is locked")}
+        <p class="step-text">Five wrong PINs in a row lock it on every device. Choose a new one; your other devices will be signed out.</p>
+        <button type="button" class="btn btn-primary btn-block" data-reset>Choose a new PIN</button>`;
+      }
+      sheet2.innerHTML = html;
+      bind();
+    }
+    function bind() {
+      const q = (sel) => sheet2.querySelector(sel);
+      q("[data-back]")?.addEventListener("click", back);
+      sheet2.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => close()));
+      sheet2.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => {
+        st.mode = b.dataset.mode;
+        go(st.mode === "create" ? "age" : "email");
+      }));
+      const s = st.step;
+      if (s === "age") {
+        const sel = q("[data-year]"), next = q("[data-next]");
+        sel?.addEventListener("change", () => {
+          next.disabled = !sel.value;
+        });
+        next?.addEventListener("click", () => {
+          if (!checkAge(sel.value)) {
+            draw3();
+            return;
+          }
+          if (st.known === false) go("pin-new");
+          else go("email");
+        });
+        sel?.focus();
+      }
+      if (s === "email") {
+        const input = q("[data-email]");
+        const send = async () => {
+          st.email = input.value.trim();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(st.email)) {
+            st.error = "Enter a valid email address.";
+            draw3();
+            return;
+          }
+          busy(true);
+          try {
+            await start(st.email);
+            st.sentAt = Date.now();
+            go("code");
+          } catch (e) {
+            st.error = e.message;
+            busy(false);
+            draw3();
+          }
+        };
+        q("[data-next]").addEventListener("click", send);
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") send();
+        });
+        input.focus();
+      }
+      if (s === "code") {
+        const input = q("[data-code]"), resend = q("[data-resend]");
+        const tickResend = () => {
+          const left = Math.ceil((st.sentAt + RESEND_S * 1e3 - Date.now()) / 1e3);
+          resend.disabled = left > 0;
+          resend.textContent = left > 0 ? `Send a new code in ${left} s` : "Send a new code";
+        };
+        tickResend();
+        resendTimer = setInterval(tickResend, 1e3);
+        const submit = async () => {
+          const code = input.value.replace(/\D/g, "");
+          if (code.length !== 6) {
+            st.error = "The code is six digits.";
+            draw3();
+            return;
+          }
+          busy(true);
+          try {
+            const r = await verify(st.email, code);
+            st.ticket = r.ticket;
+            st.known = r.account === "existing";
+            if (!st.known) go(ageRefusedUntil() || st.mode !== "create" ? "age" : "pin-new");
+            else go(r.pinLocked ? "locked" : "pin-enter");
+          } catch (e) {
+            st.error = e.message;
+            draw3();
+          }
+        };
+        input.addEventListener("input", () => {
+          input.value = input.value.replace(/\D/g, "").slice(0, 6);
+          if (input.value.length === 6) submit();
+        });
+        q("[data-next]").addEventListener("click", submit);
+        resend.addEventListener("click", async () => {
+          busy(true);
+          try {
+            await start(st.email);
+            st.sentAt = Date.now();
+            toast("A new code is on its way");
+            draw3();
+          } catch (e) {
+            st.error = e.message;
+            draw3();
+          }
+        });
+        input.focus();
+      }
+      if (s.startsWith("pin-")) {
+        pad3 = bindPinpad(sheet2, { onComplete: (pin) => onPin(pin) });
+        pad3.focus();
+        q("[data-forgot]")?.addEventListener("click", () => go("pin-reset"));
+      }
+      q("[data-reset]")?.addEventListener("click", () => go("pin-reset"));
+    }
+    let firstPin = null;
+    async function onPin(pin) {
+      const s = st.step;
+      if (s === "pin-new" || s === "pin-reset") {
+        if (/^(\d)\1{3}$/.test(pin) || "0123456789".includes(pin) || "9876543210".includes(pin)) {
+          pad3.error("Choose a PIN that is not four of the same digit or a straight run.");
+          return;
+        }
+        firstPin = pin;
+        go(s === "pin-new" ? "pin-confirm" : "pin-reset-confirm");
+        return;
+      }
+      if ((s === "pin-confirm" || s === "pin-reset-confirm") && pin !== firstPin) {
+        firstPin = null;
+        st.error = "The two PINs were different. Choose one again.";
+        history2.pop();
+        st.step = s === "pin-confirm" ? "pin-new" : "pin-reset";
+        draw3();
+        return;
+      }
+      pad3.disable(true);
+      try {
+        if (s === "pin-confirm") await register(st.email, st.ticket, pin);
+        else if (s === "pin-reset-confirm") await resetPin(st.email, st.ticket, pin);
+        else await signIn(st.email, st.ticket, pin);
+      } catch (e) {
+        if (e.code === "pin_locked") {
+          go("locked");
+          return;
+        }
+        if (e.code === "ticket_expired") {
+          st.error = e.message;
+          history2.length = 0;
+          go("email");
+          return;
+        }
+        if (e.code === "conflict") {
+          st.known = !st.known;
+          go(st.known ? "pin-enter" : "age");
+          return;
+        }
+        pad3.disable(false);
+        pad3.error(e.message);
+        return;
+      }
+      close();
+      toast(s === "pin-confirm" ? "Account created" : s === "pin-reset-confirm" ? "PIN reset · other devices were signed out" : "Signed in");
+      await startSync();
+    }
+    draw3();
+  }
+  var starting = null;
+  function startSync() {
+    if (!starting) starting = firstSyncFlow().finally(() => {
+      starting = null;
+    });
+    return starting;
+  }
+  async function firstSyncFlow() {
+    let p;
+    try {
+      p = await firstPlan();
+    } catch (e) {
+      toast(`Signed in. Sync will start when the service answers (${e.message})`, { ms: 8e3 });
+      return;
+    }
+    let choice = p.plan;
+    if (choice === "ask") choice = await openMergeDialog(p.local, p.remote);
+    if (!choice) choice = "merge";
+    try {
+      await firstSync(choice);
+    } catch (e) {
+      toast(e.message, { ms: 8e3 });
+    }
+    rerender();
+  }
+  async function openMergeDialog(local, remote) {
+    const r = await choiceDialog(
+      "This device and your account both have data",
+      `This device: ${countsLine(local)}. Your account: ${countsLine(remote)}. Merge keeps everything from both. Use my account replaces what is on this device. Either way, a copy of this device's data is kept here for 30 days.`,
+      [{ id: "replace", label: "Use my account" }, { id: "merge", label: "Merge" }]
+    );
+    return r;
+  }
+  async function openSignOutDialog({ pending = 0, onlyHere = 0, web = true } = {}) {
+    const lost = pending ? ` ${plural2(pending, "change")} on this device ${pending === 1 ? "has" : "have"} not synced yet and would be lost if removed.` : "";
+    const choices = web ? [{ id: "keep", label: "Keep a copy" }, { id: "remove", label: "Remove from this device", danger: true }] : [{ id: "remove", label: "Remove from this device", danger: true }, { id: "keep", label: "Keep a copy" }];
+    const r = await choiceDialog(
+      "Sign out of this device?",
+      `Keep a copy leaves everything here, signed out. Remove deletes the boards, tasks, notes and meetings from this device; your account keeps them.${lost}`,
+      choices
+    );
+    if (!r) return null;
+    if (r === "remove" && onlyHere) {
+      const ok = await confirmDialog(
+        `Delete ${plural2(onlyHere, "recording")}?`,
+        `${onlyHere === 1 ? "A recording exists" : "These recordings exist"} only on this device. Removing this device's data deletes ${onlyHere === 1 ? "it" : "them"} for good.`,
+        { confirmLabel: "Delete and sign out", danger: true }
+      );
+      if (!ok) return null;
+    }
+    return { keepData: r === "keep" };
+  }
+
+  // src/webcrypto.js
+  var hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  var randomHex = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
+  async function pbkdf2Hex(secret, saltHex, iterations = 1e5) {
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "PBKDF2", false, ["deriveBits"]);
+    const salt = new Uint8Array(saltHex.match(/../g).map((h) => parseInt(h, 16)));
+    return hex(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256));
+  }
+
+  // src/lock.js
+  var AFTER = [["immediately", "Immediately"], ["5m", "After 5 minutes"], ["1h", "After 1 hour"], ["off", "Off"]];
+  var AFTER_MS = { immediately: 0, "5m": 5 * 6e4, "1h": 36e5 };
+  var VERIFIER_KEY = "stackd-verifier";
+  function shouldLock({ after = "5m", lastActiveAt = 0, now: now2 = Date.now(), booting = false }) {
+    if (after === "off") return false;
+    if (booting) return true;
+    return now2 - lastActiveAt >= (AFTER_MS[after] ?? AFTER_MS["5m"]);
+  }
+  var backoffMs = (fails) => fails < 5 ? 0 : 3e4 * 2 ** (fails - 5);
+  async function makeVerifier(pin) {
+    const salt = randomHex(16);
+    return { salt, hash: await pbkdf2Hex(pin, salt) };
+  }
+  async function checkVerifier(pin, v) {
+    return !!v?.salt && await pbkdf2Hex(pin, v.salt) === v.hash;
+  }
+  var isLocked = false;
+  var reason = null;
+  var listeners3 = /* @__PURE__ */ new Set();
+  var locked = () => isLocked;
+  var lockReason = () => reason;
+  function onLockChange(fn) {
+    listeners3.add(fn);
+  }
+  var emit = () => listeners3.forEach((fn) => fn(isLocked));
+  var settings = () => current()?.lock || { after: "5m", biometrics: false };
+  function lock(why = null) {
+    if (!signedIn() || settings().after === "off" && why !== "pin_required") return;
+    reason = why;
+    if (!isLocked) {
+      isLocked = true;
+      emit();
+    }
+  }
+  function unlocked() {
+    isLocked = false;
+    reason = null;
+    patch({ lastActiveAt: Date.now(), offlineFails: 0, offlineWaitUntil: 0 }, { quiet: true });
+    emit();
+  }
+  var touchedAt = 0;
+  function touch2(now2 = Date.now()) {
+    if (!signedIn() || isLocked || now2 - touchedAt < 15e3) return;
+    touchedAt = now2;
+    patch({ lastActiveAt: now2 }, { quiet: true });
+  }
+  async function verifier() {
+    return needed() ? JSON.parse(await get(VERIFIER_KEY) || "null") : current()?.verifier || null;
+  }
+  async function keepVerifier(pin) {
+    const v = await makeVerifier(pin);
+    if (needed()) await set(VERIFIER_KEY, JSON.stringify(v));
+    else patch({ verifier: v }, { quiet: true });
+  }
+  async function unlockWithPin(pin) {
+    const a = current();
+    if (!a) return { ok: true };
+    const now2 = Date.now();
+    if (a.offlineWaitUntil > now2) return { ok: false, code: "wait", waitMs: a.offlineWaitUntil - now2, message: "Too many wrong PINs. Wait a moment." };
+    try {
+      await checkPin(pin);
+      unlocked();
+      return { ok: true };
+    } catch (e) {
+      if (e.code === "pin_wrong" || e.code === "pin_locked") return { ok: false, code: e.code, left: e.left, message: e.message };
+      if (e.code === "signed_out") return { ok: true };
+      if (reason === "pin_required") return { ok: false, code: "wait", waitMs: 0, message: "Connect to the internet to enter the new PIN." };
+      if (await checkVerifier(pin, await verifier())) {
+        unlocked();
+        return { ok: true };
+      }
+      const fails = (a.offlineFails || 0) + 1;
+      const wait = backoffMs(fails);
+      patch({ offlineFails: fails, offlineWaitUntil: wait ? Date.now() + wait : 0 }, { quiet: true });
+      return wait ? { ok: false, code: "wait", waitMs: wait, message: `Wrong PIN. Try again in ${Math.round(wait / 1e3)} seconds.` } : { ok: false, code: "pin_wrong", left: null, message: "Wrong PIN." };
+    }
+  }
+  var bio = () => globalThis.Capacitor?.Plugins?.Biometric;
+  async function biometricsAvailable() {
+    if (!globalThis.Capacitor?.isNativePlatform?.() || typeof bio()?.isAvailable !== "function") return false;
+    try {
+      const r = await bio().isAvailable();
+      return r?.available ? r.kind || "other" : false;
+    } catch {
+      return false;
+    }
+  }
+  async function unlockWithBiometrics() {
+    if (!settings().biometrics || !await biometricsAvailable()) return false;
+    try {
+      await bio().verify({ reason: "Unlock Stack'd" });
+      unlocked();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  function setLock(patch2) {
+    patch({ lock: { ...settings(), ...patch2 } });
+  }
+  function init2() {
+    onPinProved((pin) => {
+      keepVerifier(pin).catch(() => {
+      });
+      if (isLocked) unlocked();
+    });
+    onForget(() => {
+      isLocked = false;
+      reason = null;
+      remove2(VERIFIER_KEY);
+      emit();
+    });
+    const a = current();
+    if (a && shouldLock({ after: settings().after, lastActiveAt: a.lastActiveAt, booting: true })) {
+      isLocked = true;
+    }
+    let hiddenAt = 0;
+    globalThis.document?.addEventListener?.("visibilitychange", () => {
+      if (!signedIn()) return;
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        touch2();
+        return;
+      }
+      if (hiddenAt && shouldLock({ after: settings().after, lastActiveAt: hiddenAt })) lock();
+    });
+  }
+
+  // src/ui/account.js
+  var STORE_LINKS = "Cancel a subscription in the App Store (Settings › your name › Subscriptions) or Google Play (Play Store › Payments & subscriptions) separately.";
+  function ago(at, now2 = Date.now()) {
+    const m = Math.floor((now2 - at) / 6e4);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m} min ago`;
+    return fmtRelative(at);
+  }
+  var devices = null;
+  var loading = false;
+  function syncLine() {
+    const s = state2();
+    if (s.state === "syncing") return "Syncing…";
+    if (s.state === "offline") return s.pending ? `Offline, ${s.pending} change${s.pending === 1 ? "" : "s"} will sync` : "Offline";
+    if (s.state === "paused") return `Sync paused: ${s.paused?.message || "try again"}`;
+    return s.lastSyncAt ? `Synced ${ago(s.lastSyncAt)}` : "Not synced yet";
+  }
+  var syncDot = () => signedIn() && ["offline", "paused"].includes(state2().state) && state2().pending > 0;
+  var row = (iconName, title, sub, action = "") => `
+  <div class="set-row set-wrap">
+    <span class="lrow-icon">${icon(iconName, 18)}</span>
+    <div class="set-text"><span class="set-title">${title}</span>${sub ? `<span class="set-sub">${sub}</span>` : ""}</div>
+    ${action}
+  </div>`;
+  function accountSectionHTML() {
+    const avail = availability();
+    if (avail.reason === "legacy") return "";
+    const a = current();
+    if (!a) {
+      const why = avail.ok ? "" : avail.reason === "file" ? "Open Stack'd from its website to sign in." : "Sign-in arrives in the next update of the app.";
+      return `
+      <span class="section-title list-label" id="settings-account">Account</span>
+      <div class="card list-card">
+        ${row(
+        "lock",
+        "Sign in to sync across your devices",
+        why || "Optional. Without an account, everything stays on this device, as now.",
+        avail.ok ? '<button class="btn btn-sm btn-primary" data-signin>Sign in</button>' : ""
+      )}
+      </div>`;
+    }
+    const s = state2();
+    const info2 = info();
+    const list3 = devices?.devices || [];
+    const lockAfter = AFTER.find(([v]) => v === settings().after)?.[1] || "After 5 minutes";
+    return `
+      <span class="section-title list-label" id="settings-account">Account</span>
+      ${a.needsAccept ? `
+      <div class="notice notice-neutral">${icon("document", 18)}<span>The Terms or the Privacy Policy changed. Sync waits until you read and accept them.</span>
+        <button class="btn btn-sm btn-secondary" data-accept>Read and accept</button></div>` : ""}
+      <div class="card list-card">
+        ${row("note", esc(a.email), "Signed in on this device")}
+        ${row(s.state === "paused" ? "x" : "repeat", "Sync", esc(syncLine()), `<button class="btn btn-sm btn-secondary" data-sync-now ${s.state === "syncing" ? "disabled" : ""}>Sync now</button>`)}
+        ${info2 ? row("undo", "Restore this device's data from before sign-in", `Kept until ${fmtDate(info2.savedAt + BACKUP_DAYS * 864e5, S.dateFormat)}`, '<button class="btn btn-sm btn-secondary" data-restore-backup>Restore</button>') : ""}
+      </div>
+
+      <span class="section-title list-label">Devices</span>
+      <div class="card list-card" data-devices>
+        ${list3.length ? list3.map((d) => row(
+      d.platform === "web" ? "monitor" : "tasks",
+      esc(d.label) + (d.current ? " · This device" : ""),
+      `Signed in ${fmtDate(d.createdAt, S.dateFormat)} · active ${ago(d.lastSeenAt)}`,
+      d.current ? "" : `<button class="btn btn-sm btn-ghost" data-signout-device="${esc(d.id)}">Sign out</button>`
+    )).join("") : row("tasks", loading ? "Loading devices…" : "Devices", loading ? "" : "Could not load the list.", loading ? "" : '<button class="btn btn-sm btn-secondary" data-load-devices>Retry</button>')}
+      </div>
+      ${list3.length > 1 ? '<button class="btn btn-ghost btn-block set-under" data-signout-all>Sign out everywhere</button>' : ""}
+
+      <span class="section-title list-label">Security</span>
+      <div class="card list-card">
+        ${row("lock", "App lock", `${esc(lockAfter)}. The PIN locks the app; it does not encrypt your data.`, '<button class="btn btn-sm btn-secondary" data-lock-after aria-haspopup="menu">Change</button>')}
+        <div class="set-row set-wrap" data-bio-row hidden>
+          <span class="lrow-icon">${icon("lock", 18)}</span>
+          <div class="set-text"><span class="set-title">Unlock with Face ID or fingerprint</span><span class="set-sub">The PIN always works too.</span></div>
+          <div class="segmented solid" role="radiogroup" aria-label="Biometrics">
+            <button class="seg ${settings().biometrics ? "active" : ""}" role="radio" aria-checked="${settings().biometrics}" data-bio="on">On</button>
+            <button class="seg ${settings().biometrics ? "" : "active"}" role="radio" aria-checked="${!settings().biometrics}" data-bio="off">Off</button>
+          </div>
+        </div>
+        ${row("lock", "Change PIN", "Your other devices ask for the new one.", '<button class="btn btn-sm btn-secondary" data-change-pin>Change</button>')}
+      </div>
+
+      <span class="section-title list-label">Your data</span>
+      <div class="card list-card">
+        ${row("download", "Export my data", "One file with your account details and everything synced to it.", '<button class="btn btn-sm btn-secondary" data-export>Export</button>')}
+        ${row("trash", "Delete account", "Removes the account and everything synced to it.", '<button class="btn btn-sm btn-ghost danger" data-delete-account>Delete</button>')}
+      </div>
+      <button class="btn btn-secondary btn-block set-under" data-signout>Sign out of this device</button>`;
+  }
+  function askPin(title, { text: text2 = "", check }) {
+    return new Promise((resolve) => {
+      let pad3;
+      const { ov, close } = overlay(`
+      <div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="pin-title">
+        <div class="steps-head"><span></span><span></span><button type="button" class="icon-btn" data-close aria-label="Close">${icon("x")}</button></div>
+        <h2 id="pin-title">${esc(title)}</h2>
+        ${text2 ? `<p class="step-text">${esc(text2)}</p>` : ""}
+        ${pinpadHTML({ label: title })}
+      </div>`, { onClose: (r) => {
+        pad3?.destroy();
+        resolve(typeof r === "string" ? r : null);
+      } });
+      ov.querySelector("[data-close]").addEventListener("click", () => close(null));
+      pad3 = bindPinpad(ov, {
+        onComplete: async (pin) => {
+          const err = check ? await check(pin) : null;
+          if (err) pad3.error(err);
+          else close(pin);
+        }
+      });
+      pad3.focus();
+    });
+  }
+  var serverPin = async (pin) => {
+    try {
+      await checkPin(pin);
+      return null;
+    } catch (e) {
+      return e.message;
+    }
+  };
+  async function loadDevices() {
+    loading = true;
+    try {
+      devices = await refresh2();
+    } catch {
+      devices = null;
+    }
+    loading = false;
+    if (app.querySelector("[data-devices]")) rerender();
+  }
+  async function signOutFlow({ everywhere = false } = {}) {
+    const onlyHere = S.meetings.filter((m) => m.recording).length;
+    const choice = await openSignOutDialog({ pending: pendingCount(), onlyHere, web: client() === "web" });
+    if (!choice) return;
+    if (pendingCount() && choice.keepData === false) {
+      try {
+        await now();
+      } catch {
+      }
+    }
+    await signOut({ everywhere, keepData: choice.keepData });
+    devices = null;
+    if (!choice.keepData) await removeLocalData();
+    toast("Signed out");
+    rerender();
+  }
+  async function removeLocalData() {
+    await Promise.all(S.meetings.filter((m) => m.recording).map((m) => remove(m.recording.key).catch(() => {
+    })));
+    [STORE_KEY, NOTE_DRAFT_KEY, BACKUP_KEY].forEach((k) => localStorage.removeItem(k));
+    globalThis.location?.reload();
+  }
+  function bindAccountSection(root = app) {
+    const q = (s) => root.querySelector(s);
+    q("[data-signin]")?.addEventListener("click", () => openSignIn());
+    if (!signedIn()) return;
+    if (!devices && !loading) loadDevices();
+    q("[data-load-devices]")?.addEventListener("click", loadDevices);
+    q("[data-sync-now]")?.addEventListener("click", async () => {
+      const s = await now();
+      toast(s.state === "synced" ? "Synced" : syncLine());
+      rerender();
+    });
+    q("[data-accept]")?.addEventListener("click", async () => {
+      const ok = await confirmDialog("Accept the updated documents?", `Read the Terms and the Privacy Policy at ${APP_HOST}/terms.html and ${APP_HOST}/privacy.html. Accepting lets sync continue.`, { confirmLabel: "I accept" });
+      if (!ok) return;
+      try {
+        await accept();
+        request2("accept");
+        toast("Accepted");
+      } catch (e) {
+        toast(e.message);
+      }
+      rerender();
+    });
+    q("[data-restore-backup]")?.addEventListener("click", async () => {
+      const info2 = info();
+      if (!info2) return;
+      const ok = await confirmDialog("Restore this device's old data?", "This signs this device out and puts back what was here before sign-in. Your account keeps its data.", { confirmLabel: "Sign out and restore", danger: true });
+      if (!ok) return;
+      const records = backupRecords();
+      await signOut({ keepData: true });
+      if (records) replaceRecords(records);
+      dropBackup();
+      toast("Restored");
+      rerender();
+    });
+    root.querySelectorAll("[data-signout-device]").forEach((b) => b.addEventListener("click", async () => {
+      const d = devices?.devices.find((x) => x.id === b.dataset.signoutDevice);
+      if (!await confirmDialog(`Sign out ${d?.label || "this device"}?`, "It signs out at its next contact with Stack'd.", { confirmLabel: "Sign out", danger: true })) return;
+      try {
+        await signOutDevice(b.dataset.signoutDevice);
+        toast("Signed out");
+      } catch (e) {
+        toast(e.message);
+      }
+      loadDevices();
+    }));
+    q("[data-signout-all]")?.addEventListener("click", () => signOutFlow({ everywhere: true }));
+    q("[data-signout]")?.addEventListener("click", () => signOutFlow());
+    q("[data-lock-after]")?.addEventListener("click", (e) => openMenu(e.currentTarget, AFTER.map(([v, label]) => ({
+      label,
+      checked: settings().after === v,
+      onClick: async () => {
+        if (v === settings().after) return;
+        const pin = await askPin("Enter your PIN", { text: "Changing the app lock asks for your PIN.", check: serverPin });
+        if (!pin) return;
+        setLock({ after: v });
+        rerender();
+      }
+    }))));
+    biometricsAvailable().then((kind) => {
+      const r = root.querySelector("[data-bio-row]");
+      if (!kind || !r) return;
+      r.hidden = false;
+      r.querySelectorAll("[data-bio]").forEach((b) => b.addEventListener("click", async () => {
+        const on = b.dataset.bio === "on";
+        if (on === settings().biometrics) return;
+        if (on && !await askPin("Enter your PIN", { text: "Turning on biometrics asks for your PIN once.", check: serverPin })) return;
+        setLock({ biometrics: on });
+        rerender();
+      }));
+    });
+    q("[data-change-pin]")?.addEventListener("click", async () => {
+      const old = await askPin("Your current PIN", {});
+      if (!old) return;
+      let first = null;
+      const next = await askPin("Choose a new PIN", { check: async (p) => /^(\d)\1{3}$/.test(p) || "0123456789".includes(p) || "9876543210".includes(p) ? "Choose a PIN that is not four of the same digit or a straight run." : (first = p, null) });
+      if (!next) return;
+      const again2 = await askPin("Enter it again", { check: async (p) => p === first ? null : "The two PINs were different." });
+      if (!again2) return;
+      try {
+        await changePin(old, next);
+        toast("PIN changed");
+      } catch (e) {
+        toast(e.message, { ms: 6e3 });
+      }
+    });
+    q("[data-export]")?.addEventListener("click", async () => {
+      try {
+        downloadFile(await exportData(), "stackd-account.json");
+        toast("Saved stackd-account.json");
+      } catch (e) {
+        toast(e.message);
+      }
+    });
+    q("[data-delete-account]")?.addEventListener("click", async () => {
+      const keep2 = await choiceDialog(
+        "Delete your account?",
+        `This removes the account and everything synced to it, on the server and for every device. Recordings stay on the devices that made them. ${STORE_LINKS} The steps are also at ${DELETION_URL}.`,
+        [{ id: "keep", label: "Keep a copy here" }, { id: "remove", label: "Remove from here too", danger: true }]
+      );
+      if (!keep2) return;
+      const pin = await askPin("Enter your PIN", { text: "To delete the account." });
+      if (!pin) return;
+      const typed = await promptDialog("Type DELETE to confirm", { placeholder: "DELETE", confirmLabel: "Delete account" });
+      if (typed !== "DELETE") {
+        if (typed !== null) toast("Nothing was deleted.");
+        return;
+      }
+      try {
+        await deleteAccount({ pin, keepData: keep2 === "keep" });
+        devices = null;
+        if (keep2 === "remove") await removeLocalData();
+        toast("Your account was deleted");
+        rerender();
+      } catch (e) {
+        toast(e.message, { ms: 6e3 });
+      }
+    });
+  }
+
   // src/ui/settings.js
   var THEME_LABEL = { light: "Light", dark: "Dark", system: "System" };
   var THEME_ICON = { light: "sun", dark: "moon", system: "monitor" };
   var COLOR_NAME = { red: "Red", amber: "Amber", green: "Green", blue: "Blue", violet: "Violet", gray: "Gray" };
-  var plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  var plural3 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   var sameTag2 = (a, b) => a.toLowerCase() === b.toLowerCase();
   function openSettings(section) {
     UI.screen = "settings";
@@ -4087,7 +5531,7 @@
     <button class="lrow-icon pc pc-${p.color}" data-color aria-label="Colour: ${COLOR_NAME[p.color]}" title="Change colour">${icon("flag", 18)}</button>
     <div class="set-text">
       <input class="set-input" data-name value="${esc(p.name)}" maxlength="24" autocomplete="off" aria-label="Priority name">
-      <span class="set-sub">${plural(priorityUseCount(p.id), "task")}</span>
+      <span class="set-sub">${plural3(priorityUseCount(p.id), "task")}</span>
     </div>
     <div class="set-actions">
       <button class="set-btn" data-move="-1" aria-label="Move ${esc(p.name)} up" ${i === 0 ? "disabled" : ""}>${icon("chevronUp", 18)}</button>
@@ -4098,7 +5542,7 @@
   }
   function labelRowHTML(name) {
     const use = tagUseCounts(name);
-    const sub = use.notes ? `${plural(use.tasks, "task")} · ${plural(use.notes, "note")}` : plural(use.tasks, "task");
+    const sub = use.notes ? `${plural3(use.tasks, "task")} · ${plural3(use.notes, "note")}` : plural3(use.tasks, "task");
     return `
   <div class="set-row" data-label="${esc(name)}">
     <span class="lrow-icon">${icon("tag", 18)}</span>
@@ -4134,13 +5578,13 @@
       </div>
       <p class="hint set-hint">The file replaces what is on this device. Recordings are not in the file; transcripts, minutes and actions are.</p>`;
   }
-  var countLine = (c) => [plural(c.boards, "board"), plural(c.tasks, "task"), plural(c.notes, "note"), plural(c.meetings, "meeting")].join(", ");
+  var countLine = (c) => [plural3(c.boards, "board"), plural3(c.tasks, "task"), plural3(c.notes, "note"), plural3(c.meetings, "meeting")].join(", ");
   async function runImport(file) {
     try {
       const done2 = await importFile(file, {
-        confirm: ({ counts, current, recordingsLost }) => confirmDialog(
+        confirm: ({ counts, current: current2, recordingsLost }) => confirmDialog(
           "Replace what is on this device?",
-          `The file has ${countLine(counts)}. They replace the ${countLine(current)} on this device, which cannot be undone.${recordingsLost ? ` ${plural(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
+          `The file has ${countLine(counts)}. They replace the ${countLine(current2)} on this device, which cannot be undone.${recordingsLost ? ` ${plural3(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
           { confirmLabel: "Replace", danger: true }
         )
       });
@@ -4161,6 +5605,8 @@
       </div>
     </header>
     <div class="scroll-area">
+      ${accountSectionHTML()}
+
       <span class="section-title list-label" id="settings-appearance">Appearance</span>
       <div class="card list-card">
         <div class="set-row set-wrap">
@@ -4215,6 +5661,14 @@
             <span class="set-sub set-long">${esc(DISCLOSURE)} Recordings, transcripts, minutes and actions stay on this device otherwise.</span>
           </div>
         </div>
+        ${signedIn() ? `
+        <div class="set-row">
+          <span class="lrow-icon">${icon("document", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Plan account</span>
+            <span class="set-sub">${esc(current().email)}</span>
+          </div>
+        </div>` : `
         <div class="set-row set-wrap">
           <span class="lrow-icon">${icon("document", 18)}</span>
           <div class="set-text">
@@ -4222,7 +5676,7 @@
             <span class="set-sub num">${esc(S.plan.subscriberId)}</span>
           </div>
           <button class="btn btn-sm btn-secondary" data-copy-sub>Copy</button>
-        </div>
+        </div>`}
         <div class="set-row set-wrap">
           <span class="lrow-icon">${icon("undo", 18)}</span>
           <div class="set-text">
@@ -4301,28 +5755,29 @@
   }
   function bindSettings() {
     bindScrollShadow();
+    bindAccountSection(app);
     app.querySelectorAll("[data-theme-opt]").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.themeOpt)));
     app.querySelectorAll("[data-date-format]").forEach((b) => b.addEventListener("click", () => setDateFormat(b.dataset.dateFormat)));
-    app.querySelectorAll("[data-prio]").forEach((row) => {
-      const id = row.dataset.prio;
+    app.querySelectorAll("[data-prio]").forEach((row2) => {
+      const id = row2.dataset.prio;
       const p = S.priorities.find((x) => x.id === id);
-      bindName(row.querySelector("[data-name]"), (name) => updatePriority(id, { name }));
-      row.querySelector("[data-color]").addEventListener("click", (e) => openMenu(e.currentTarget, PRIORITY_COLORS.map((c) => ({
+      bindName(row2.querySelector("[data-name]"), (name) => updatePriority(id, { name }));
+      row2.querySelector("[data-color]").addEventListener("click", (e) => openMenu(e.currentTarget, PRIORITY_COLORS.map((c) => ({
         label: COLOR_NAME[c] + (c === p.color ? " ✓" : ""),
         swatch: c,
         onClick: () => updatePriority(id, { color: c })
       }))));
-      row.querySelectorAll("[data-move]").forEach((b) => b.addEventListener("click", () => movePriority(id, +b.dataset.move)));
-      row.querySelector("[data-delete]").addEventListener("click", async () => {
+      row2.querySelectorAll("[data-move]").forEach((b) => b.addEventListener("click", () => movePriority(id, +b.dataset.move)));
+      row2.querySelector("[data-delete]").addEventListener("click", async () => {
         const used = priorityUseCount(id);
-        if (used && !await confirmDialog(`Delete “${p.name}”?`, `${plural(used, "task")} will have no priority.`, { confirmLabel: "Delete", danger: true })) return;
+        if (used && !await confirmDialog(`Delete “${p.name}”?`, `${plural3(used, "task")} will have no priority.`, { confirmLabel: "Delete", danger: true })) return;
         deletePriority(id);
       });
     });
     bindAdd("[data-add-priority]", addPriority);
-    app.querySelectorAll("[data-label]").forEach((row) => {
-      const name = row.dataset.label;
-      bindName(row.querySelector("[data-name]"), async (next) => {
+    app.querySelectorAll("[data-label]").forEach((row2) => {
+      const name = row2.dataset.label;
+      bindName(row2.querySelector("[data-name]"), async (next) => {
         const target = allTags().find((x) => sameTag2(x, next) && !sameTag2(x, name));
         if (target && !await confirmDialog(`Merge #${name} into #${target}?`, `Every task with #${name} gets #${target} instead.`, { confirmLabel: "Merge" })) {
           rerender();
@@ -4330,9 +5785,9 @@
         }
         renameLabel(name, target || next);
       });
-      row.querySelector("[data-delete]").addEventListener("click", async () => {
+      row2.querySelector("[data-delete]").addEventListener("click", async () => {
         const used = tagUseCount(name);
-        if (used && !await confirmDialog(`Delete #${name}?`, `It is removed from ${plural(used, "task")}.`, { confirmLabel: "Delete", danger: true })) return;
+        if (used && !await confirmDialog(`Delete #${name}?`, `It is removed from ${plural3(used, "task")}.`, { confirmLabel: "Delete", danger: true })) return;
         deleteLabel(name);
       });
     });
@@ -4442,10 +5897,10 @@
     const input = root.querySelector("[data-search]");
     if (!input) return;
     const clearBtn = root.querySelector("[data-search-clear]");
-    let timer = null;
+    let timer2 = null;
     const apply2 = (value) => {
-      clearTimeout(timer);
-      timer = null;
+      clearTimeout(timer2);
+      timer2 = null;
       if (value === UI.query) return;
       UI.query = value;
       UI.searchFocus = true;
@@ -4453,8 +5908,8 @@
       rerender();
     };
     input.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => apply2(input.value), 150);
+      clearTimeout(timer2);
+      timer2 = setTimeout(() => apply2(input.value), 150);
       clearBtn?.classList.toggle("hidden", !input.value && isDesktop.matches);
     });
     input.addEventListener("keydown", (e) => {
@@ -4637,11 +6092,11 @@
     bindScrollShadow();
     bindPageTitle();
     bindChecks();
-    app.querySelectorAll(".trow").forEach((row) => {
-      const t = taskById(row.dataset.id);
-      bindRowGestures(row, t);
-      const grip = row.querySelector(".grip");
-      if (grip) bindReorder(grip, row, taskReorder(t, ".trow"));
+    app.querySelectorAll(".trow").forEach((row2) => {
+      const t = taskById(row2.dataset.id);
+      bindRowGestures(row2, t);
+      const grip = row2.querySelector(".grip");
+      if (grip) bindReorder(grip, row2, taskReorder(t, ".trow"));
     });
     bindKanban();
   }
@@ -4791,8 +6246,8 @@
   }
   var openRow = null;
   var openSide = null;
-  var slideRow = (row, x) => {
-    row.style.transform = x ? `translateX(${x}px)` : "";
+  var slideRow = (row2, x) => {
+    row2.style.transform = x ? `translateX(${x}px)` : "";
   };
   function closeOpenRow() {
     if (!openRow) return;
@@ -5021,7 +6476,7 @@
   }
 
   // src/ui/tagpicker.js
-  function openTagPicker({ tags, onChange }) {
+  function openTagPicker({ tags, onChange: onChange2 }) {
     let selected = [...tags];
     const pool = normalizeTags([...selected, ...allTags()]);
     const ov = document.createElement("div");
@@ -5060,9 +6515,9 @@
     q("[data-close]").addEventListener("click", close);
     const input = q("[data-tag-input]");
     input.focus();
-    const emit = () => {
+    const emit2 = () => {
       selected = normalizeTags(selected);
-      onChange(selected);
+      onChange2(selected);
     };
     const has = (name) => selected.some((s) => s.toLowerCase() === name.toLowerCase());
     q("[data-pool]").addEventListener("click", (e) => {
@@ -5072,7 +6527,7 @@
       if (has(name)) selected = selected.filter((s) => s.toLowerCase() !== name.toLowerCase());
       else selected.push(name);
       chip.classList.toggle("on", has(name));
-      emit();
+      emit2();
     });
     const add2 = () => {
       const [name] = normalizeTags([input.value]);
@@ -5080,7 +6535,7 @@
       if (!name) return;
       if (!has(name)) {
         selected.push(name);
-        emit();
+        emit2();
       }
       const existing = [...ov.querySelectorAll("[data-pool] .chip")].find((c) => c.dataset.val.toLowerCase() === name.toLowerCase());
       if (existing) existing.classList.add("on");
@@ -5172,7 +6627,7 @@
     else if (el.value) el.setSelectionRange(el.value.length, el.value.length);
   }
   function bindEditor(host, opts) {
-    const { get, set, mode = "composer" } = opts;
+    const { get: get2, set: set2, mode = "composer" } = opts;
     const expanded = () => opts.expanded ? opts.expanded() : true;
     let formatOpen = opts.formatOpen ? opts.formatOpen() : false;
     const setFormatOpen = (v) => {
@@ -5180,7 +6635,7 @@
       opts.onFormatToggle?.(v);
     };
     const render2 = (focus) => {
-      host.innerHTML = editorHTML(get(), { mode, expanded: expanded(), formatOpen });
+      host.innerHTML = editorHTML(get2(), { mode, expanded: expanded(), formatOpen });
       bind();
       focusField(host.querySelector("[data-editor]"), focus);
     };
@@ -5191,11 +6646,11 @@
       const qa = (s) => [...root.querySelectorAll(s)];
       const updateAdd = () => {
         const b = q("[data-add]");
-        if (b) b.disabled = noteIsEmpty(get());
+        if (b) b.disabled = noteIsEmpty(get2());
       };
       root.addEventListener("submit", (e) => {
         e.preventDefault();
-        if (!noteIsEmpty(get())) opts.onAdd?.();
+        if (!noteIsEmpty(get2())) opts.onAdd?.();
       });
       qa("[data-expand]").forEach((b) => {
         b.addEventListener("click", () => opts.onExpand?.(b.dataset.expand));
@@ -5205,7 +6660,7 @@
       root.addEventListener("keydown", (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
           e.preventDefault();
-          if (!noteIsEmpty(get())) opts.onAdd?.();
+          if (!noteIsEmpty(get2())) opts.onAdd?.();
         } else if (e.key === "Escape") {
           e.preventDefault();
           opts.onCollapse?.();
@@ -5213,7 +6668,7 @@
       });
       const title = q('[data-f="title"]');
       title.addEventListener("input", () => {
-        set({ title: title.value });
+        set2({ title: title.value });
         updateAdd();
       });
       title.addEventListener("keydown", (e) => {
@@ -5225,7 +6680,7 @@
       const body = q('[data-f="body"]');
       body.addEventListener("input", () => {
         if (emptyBody(body)) body.innerHTML = "";
-        set({ body: sanitize(body.innerHTML) });
+        set2({ body: sanitize(body.innerHTML) });
         updateAdd();
       });
       const applyFormat = (cmd) => {
@@ -5256,8 +6711,8 @@
         const ins = html ? sanitize(html) : fromPlain(text2);
         if (!document.execCommand("insertHTML", false, ins)) document.execCommand("insertText", false, text2);
       });
-      const items = () => get().checklist || [];
-      const setItems = (list3) => set({ checklist: list3 });
+      const items = () => get2().checklist || [];
+      const setItems = (list3) => set2({ checklist: list3 });
       qa("[data-ci]").forEach((input) => {
         const id = input.dataset.ci;
         const item = () => items().find((c) => c.id === id);
@@ -5302,28 +6757,28 @@
       }));
       qa("[data-tag-remove]").forEach((b) => b.addEventListener("click", () => {
         const name = b.dataset.tagRemove.toLowerCase();
-        set({ tags: get().tags.filter((t) => t.toLowerCase() !== name) });
+        set2({ tags: get2().tags.filter((t) => t.toLowerCase() !== name) });
         render2(null);
       }));
       q('[data-tool="tags"]').addEventListener("click", () => {
-        openTagPicker({ tags: get().tags, onChange: (tags) => {
-          set({ tags });
+        openTagPicker({ tags: get2().tags, onChange: (tags) => {
+          set2({ tags });
           render2(null);
         } });
       });
       q('[data-tool="color"]').addEventListener("click", (e) => {
-        const current = get().color;
+        const current2 = get2().color;
         const pick2 = (color) => {
-          set({ color });
+          set2({ color });
           render2("body");
         };
         openMenu(e.currentTarget, [
-          { label: "None", swatch: "none", checked: !current, onClick: () => pick2(null) },
-          ...NOTE_COLORS.map((c) => ({ label: COLOR_NAME2[c], swatch: c, checked: current === c, onClick: () => pick2(c) }))
+          { label: "None", swatch: "none", checked: !current2, onClick: () => pick2(null) },
+          ...NOTE_COLORS.map((c) => ({ label: COLOR_NAME2[c], swatch: c, checked: current2 === c, onClick: () => pick2(c) }))
         ]);
       });
       q('[data-tool="checklist"]').addEventListener("click", async () => {
-        const list3 = get().checklist;
+        const list3 = get2().checklist;
         if (!list3) {
           const n = newItem();
           setItems([n]);
@@ -5342,8 +6797,8 @@
     return { render: render2, focus: (key) => focusField(host.querySelector("[data-editor]"), key) };
   }
   function reflectFormat(root) {
-    const state = stateAt();
-    root.querySelectorAll("[data-fmt]").forEach((b) => b.setAttribute("aria-pressed", String(!!state[b.dataset.fmt])));
+    const state3 = stateAt();
+    root.querySelectorAll("[data-fmt]").forEach((b) => b.setAttribute("aria-pressed", String(!!state3[b.dataset.fmt])));
   }
   document.addEventListener("selectionchange", () => {
     const body = document.activeElement;
@@ -5402,25 +6857,25 @@
       return;
     }
     bindScrollShadow();
-    let timer = null;
+    let timer2 = null;
     const flush = () => {
-      if (!timer) return;
-      clearTimeout(timer);
-      timer = null;
+      if (!timer2) return;
+      clearTimeout(timer2);
+      timer2 = null;
       updateNote(n.id, { title: n.title, body: n.body, color: n.color, tags: n.tags, checklist: n.checklist });
       const d = app.querySelector("[data-dates]");
       if (d) d.textContent = datesLine(n);
     };
     flushCurrent = flush;
-    const set = (patch) => {
-      if (patch.checklist !== void 0 && patch.checklist !== null) patch = { ...patch, checklist: authoringOrder(n.checklist, patch.checklist) };
-      Object.assign(n, patch);
+    const set2 = (patch2) => {
+      if (patch2.checklist !== void 0 && patch2.checklist !== null) patch2 = { ...patch2, checklist: authoringOrder(n.checklist, patch2.checklist) };
+      Object.assign(n, patch2);
       n.updatedAt = Date.now();
-      clearTimeout(timer);
-      timer = setTimeout(flush, 500);
+      clearTimeout(timer2);
+      timer2 = setTimeout(flush, 500);
     };
     const host = app.querySelector("[data-editor-host]");
-    bindEditor(host, { mode: "detail", get: () => view(n), set, resortOnToggle: true });
+    bindEditor(host, { mode: "detail", get: () => view(n), set: set2, resortOnToggle: true });
     host.addEventListener("focusout", (e) => {
       if (!host.contains(e.relatedTarget)) flush();
     });
@@ -5456,7 +6911,7 @@
   function readOnlyHTML(n) {
     const archived = n.status === "archived";
     const left = archived ? 0 : daysLeft(n.deletedAt, RETENTION_DAYS);
-    const status = archived ? `Archived ${fmtRelative(n.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
+    const status2 = archived ? `Archived ${fmtRelative(n.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
     const items = n.checklist ? sortedChecklist(n.checklist) : [];
     const hasTitle = !!n.title.trim();
     return `
@@ -5469,7 +6924,7 @@
     <div class="scroll-area">
       <div class="notice ${archived ? "notice-neutral" : ""}">
         ${icon(archived ? "archive" : "trash", 18)}
-        <span>${status}. Restore it to edit.</span>
+        <span>${status2}. Restore it to edit.</span>
       </div>
       <div class="card note-ro" aria-label="${esc(noteTitle(n))}${n.color ? `, ${colorName(n.color)}` : ""}">
         ${colorBarHTML(n.color)}
@@ -5660,7 +7115,7 @@
     const filtering = !!(UI.query || UI.tagFilter);
     const notes = filtering ? filterNotes(all, UI.query, UI.tagFilter) : all;
     const kicker = !total ? "No notes" : filtering ? `${notes.length} of ${total} note${total === 1 ? "" : "s"}` : `${total} note${total === 1 ? "" : "s"}`;
-    const empty = !total ? "No notes yet. Write one above." : UI.query ? `No notes match “${esc(UI.query)}”.` : `No notes with #${esc(UI.tagFilter)}.`;
+    const empty2 = !total ? "No notes yet. Write one above." : UI.query ? `No notes match “${esc(UI.query)}”.` : `No notes with #${esc(UI.tagFilter)}.`;
     return `
   <div class="screen notes-screen">
     <header class="page-head">
@@ -5676,7 +7131,7 @@
     </header>
     <div class="scroll-area">
       <div data-composer-host>${editorHTML(draft, { mode: "composer", expanded: UI.composer.expanded, formatOpen: UI.composer.formatOpen })}</div>
-      ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder2() })).join("")}</div>` : `<p class="empty">${empty}</p>`}
+      ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder2() })).join("")}</div>` : `<p class="empty">${empty2}</p>`}
       ${notes.length > 1 && canReorder2() ? '<span class="hint">Drag the handle to reorder</span>' : ""}
     </div>
   </div>`;
@@ -5688,8 +7143,8 @@
     editor = bindEditor(host, {
       mode: "composer",
       get: () => draft,
-      set: (patch) => {
-        Object.assign(draft, patch);
+      set: (patch2) => {
+        Object.assign(draft, patch2);
         persist2();
       },
       expanded: () => UI.composer.expanded,
@@ -5711,29 +7166,29 @@
       UI.tagFilter = null;
       rerender();
     });
-    app.querySelectorAll(".nrow").forEach((row) => {
-      const id = row.dataset.id;
-      row.addEventListener("click", (e) => {
+    app.querySelectorAll(".nrow").forEach((row2) => {
+      const id = row2.dataset.id;
+      row2.addEventListener("click", (e) => {
         const tag = e.target.closest("[data-tagfilter]");
         if (tag) {
           UI.tagFilter = tag.dataset.tagfilter;
           rerender();
           return;
         }
-        if (e.target.closest(".grip") || row.dataset.dragged) {
-          delete row.dataset.dragged;
+        if (e.target.closest(".grip") || row2.dataset.dragged) {
+          delete row2.dataset.dragged;
           return;
         }
         openNote(id);
       });
-      row.addEventListener("keydown", (e) => {
+      row2.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           openNote(id);
         }
       });
-      const grip = row.querySelector(".grip");
-      if (grip) bindReorder(grip, row, { rowSel: ".nrow", enabled: canReorder2, onDrop: (beforeId) => reorderNote(id, beforeId) });
+      const grip = row2.querySelector(".grip");
+      if (grip) bindReorder(grip, row2, { rowSel: ".nrow", enabled: canReorder2, onDrop: (beforeId) => reorderNote(id, beforeId) });
     });
   }
 
@@ -5838,12 +7293,12 @@
     });
     await s.chunkQueue;
     const durationMs = s.durationMs || Date.now() - s.startedAt;
-    const row = await finish(s.key, durationMs);
+    const row2 = await finish(s.key, durationMs);
     session = null;
     UI.recorder = null;
     const m = meetingById(s.meetingId);
-    if (m && row && row.sizeBytes > 0) {
-      const rec = { key: s.key, mimeType: row.mimeType, durationMs, sizeBytes: row.sizeBytes, recordedAt: s.startedAt };
+    if (m && row2 && row2.sizeBytes > 0) {
+      const rec = { key: s.key, mimeType: row2.mimeType, durationMs, sizeBytes: row2.sizeBytes, recordedAt: s.startedAt };
       if (m.recording) replaceRecording(m.id, rec);
       else setRecording(m.id, rec);
     } else {
@@ -5940,17 +7395,17 @@
       <span class="hint">keeps going if you leave this screen</span>
     </div>`;
     }
-    const state = aiButtonState("transcribe");
+    const state3 = aiButtonState("transcribe");
     const planErr = err && (err.code === "plan_required" || err.code === "allowance_exhausted");
     const mins = Math.ceil(m.recording.durationMs / 6e4);
-    const hint = state.locked ? state.hint : state.hint ? `uses ${mins} min of ${state.hint.replace(" of audio left", " left")}` : "";
+    const hint = state3.locked ? state3.hint : state3.hint ? `uses ${mins} min of ${state3.hint.replace(" of audio left", " left")}` : "";
     return `
   <div class="cta" data-cta="transcribe">
     ${err && !planErr ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
     ${err?.code === "allowance_exhausted" ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
     <span class="cta-row">
-      <button type="button" class="btn ${m.transcript ? "btn-secondary" : "btn-primary"} ${state.locked ? "is-locked" : ""}" data-transcribe ${offline ? "disabled" : ""} ${state.locked ? 'data-locked="1"' : ""}>
-        ${icon(state.locked ? "lock" : "document", 18)}${err && !planErr ? "Retry" : m.transcript ? "Transcribe again" : "Transcribe"}
+      <button type="button" class="btn ${m.transcript ? "btn-secondary" : "btn-primary"} ${state3.locked ? "is-locked" : ""}" data-transcribe ${offline ? "disabled" : ""} ${state3.locked ? 'data-locked="1"' : ""}>
+        ${icon(state3.locked ? "lock" : "document", 18)}${err && !planErr ? "Retry" : m.transcript ? "Transcribe again" : "Transcribe"}
       </button>
       ${hint ? `<span class="hint cta-hint">${esc(hint)}</span>` : ""}
     </span>
@@ -6233,7 +7688,7 @@
     const lines2 = String(text2 ?? "").replace(/\r\n?/g, "\n").split("\n");
     const items = [];
     let cur = null;
-    const start = (who, startMs, first) => {
+    const start2 = (who, startMs, first) => {
       cur = { who, startMs, text: first };
       items.push(cur);
     };
@@ -6245,23 +7700,23 @@
       }
       let m;
       if ((m = TIMED.exec(line)) && isName(m[2])) {
-        start(m[2], parseTime(m[1]), m[3]);
+        start2(m[2], parseTime(m[1]), m[3]);
         return;
       }
       if ((m = NAMED_TIMED.exec(line)) && isName(m[1])) {
-        start(m[1], parseTime(m[2]), m[3]);
+        start2(m[1], parseTime(m[2]), m[3]);
         return;
       }
       if ((m = HEADER.exec(line)) && isName(m[1])) {
-        start(m[1], parseTime(m[2]), "");
+        start2(m[1], parseTime(m[2]), "");
         return;
       }
       if ((m = NAMED.exec(line)) && isName(m[1])) {
-        start(m[1], null, m[2]);
+        start2(m[1], null, m[2]);
         return;
       }
       if (cur) cur.text += (cur.text && !cur.text.endsWith("\n") ? " " : "") + line;
-      else start(null, null, line);
+      else start2(null, null, line);
     });
     const anyNamed = items.some((it) => it.who);
     if (!anyNamed) return assemble([{ who: null, startMs: null, text: lines2.join("\n") }]);
@@ -6352,14 +7807,14 @@
     unlisten?.();
     const merged = mergeAdjacent(m.transcript.segments).filter((s) => s.startMs !== null && s.startMs !== void 0);
     unlisten = onPlayerTime((ms, playing) => {
-      let current = null;
+      let current2 = null;
       merged.forEach((s) => {
-        if (s.startMs <= ms + 50) current = s.id;
+        if (s.startMs <= ms + 50) current2 = s.id;
       });
       root.querySelectorAll(".tseg.playing").forEach((el) => {
-        if (!playing || el.dataset.seg !== current) el.classList.remove("playing");
+        if (!playing || el.dataset.seg !== current2) el.classList.remove("playing");
       });
-      if (playing && current) root.querySelector(`.tseg[data-seg="${current}"]`)?.classList.add("playing");
+      if (playing && current2) root.querySelector(`.tseg[data-seg="${current2}"]`)?.classList.add("playing");
     });
     root.querySelectorAll("[data-edit]").forEach((p) => {
       const original = p.textContent;
@@ -6389,9 +7844,9 @@
     });
     root.querySelectorAll("[data-speaker]").forEach((b) => b.addEventListener("click", async () => {
       const label = b.dataset.speaker;
-      const current = m.transcript.speakers[label] || "";
+      const current2 = m.transcript.speakers[label] || "";
       const name = await promptDialog(`Name for ${speakerName(m.transcript, label)}`, {
-        value: current,
+        value: current2,
         placeholder: speakerName({ speakers: {} }, label),
         confirmLabel: "Rename",
         allowEmpty: true
@@ -6443,7 +7898,7 @@
     });
     q("[data-close]").addEventListener("click", close);
     const confirmBtn = q("[data-confirm]");
-    const refresh2 = () => {
+    const refresh3 = () => {
       if (isMove && task) confirmBtn.disabled = pick2.listId === task.listId && pick2.lane === task.lane;
     };
     const renderLanes = () => {
@@ -6456,12 +7911,12 @@
       pick2[key] = chip.dataset.val;
       q(sel).querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === chip));
       after?.();
-      refresh2();
+      refresh3();
     });
     group("[data-board]", "listId", renderLanes);
     group("[data-lane]", "lane");
     renderLanes();
-    refresh2();
+    refresh3();
     confirmBtn.addEventListener("click", () => {
       close();
       onConfirm(pick2.listId, pick2.lane);
@@ -6562,11 +8017,11 @@
         return;
       }
       const title = el.querySelector("[data-title]");
-      let timer = null;
+      let timer2 = null;
       const flush = () => {
-        if (!timer) return;
-        clearTimeout(timer);
-        timer = null;
+        if (!timer2) return;
+        clearTimeout(timer2);
+        timer2 = null;
         editAction(m.id, a.id, { title: title.value });
       };
       const grow2 = () => {
@@ -6576,8 +8031,8 @@
       grow2();
       title.addEventListener("input", () => {
         grow2();
-        clearTimeout(timer);
-        timer = setTimeout(flush, 500);
+        clearTimeout(timer2);
+        timer2 = setTimeout(flush, 500);
       });
       title.addEventListener("blur", flush);
       title.addEventListener("keydown", (e) => {
@@ -6646,8 +8101,8 @@
     const v = new DataView(buffer);
     if (v.getUint32(entry.offset, true) !== SIG_LOCAL) throw new Error("bad local header");
     const nameLen = v.getUint16(entry.offset + 26, true), extraLen = v.getUint16(entry.offset + 28, true);
-    const start = entry.offset + 30 + nameLen + extraLen;
-    return new Uint8Array(buffer, start, entry.compressedSize);
+    const start2 = entry.offset + 30 + nameLen + extraLen;
+    return new Uint8Array(buffer, start2, entry.compressedSize);
   }
   async function inflate(bytes) {
     const ds = new DecompressionStream("deflate-raw");
@@ -6827,17 +8282,17 @@
     }
     bindScrollShadow();
     const input = app.querySelector("[data-title]");
-    let timer = null;
+    let timer2 = null;
     const flush = () => {
-      if (!timer) return;
-      clearTimeout(timer);
-      timer = null;
+      if (!timer2) return;
+      clearTimeout(timer2);
+      timer2 = null;
       updateMeeting(m.id, { title: input.value });
     };
     flushCurrent2 = flush;
     input.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(flush, 500);
+      clearTimeout(timer2);
+      timer2 = setTimeout(flush, 500);
     });
     input.addEventListener("blur", flush);
     input.addEventListener("keydown", (e) => {
@@ -6894,7 +8349,7 @@
   function readOnlyHTML2(m) {
     const archived = m.status === "archived";
     const left = archived ? 0 : daysLeft(m.deletedAt, RETENTION_DAYS);
-    const status = archived ? `Archived ${fmtRelative(m.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
+    const status2 = archived ? `Archived ${fmtRelative(m.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
     return `
   <div class="screen detail-screen is-readonly meeting-screen">
     <header class="page-head detail-top">
@@ -6905,7 +8360,7 @@
     <div class="scroll-area">
       <div class="notice ${archived ? "notice-neutral" : ""}">
         ${icon(archived ? "archive" : "trash", 18)}
-        <span>${status}. Restore it to edit.</span>
+        <span>${status2}. Restore it to edit.</span>
       </div>
       <h1 class="note-ro-title ${m.title.trim() ? "" : "untitled"}">${esc(meetingTitle(m))}</h1>
       <span class="hint mdate">${esc(dateLine(m))}</span>
@@ -7022,7 +8477,7 @@
     const total = all.length;
     const meetings = UI.query ? filterMeetings(all, UI.query, meetingTitle) : all;
     const kicker = !total ? "No meetings" : UI.query ? `${meetings.length} of ${total} meeting${total === 1 ? "" : "s"}` : `${total} meeting${total === 1 ? "" : "s"}`;
-    const empty = !total ? "No meetings yet. Tap + to record one or paste a transcript." : `No meetings match “${esc(UI.query)}”.`;
+    const empty2 = !total ? "No meetings yet. Tap + to record one or paste a transcript." : `No meetings match “${esc(UI.query)}”.`;
     return `
   <div class="screen meetings-screen">
     <header class="page-head">
@@ -7033,7 +8488,7 @@
       ${sortbarHTML2()}
     </header>
     <div class="scroll-area">
-      ${meetings.length ? `<div class="card list-card" role="list">${meetings.map(meetingRowHTML).join("")}</div>` : `<p class="empty">${empty}</p>`}
+      ${meetings.length ? `<div class="card list-card" role="list">${meetings.map(meetingRowHTML).join("")}</div>` : `<p class="empty">${empty2}</p>`}
     </div>
   </div>`;
   }
@@ -7042,10 +8497,10 @@
     bindPageTitle();
     bindSortbar2();
     bindSearch(app);
-    app.querySelectorAll(".mrow").forEach((row) => {
-      const id = row.dataset.id;
-      row.addEventListener("click", () => openMeeting(id));
-      row.addEventListener("keydown", (e) => {
+    app.querySelectorAll(".mrow").forEach((row2) => {
+      const id = row2.dataset.id;
+      row2.addEventListener("click", () => openMeeting(id));
+      row2.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           openMeeting(id);
@@ -7300,9 +8755,9 @@
     const o = t.origin || t;
     const from = `${listById(o.listId)?.name || "Deleted board"} · ${laneName(o.listId, o.lane)}`;
     const left = archived ? 0 : daysLeft(t.deletedAt, RETENTION_DAYS);
-    const status = archived ? `Archived ${fmtRelative(t.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
+    const status2 = archived ? `Archived ${fmtRelative(t.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
     const note = scheduleNote(t);
-    const row = (label, value) => `
+    const row2 = (label, value) => `
         <div class="kv-row">
           <span class="kv-label">${label}</span>
           <span class="kv-val static">${value}</span>
@@ -7317,7 +8772,7 @@
     <div class="scroll-area">
       <div class="notice ${archived ? "notice-neutral" : ""}">
         ${icon(archived ? "archive" : "trash", 18)}
-        <span>${status} · from ${esc(from)}. Restore it to edit.</span>
+        <span>${status2} · from ${esc(from)}. Restore it to edit.</span>
       </div>
       <div class="detail-head">
         <div class="detail-title-row">
@@ -7327,12 +8782,12 @@
         ${taskMetaHTML(t)}
       </div>
       <div class="card">
-        ${row(`${icon("calendar", 16)}Due date`, t.due ? esc(fmtDateLong(t.due, t.dueTime)) : "—")}
+        ${row2(`${icon("calendar", 16)}Due date`, t.due ? esc(fmtDateLong(t.due, t.dueTime)) : "—")}
         ${note ? `<div class="kv-note">${esc(note)}</div>` : ""}
-        ${row("Priority", esc(priorityName(t.priority)))}
-        ${row(`${icon("tag", 16)}Tags`, t.tags.length ? t.tags.map((x) => `#${esc(x)}`).join(" ") : "—")}
-        ${row(`${icon("move", 16)}From`, esc(from))}
-        ${row("Reminder", esc(reminderLabel(t.reminder)))}
+        ${row2("Priority", esc(priorityName(t.priority)))}
+        ${row2(`${icon("tag", 16)}Tags`, t.tags.length ? t.tags.map((x) => `#${esc(x)}`).join(" ") : "—")}
+        ${row2(`${icon("move", 16)}From`, esc(from))}
+        ${row2("Reminder", esc(reminderLabel(t.reminder)))}
       </div>
       ${t.subtasks.length ? subtasksHTML(t, { readOnly: true }) : ""}
       <div class="dialog-actions">
@@ -7445,7 +8900,7 @@
     const total = tasks.length + notes.length + meetings.length + boards.length;
     const rows = kind === "notes" ? notes.map((n) => noteRowHTML2(n, tab)) : kind === "meetings" ? meetings.map((m) => meetingRowHTML2(m, tab)) : kind === "boards" ? boards.map((l) => boardRowHTML(l, tab)) : tasks.map((t) => taskRowHTML(t, tab));
     const disclaimer = `Tasks, notes, meetings and boards stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
-    const empty = tab === "archived" ? `Nothing archived yet. Archive ${kind} you are done with but want to keep.` : kind === "tasks" ? "Nothing in Deleted." : `No deleted ${kind}.`;
+    const empty2 = tab === "archived" ? `Nothing archived yet. Archive ${kind} you are done with but want to keep.` : kind === "tasks" ? "Nothing in Deleted." : `No deleted ${kind}.`;
     const seg = (k, label, n) => `<button class="seg ${kind === k ? "active" : ""}" data-kind="${k}" role="tab" aria-selected="${kind === k}">${label} · ${n}</button>`;
     return `
   <div class="screen">
@@ -7468,7 +8923,7 @@
         <span>${disclaimer}</span>
         ${total ? '<button class="btn btn-sm btn-ghost danger" data-empty>Empty Deleted</button>' : ""}
       </div>` : ""}
-      ${rows.length ? `<div class="card list-card">${rows.join("")}</div>` : `<p class="empty">${empty}</p>`}
+      ${rows.length ? `<div class="card list-card">${rows.join("")}</div>` : `<p class="empty">${empty2}</p>`}
     </div>
   </div>`;
   }
@@ -7479,11 +8934,11 @@
       UI.folderKind = b.dataset.kind;
       rerender();
     }));
-    app.querySelectorAll(".frow").forEach((row) => row.addEventListener("click", (e) => {
-      if (e.target.closest(".frow-actions") || row.dataset.board) return;
-      if (row.dataset.note) openNote(row.dataset.note);
-      else if (row.dataset.meeting) openMeeting(row.dataset.meeting);
-      else openDetail(row.dataset.id);
+    app.querySelectorAll(".frow").forEach((row2) => row2.addEventListener("click", (e) => {
+      if (e.target.closest(".frow-actions") || row2.dataset.board) return;
+      if (row2.dataset.note) openNote(row2.dataset.note);
+      else if (row2.dataset.meeting) openMeeting(row2.dataset.meeting);
+      else openDetail(row2.dataset.id);
     }));
     app.querySelectorAll("[data-restore-task]").forEach((b) => b.addEventListener("click", () => restoreWithToast(b.dataset.restoreTask)));
     app.querySelectorAll("[data-restore-note]").forEach((b) => b.addEventListener("click", () => restoreNoteWithToast(b.dataset.restoreNote)));
@@ -7531,6 +8986,14 @@
   }
 
   // src/ui/shell.js
+  function accountLine() {
+    const a = current();
+    if (!a) return { who: "On this device", sub: "Not signed in · sync is off" };
+    const s = state2();
+    const sub = s.state === "syncing" ? "Syncing…" : s.state === "offline" ? s.pending ? `Offline · ${s.pending} to sync` : "Offline" : s.state === "paused" ? "Sync paused" : s.lastSyncAt ? `Synced ${ago(s.lastSyncAt)}` : "Signed in";
+    return { who: a.email, sub };
+  }
+  var dotHTML = () => syncDot() ? '<span class="sync-dot" aria-label="Changes waiting to sync"></span>' : "";
   function moveBannerHTML() {
     if (!isLegacyOrigin()) return "";
     return `
@@ -7601,20 +9064,20 @@
       const to = ids.indexOf(id) + dir;
       if (to >= 0 && to < ids.length) moveTo(id, to);
     };
-    rows.forEach((row) => {
-      const id = row.dataset.id, i = ids.indexOf(id);
+    rows.forEach((row2) => {
+      const id = row2.dataset.id, i = ids.indexOf(id);
       const name = () => listById(id)?.name || "board";
       let over = null, after = false, drop = null;
       const clear = () => over?.classList.remove("dropover", "dropover-after");
-      bindHold(row, {
-        ghostClass: row.classList.contains("side-item") ? "side-item" : "lrow",
-        scroller: () => row.closest(".scroll-area, .sidebar"),
+      bindHold(row2, {
+        ghostClass: row2.classList.contains("side-item") ? "side-item" : "lrow",
+        scroller: () => row2.closest(".scroll-area, .sidebar"),
         axis: "y",
         onTap: () => openBoard(id),
         onDragMove: (ev) => {
           const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(rowSel);
           clear();
-          over = target && target !== row ? target : null;
+          over = target && target !== row2 ? target : null;
           if (!over) return;
           const r = over.getBoundingClientRect();
           after = ev.clientY > r.top + r.height / 2;
@@ -7637,8 +9100,8 @@
           { icon: "x", label: `Remove board: ${name()}`, onClick: () => askRemoveBoard(id) }
         ]
       });
-      row.addEventListener("keydown", (e) => {
-        if (e.target !== row) return;
+      row2.addEventListener("keydown", (e) => {
+        if (e.target !== row2) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           openBoard(id);
@@ -7714,10 +9177,11 @@
         <div class="lrow" data-open-settings>
           <span class="lrow-icon">${icon("settings", 18)}</span>
           <span class="lname">Settings</span>
+          ${dotHTML()}
           ${icon("chevronRight", 18)}
         </div>
       </div>
-      <span class="hint">Synced 2 min ago · free account</span>
+      <span class="hint">${esc(accountLine().sub)}</span>
     </div>
   </div>`;
   }
@@ -7808,10 +9272,11 @@
       <div class="side-item side-settings ${UI.screen === "settings" ? "active" : ""}" data-open-settings>
         ${icon("settings", 16)}
         <span class="name">Settings</span>
+        ${dotHTML()}
       </div>
       <div class="side-user">
-        <span class="who">Alex Rivera</span>
-        <span class="sub">Synced across 3 devices</span>
+        <span class="who">${esc(accountLine().who)}</span>
+        <span class="sub">${esc(accountLine().sub)}</span>
       </div>
     </aside>
     <main class="main">${main}</main>
@@ -7864,12 +9329,63 @@
       });
       app.querySelector("[data-quickadd-btn]").addEventListener("click", commitAdd);
     }
-    app.querySelectorAll(".tgrid-row").forEach((row) => {
-      const t = taskById(row.dataset.id);
-      bindRowGestures(row, t);
-      bindReorder(row, row, taskReorder(t, ".tgrid-row"));
+    app.querySelectorAll(".tgrid-row").forEach((row2) => {
+      const t = taskById(row2.dataset.id);
+      bindRowGestures(row2, t);
+      bindReorder(row2, row2, taskReorder(t, ".tgrid-row"));
     });
     bindKanban();
+  }
+
+  // src/ui/lockscreen.js
+  function lockHTML() {
+    const a = current();
+    const changed = lockReason() === "pin_required";
+    return `
+  <main class="screen lock-screen" role="main" aria-label="Stack'd is locked">
+    <div class="lock-card">
+      <span class="lock-icon" aria-hidden="true">${icon("lock", 22)}</span>
+      <h1 class="lock-title">Stack'd is locked</h1>
+      <p class="hint">${changed ? "Your PIN was changed on another device. Enter the new PIN." : esc(a?.email || "")}</p>
+      ${pinpadHTML({ label: changed ? "Enter the new PIN" : "Enter your PIN" })}
+      <button type="button" class="btn btn-ghost btn-block" data-bio hidden>${icon("lock", 16)}Use Face ID or fingerprint</button>
+      <button type="button" class="btn btn-ghost btn-block" data-forgot>Forgot your PIN?</button>
+    </div>
+  </main>`;
+  }
+  var waitTimer = null;
+  function bindLock() {
+    const pad3 = bindPinpad(app, {
+      onComplete: async (pin) => {
+        const r = await unlockWithPin(pin);
+        if (r.ok) return;
+        if (r.code === "wait" && r.waitMs) {
+          pad3.error(r.message);
+          pad3.disable(true);
+          clearTimeout(waitTimer);
+          waitTimer = setTimeout(() => {
+            pad3.disable(false);
+            pad3.error("");
+          }, r.waitMs);
+          return;
+        }
+        pad3.error(r.message);
+        if (r.code === "pin_locked") app.querySelector("[data-forgot]").textContent = "Reset your PIN with an email code";
+      }
+    });
+    pad3.focus();
+    app.querySelector("[data-forgot]").addEventListener("click", async () => {
+      const ok = await confirmDialog("Reset your PIN?", "We send a code to your email. After the reset, your other devices are signed out.", { confirmLabel: "Send a code" });
+      if (ok) openSignIn({ mode: "signin" });
+    });
+    biometricsAvailable().then((kind) => {
+      if (!kind || !settings().biometrics) return;
+      const b = app.querySelector("[data-bio]");
+      if (!b) return;
+      b.hidden = false;
+      b.addEventListener("click", () => unlockWithBiometrics());
+      unlockWithBiometrics();
+    });
   }
 
   // app.js
@@ -7922,6 +9438,11 @@
       bindMoveBanner();
       return;
     }
+    if (locked()) {
+      app.innerHTML = lockHTML();
+      bindLock();
+      return;
+    }
     if (isDesktop.matches) {
       app.innerHTML = banner + desktopHTML();
       bindDesktop();
@@ -7947,22 +9468,75 @@
     }
   }
   setRenderer(render);
-  setAfterCommit(syncReminders);
+  setAfterCommit(() => {
+    syncReminders();
+    request2("edit");
+  });
+  init();
+  init2();
+  setBlocked(() => locked());
+  purgeOld();
+  var wasLocked = locked();
+  onLockChange((on) => {
+    document.querySelectorAll(".overlay").forEach((o) => {
+      if (on) o.remove();
+    });
+    render();
+    if (wasLocked && !on) request2("unlock");
+    wasLocked = on;
+  });
+  onPinRequired(() => lock("pin_required"));
+  var shownSync = "";
+  onState((s) => {
+    const key = s.state === "syncing" && UI.screen !== "settings" ? shownSync : `${s.state}|${s.pending}|${s.paused?.code || ""}`;
+    if (key === shownSync) return;
+    shownSync = key;
+    const a = document.activeElement;
+    if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
+    if (UI.screen === "settings" || UI.screen === "lists" || isDesktop.matches) rerender();
+  });
+  var signedInAs = current()?.userId || null;
+  onChange((a) => {
+    const id = a?.userId || null;
+    if (id !== signedInAs) {
+      if (id) identify(id);
+      else anonymous(S.plan.subscriberId);
+      signedInAs = id;
+    }
+    rerender();
+  });
+  function syncSoon(reason2) {
+    if (!signedIn()) return;
+    if (!started()) {
+      if (!locked()) startSync();
+      return;
+    }
+    request2(reason2);
+  }
+  ready.then(() => syncSoon("boot"));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") syncSoon("focus");
+  });
+  window.addEventListener("online", () => syncSoon("online"));
+  setInterval(() => {
+    if (document.visibilityState === "visible") syncSoon("poll");
+  }, POLL_MS2);
+  ["pointerdown", "keydown"].forEach((t) => document.addEventListener(t, () => touch2(), { passive: true, capture: true }));
   setMediaRemover((keys) => keys.forEach((k) => remove(k).catch(() => {
   })));
   purgeDeleted();
   if (available()) {
-    orphans(S.meetings.map((m) => m.recording?.key).filter(Boolean)).then((rows) => rows.forEach((row) => {
-      const m = meetingById(row.meetingId);
-      if (m && m.status === "active" && !m.recording && row.sizeBytes > 0 && row.durationMs > 0) {
-        setRecording(m.id, { key: row.key, mimeType: row.mimeType, durationMs: row.durationMs, sizeBytes: row.sizeBytes, recordedAt: row.updatedAt - row.durationMs });
-      } else remove(row.key).catch(() => {
+    orphans(S.meetings.map((m) => m.recording?.key).filter(Boolean)).then((rows) => rows.forEach((row2) => {
+      const m = meetingById(row2.meetingId);
+      if (m && m.status === "active" && !m.recording && row2.sizeBytes > 0 && row2.durationMs > 0) {
+        setRecording(m.id, { key: row2.key, mimeType: row2.mimeType, durationMs: row2.durationMs, sizeBytes: row2.sizeBytes, recordedAt: row2.updatedAt - row2.durationMs });
+      } else remove(row2.key).catch(() => {
       });
     })).catch(() => {
     });
   }
   resumeJobs();
-  configure(S.plan.subscriberId);
+  configure(current()?.userId || S.plan.subscriberId);
   setTranscribedHandler((id) => {
     const m = meetingById(id);
     if (!m?.recording) return;
@@ -7972,7 +9546,10 @@
     if (code === "plan_required") openPlanRequired({ step });
     else if (code === "allowance_exhausted") openAllowanceUsed({ step, resetsAt });
   });
-  document.addEventListener("resume", () => resumeJobs());
+  document.addEventListener("resume", () => {
+    resumeJobs();
+    syncSoon("resume");
+  });
   window.addEventListener("online", () => resumeJobs());
   function openTask(id) {
     const t = taskById(id);

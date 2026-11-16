@@ -42,6 +42,22 @@ export async function configure(subscriberId) {
   return configured;
 }
 
+/** After sign-in (PRD-accounts AC-08.1, AC-08.2): purchases belong to the
+    account id from now on, and syncPurchases moves a plan bought under the
+    device's anonymous id to it without a store prompt. */
+export async function identify(userId) {
+  if (!configured) return;
+  try { await plugin().logIn({ appUserID: userId }); await plugin().syncPurchases(); offeringsCache = null; }
+  catch (e) { console.warn('purchases: identify failed', e?.message || e); }
+}
+
+/** After sign-out (AC-08.7): back to the device's anonymous id. */
+export async function anonymous(subscriberId) {
+  if (!configured) return;
+  try { await plugin().logIn({ appUserID: subscriberId }); offeringsCache = null; }
+  catch (e) { console.warn('purchases: anonymous failed', e?.message || e); }
+}
+
 /** { plus: { price: '€9.99', package }, … } for the tiers the store offers; {} when unavailable. */
 export async function offerings({ force = false } = {}) {
   if (!configured) return {};

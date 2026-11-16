@@ -7,7 +7,11 @@ biometrics in place of the PIN; the plan following the account; and the
 legal and security work that holding people's data on a server requires.
 Using the app without an account stays exactly as shipped in 1.5.0.
 
-Status: **architecture written, 2026-11-13; not built.** Decisions taken
+Status: **phases 24 to 28 built, 2026-11-16** (server, sign-in UI, sync,
+plan on the account, app lock) and run locally end to end; not deployed,
+waiting on the owner tasks of §09, and the shells wait on the
+secure-storage and biometric plugins (architecture §45). Phases 29 and 30
+(legal surface, QA, release) are not started. Decisions taken
 are in §07; calls the analyst made alone are in §08; open questions are
 in §09. Companion documents: `docs/plan-accounts.md` (the design this PRD
 was written from), `docs/architecture.md` Part IV (§28 onwards, which

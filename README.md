@@ -177,6 +177,15 @@ is enough; HTTPS is required for install + service worker on real devices.
   menu, and so does a swipe to the right (outside the lanes on the kanban,
   from the left half elsewhere). Desktop: sidebar with Boards, Notes and
   Archive & Bin, each with live counts
+- **Account and sync (1.6.0, not live yet)** — optional. Settings ›
+  Account: create an account (birth year, email, six-digit code, a
+  four-digit PIN) or sign in (email, code, PIN). Boards, tasks, notes and
+  meetings sync on start, focus, reconnect, 2 s after an edit, every 30 s
+  while open and on Sync now; recordings stay on their device. First
+  sign-in uploads, downloads, or asks Merge / Use my account and keeps a
+  30-day copy. Devices list with sign-out, app lock (PIN, offline too),
+  Change PIN, export, delete. Waits on the server setup and, in the
+  phone apps, on the secure-storage plugin (architecture §45)
 - **Search** — a field at the top of every board (desktop inline, mobile
   behind a search icon) and of Notes: case- and accent-insensitive, every
   word must appear in the title, tags, subtasks, note text or checklist.
