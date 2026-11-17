@@ -172,10 +172,11 @@ is enough; HTTPS is required for install + service worker on real devices.
 
 - **Board** — Work, Personal, Shopping, Family… (the sidebar / Boards menu).
 - **Lane** — the kanban columns of a board: Backlog, In Progress, Done to
-  start with. Each board has its own; add, rename, reorder or delete them
-  from the lane's ⋯ menu on the kanban. Done stays (it is where completed
+  start with. Each board has its own: add one with the "Add lane" column, tap
+  a lane's name to rename it, hold it outside its cards to drag it, hold
+  longer for the **X** that removes it. Done stays (it is where completed
   tasks go): always the last lane, and it cannot be renamed, moved or
-  deleted.
+  removed.
 - **Archive & Bin** — the Archived and Deleted pages, each with a
   Tasks ∕ Notes ∕ Meetings ∕ Boards switch (called Folders before 1.6.0).
 - **Note** — a title, formatted text, an optional checklist, tags and a
@@ -207,11 +208,14 @@ is enough; HTTPS is required for install + service worker on real devices.
   (repeating tasks excepted, see below) and the board stays scrolled where
   it was. Reopening a card in the same session returns it to the lane it
   came from; after a restart it goes to the first lane. Done is always the
-  last lane and cannot be renamed, moved or deleted. Deleting another lane
-  moves its tasks to the board's first lane. Hold a card to carry it to
-  another lane: a copy follows the finger, the lane under it is ringed,
-  and the board scrolls when it nears an edge. Keep holding without moving
-  and a round **X** appears on the card; it asks before deleting
+  last lane and cannot be renamed, moved or removed. Hold a card to carry
+  it to another lane: a copy follows the finger, the lane under it is
+  ringed, and the board scrolls when it nears an edge. Keep holding without
+  moving and a round **X** appears on the card; it asks before deleting.
+  Lanes work the same way, held outside their cards: drag one to reorder,
+  or hold for the **X**. Removing a lane asks first and moves its cards to
+  the leftmost other lane, or to Deleted when only Done would be left (the
+  next card added brings a Backlog back)
 - **Boards** — in the main menu and the sidebar, hold a board (or drag it
   with the mouse) to reorder; keep holding for the buttons that move it one
   step or remove it. Removing asks **Archive** or **Delete**; the board
@@ -221,9 +225,12 @@ is enough; HTTPS is required for install + service worker on real devices.
   (Boards · Tasks · Notes · Archive & Bin) and a round **+** that opens the
   same grid everywhere: Add task, Add note, Add meeting, Add automation.
   The title of every top-level page carries a chevron that opens the main
-  menu, and so does a swipe to the right (outside the lanes on the kanban,
-  from the left half elsewhere). Desktop: sidebar with Boards, Notes and
-  Archive & Bin, each with live counts
+  menu, and so does a swipe to the right, which brings the menu in under
+  the finger. On an open card the same swipe takes it back to its board,
+  which shows underneath as the card slides off. A swipe that starts on a
+  row, a card, a lane or a field does nothing; from the left edge it
+  always works. Desktop: sidebar with Boards, Notes and Archive & Bin, each
+  with live counts
 - **Account and sync (1.6.0, not live yet)** — optional. Settings ›
   Account: create an account (birth year, email, six-digit code, a
   four-digit PIN) or sign in (email, code, PIN). Boards, tasks, notes and

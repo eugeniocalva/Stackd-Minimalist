@@ -225,7 +225,22 @@
 }
 
 /* ── Add menu: the "+" grid (PRD-improvements US-09) ─────────────────── */
+/* No sheet (owner's review 2026-11-17): the tiles float over the page,
+   which is blurred and washed with its own background, just above the "+"
+   they came from. Each rises a beat after the one before. */
+.overlay.add-overlay {
+  background: color-mix(in srgb, var(--bg-base) 50%, transparent);
+  backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2);
+}
+.add-menu { width: 100%; max-width: 440px; padding: 0 var(--gutter) calc(var(--safe-bottom) + 104px); }
 .add-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.add-overlay .add-tile {
+  background: var(--bg-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-float);
+  animation: tileIn 0.34s var(--ease-spring) both; animation-delay: calc(var(--i, 0) * 45ms);
+}
+.add-overlay .add-tile:hover { background: var(--bg-surface-dim); }
+.add-overlay .add-tile-icon { background: var(--bg-surface-sunken); }
+@keyframes tileIn { from { opacity: 0; transform: translateY(18px) scale(0.92); } }
 .add-tile {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2);
   min-height: 96px; padding: var(--space-4) var(--space-2); border-radius: var(--radius-lg);
@@ -288,6 +303,10 @@
 .dialog .input { width: 100%; }
 .dialog-actions { display: flex; gap: 10px; margin-top: var(--space-2); }
 .dialog-actions .btn { flex: 1; }
+/* the label centred on its capital letters, whatever ascent and descent the
+   platform reads from the font: iOS and Chrome place Manrope differently
+   (owner's review 2026-11-17, AC-04.4) */
+.btn-label { display: block; text-box: trim-both cap alphabetic; }
 .btn-danger { background: var(--color-danger-solid); color: var(--text-on-danger); }
 
 /* ── Notice (folder disclaimer) ──────────────────────────────────────── */
@@ -490,6 +509,7 @@
 .steps-sheet { gap: var(--space-3); }
 .steps-head { display: flex; align-items: center; justify-content: space-between; margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2)) 0; }
 .steps-sheet h2 { font-size: var(--text-xl); font-weight: 800; }
+.steps-sheet h2:focus { outline: none; }   /* focused by the code for screen readers, not a control */
 .step-text { color: var(--text-secondary); font-size: var(--text-sm); }
 .step-error { color: var(--color-danger-text); font-size: var(--text-sm); font-weight: 600; min-height: 1.2em; }
 .step-error:empty { display: none; }

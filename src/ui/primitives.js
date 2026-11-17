@@ -90,8 +90,8 @@ export function confirmDialog(title, body, { confirmLabel = 'Confirm', danger = 
         <h2 id="dlg-title">${esc(title)}</h2>
         <p>${esc(body)}</p>
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-cancel>Cancel</button>
-          <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-ok>${esc(confirmLabel)}</button>
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
       </div>`, { onClose: (r) => resolve(r === true) });
     ov.querySelector('[data-cancel]').addEventListener('click', () => close(false));
@@ -109,8 +109,8 @@ export function choiceDialog(title, body, choices) {
         <h2 id="dlg-title">${esc(title)}</h2>
         <p id="dlg-body">${esc(body)}</p>
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-cancel>Cancel</button>
-          ${choices.map((c) => `<button class="btn ${c.danger ? 'btn-danger' : 'btn-primary'}" data-choice="${esc(c.id)}">${esc(c.label)}</button>`).join('')}
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          ${choices.map((c) => `<button class="btn ${c.danger ? 'btn-danger' : 'btn-primary'}" data-choice="${esc(c.id)}"><span class="btn-label">${esc(c.label)}</span></button>`).join('')}
         </div>
       </div>`, { onClose: (r) => resolve(typeof r === 'string' ? r : null) });
     ov.querySelector('[data-cancel]').addEventListener('click', () => close(null));
@@ -129,8 +129,8 @@ export function promptDialog(title, { value = '', placeholder = '', confirmLabel
         <h2 id="dlg-title">${esc(title)}</h2>
         <input class="input" data-field value="${esc(value)}" placeholder="${esc(placeholder)}" aria-label="${esc(title)}" autocomplete="off">
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-cancel>Cancel</button>
-          <button class="btn btn-primary" data-ok>${esc(confirmLabel)}</button>
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          <button class="btn btn-primary" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
       </div>`, { onClose: (r) => resolve(typeof r === 'string' && (r.trim() || allowEmpty) ? r.trim() : null) });
     const input = ov.querySelector('[data-field]');

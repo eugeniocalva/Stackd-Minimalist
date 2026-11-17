@@ -31,6 +31,20 @@ export const lanesOf = (listId) => listById(listId)?.lanes || defaultLanes();
 export const laneName = (listId, laneId) => lanesOf(listId).find((l) => l.id === laneId)?.name || laneId;
 /** Where new and reopened tasks land: the board's first lane that is not Done. */
 export const firstLane = (listId) => (lanesOf(listId).find((l) => l.id !== DONE_LANE) || lanesOf(listId)[0]).id;
+/** Where a card that is not done goes: the board's first lane that is not
+    Done. A board left with only Done (its other lanes all removed,
+    PRD-improvements US-02) gets a Backlog back first. The caller commits. */
+export function workLane(listId) {
+  const list = listById(listId);
+  if (!list) return firstLane(listId);
+  const lane = list.lanes.find((l) => l.id !== DONE_LANE);
+  if (lane) return lane.id;
+  const id = list.lanes.some((l) => l.id === 'backlog') ? uid() : 'backlog';
+  list.lanes.unshift({ id, name: 'Backlog' });
+  return id;
+}
+/** The given lane if the board has it, else the work lane (see above). */
+const laneOr = (listId, laneId) => (lanesOf(listId).some((l) => l.id === laneId) ? laneId : workLane(listId));
 /** A lane id the board has: the given one, else its first lane. */
 export const validLane = (listId, laneId) => (lanesOf(listId).some((l) => l.id === laneId) ? laneId : firstLane(listId));
 /** Active tasks in a lane. */
@@ -469,7 +483,7 @@ const rememberOrigin = (t) => { if (t.lane !== DONE_LANE) doneOrigin.set(t.id, {
 function reopenLane(t) {
   const o = doneOrigin.get(t.id);
   doneOrigin.delete(t.id);
-  return o && o.listId === t.listId && o.lane !== DONE_LANE ? validLane(t.listId, o.lane) : firstLane(t.listId);
+  return o && o.listId === t.listId && o.lane !== DONE_LANE && lanesOf(t.listId).some((l) => l.id === o.lane) ? o.lane : workLane(t.listId);
 }
 /** Test hook: what a restart does to the remembered lanes. */
 export const forgetDoneOrigins = () => doneOrigin.clear();
@@ -492,7 +506,7 @@ export function reorderTask(id, beforeId) {
 
 export function moveToLane(id, lane) {
   const t = taskById(id); if (!t || !lane) return;
-  lane = validLane(t.listId, lane);
+  if (!lanesOf(t.listId).some((l) => l.id === lane)) lane = workLane(t.listId);
   if (lane === DONE_LANE && t.recur !== 'none' && t.due) { rollForward(id); return; }
   const wasDone = t.done;
   if (lane === DONE_LANE) rememberOrigin(t); else doneOrigin.delete(t.id);
@@ -507,7 +521,7 @@ export function addTask(draft) {
     priority: draft.priority, tags: normalizeTags(draft.tags || []),
     start: draft.start || null, due: draft.due || null, dueTime: draft.dueTime || null,
     recur: draft.recur || 'none', reminder: draft.reminder ?? null,
-    lane: validLane(draft.listId, draft.lane || firstLane(draft.listId)), order: nextOrder(),
+    lane: draft.lane && lanesOf(draft.listId).some((l) => l.id === draft.lane) ? draft.lane : workLane(draft.listId), order: nextOrder(),
     from: draft.from || null,
   });
   t.done = t.lane === DONE_LANE;
@@ -995,8 +1009,8 @@ export function undoRollForward(id, prev) {
     task never enters Done: it keeps its lane (callers roll it forward). */
 export function moveTask(id, listId, lane) {
   const t = taskById(id); if (!t || !isLive(listById(listId))) return;
-  lane = validLane(listId, lane);
-  if (lane === DONE_LANE && t.recur !== 'none' && t.due) lane = validLane(listId, t.lane);
+  lane = laneOr(listId, lane);
+  if (lane === DONE_LANE && t.recur !== 'none' && t.due) { lane = laneOr(listId, t.lane); if (lane === DONE_LANE) lane = workLane(listId); }
   if (t.listId === listId && t.lane === lane) return;
   const wasDone = t.done;
   if (lane === DONE_LANE && t.listId === listId) rememberOrigin(t); else doneOrigin.delete(t.id);
@@ -1011,7 +1025,7 @@ export function moveTask(id, listId, lane) {
     fresh ids and timestamps. Returns the copy. */
 export function copyTask(id, listId, lane) {
   const t = taskById(id); if (!t || !isLive(listById(listId))) return null;
-  lane = validLane(listId, lane);
+  lane = laneOr(listId, lane);
   const copy = blankTask(listId, t.title, {
     lane, done: lane === DONE_LANE, order: nextOrder(),
     priority: t.priority, tags: [...t.tags],
@@ -1167,26 +1181,56 @@ export function moveLane(listId, laneId, dir) {
   commit();
 }
 
-/** Can the lane go? Never Done, never the board's last other lane. */
+/** Can the lane go? Any lane but Done (PRD-improvements US-02). */
 export const canDeleteLane = (listId, laneId) =>
-  laneId !== DONE_LANE && lanesOf(listId).filter((l) => l.id !== DONE_LANE && l.id !== laneId).length > 0;
+  laneId !== DONE_LANE && lanesOf(listId).some((l) => l.id === laneId);
 
-/** Removes a lane. Its tasks of every status move to the board's first
+/** Where removing the lane sends its cards: the leftmost other lane that
+    is not Done, or null when there is none (they go to Deleted). */
+export const laneHeir = (listId, laneId) =>
+  lanesOf(listId).find((l) => l.id !== DONE_LANE && l.id !== laneId)?.id || null;
+
+/** Removes a lane. Its tasks of every status move to the leftmost other
     lane, and so do archive / delete origins that point at it, so Restore
-    still has somewhere to go. Returns the number of active tasks moved,
-    or null when the lane cannot be deleted. */
+    still has somewhere to go. With no other lane beside Done, its active
+    tasks go to Deleted instead (Restore brings a Backlog back). Returns
+    { moved, binned, to }, or null when the lane cannot be deleted. */
 export function deleteLane(listId, laneId) {
   const list = listById(listId);
   if (!list || !canDeleteLane(listId, laneId)) return null;
+  const to = laneHeir(listId, laneId);
   list.lanes = list.lanes.filter((l) => l.id !== laneId);
-  const to = firstLane(listId);
-  let moved = 0;
+  let moved = 0, binned = 0;
+  const now = Date.now();
   S.tasks.forEach((t) => {
-    if (t.listId === listId && t.lane === laneId) { t.lane = to; if (t.status === 'active') moved += 1; }
-    if (t.origin?.listId === listId && t.origin.lane === laneId) t.origin.lane = to;
+    if (t.listId === listId && t.lane === laneId) {
+      if (to) { t.lane = to; if (t.status === 'active') moved += 1; }
+      else if (t.status === 'active') {
+        snapshotOrigin(t);
+        t.status = 'deleted'; t.deletedAt = now; t.archivedAt = null;
+        leaveDetail(t.id); touch(t); binned += 1;
+      }
+    }
+    if (to && t.origin?.listId === listId && t.origin.lane === laneId) t.origin.lane = to;
   });
   commit();
-  return moved;
+  return { moved, binned, to };
+}
+
+/** Drag and drop: the lane goes to position `index` among the board's
+    lanes (Done stays last whatever the index). */
+export function reorderLane(listId, laneId, index) {
+  const list = listById(listId);
+  if (!list || laneId === DONE_LANE) return;
+  const lane = list.lanes.find((l) => l.id === laneId); if (!lane) return;
+  const others = list.lanes.filter((l) => l.id !== laneId && l.id !== DONE_LANE);
+  const done = list.lanes.find((l) => l.id === DONE_LANE);
+  const i = Math.max(0, Math.min(others.length, index));
+  others.splice(i, 0, lane);
+  const next = done ? [...others, done] : others;
+  if (next.every((l, k) => l === list.lanes[k])) return;
+  list.lanes = next;
+  commit();
 }
 
 /* — settings: theme, priority levels, labels — */
@@ -1296,7 +1340,7 @@ export function restoreTask(id, { keepPosition = false } = {}) {
   const o = t.origin || { listId: t.listId, lane: t.lane, order: t.order };
   const fellBack = !isLive(listById(o.listId));          // gone, or archived / deleted itself
   t.listId = fellBack ? activeLists()[0].id : o.listId;
-  t.lane = fellBack ? firstLane(t.listId) : validLane(t.listId, o.lane);   // a deleted lane falls back too
+  t.lane = !fellBack && lanesOf(t.listId).some((l) => l.id === o.lane) ? o.lane : workLane(t.listId);   // a deleted lane falls back too
   t.order = keepPosition ? o.order : nextOrder();
   t.done = t.lane === DONE_LANE;
   t.status = 'active'; t.archivedAt = null; t.deletedAt = null; t.origin = null;

@@ -5,8 +5,8 @@
 
 import {
   S, UI, isDesktop, DONE_LANE, RETENTION_DAYS, TASK_SORTS, isManualSort, priorityById,
-  listById, taskById, tasksOf, openCount, sortedTasks, lanesOf, laneName, laneTaskCount, canDeleteLane, canMoveLane,
-  reorderTask, moveToLane, addLane, renameLane, moveLane, deleteLane, commit, rerender,
+  listById, taskById, tasksOf, openCount, sortedTasks, lanesOf, laneName, laneTaskCount, canDeleteLane, laneHeir,
+  reorderTask, moveToLane, addLane, renameLane, reorderLane, deleteLane, commit, rerender,
 } from '../store.js';
 import { bindHold } from './gestures.js';
 import { sharedChipHTML, bindSharedChip } from './sharing.js';
@@ -17,7 +17,7 @@ import { openSheet } from './addsheet.js';
 import { deleteWithUndo, completeTask } from './actions.js';
 import { buzz } from '../haptics.js';
 import { openSettings } from './settings.js';
-import { openMenu, confirmDialog, promptDialog, toast } from './primitives.js';
+import { confirmDialog, promptDialog, toast } from './primitives.js';
 import { filterTasks } from '../search.js';
 import { queryFor, searchToggleHTML, searchFieldHTML, bindSearch } from './search.js';
 
@@ -96,17 +96,16 @@ export function kanbanHTML({ desktop = false } = {}) {
     const inLane = all.filter((t) => t.lane === lane.id).length;
     const isDone = lane.id === DONE_LANE;
     const headCls = lane.id === 'inprogress' ? 'active' : isDone ? 'muted' : '';
-    /* Done is fixed (PRD-improvements US-02): its name is text, its menu is disabled */
+    /* Done is fixed (PRD-improvements US-02): its name is text and it is
+       neither dragged nor removed. The other lanes: tap the name to rename,
+       hold the lane outside its cards to drag it, hold longer for the X. */
     return `
-    <div class="lane" data-lane="${lane.id}">
+    <div class="lane ${isDone ? 'lane-fixed' : ''}" data-lane="${lane.id}">
       <div class="lane-head ${headCls}">
         ${isDone
           ? `<span class="lane-name">${esc(lane.name)}</span>`
-          : `<button class="lane-name" data-lane-rename="${lane.id}" title="Rename" aria-label="Rename lane ${esc(lane.name)}">${esc(lane.name)}</button>`}
+          : `<button class="lane-name" data-lane-rename="${lane.id}" title="Rename" aria-label="Rename lane ${esc(lane.name)}" aria-keyshortcuts="Delete">${esc(lane.name)}</button>`}
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
-        ${isDone
-          ? `<button class="lane-menu" disabled aria-label="${esc(lane.name)} lane options, not available: this lane is fixed" title="This lane cannot be renamed or moved">${icon('more', 16)}</button>`
-          : `<button class="lane-menu" data-lane-menu="${lane.id}" aria-label="${esc(lane.name)} lane options" aria-haspopup="menu">${icon('more', 16)}</button>`}
       </div>
       <div class="lane-cards">
         ${cards.map((t) => `
@@ -278,10 +277,12 @@ export function bindKanban() {
   });
   app.querySelectorAll('[data-lane-add]').forEach((b) =>
     b.addEventListener('click', () => openSheet({ lane: b.dataset.laneAdd })));
-  app.querySelectorAll('[data-lane-menu]').forEach((b) =>
-    b.addEventListener('click', (e) => openLaneMenu(e.currentTarget, b.dataset.laneMenu)));
-  app.querySelectorAll('[data-lane-rename]').forEach((b) =>
-    b.addEventListener('click', () => editLaneName(b.dataset.laneRename)));
+  app.querySelectorAll('[data-lane-rename]').forEach((b) => {
+    b.addEventListener('click', () => editLaneName(b.dataset.laneRename));
+    /* the keyboard way to remove a lane: Delete on its focused name */
+    b.addEventListener('keydown', (e) => { if (e.key === 'Delete') { e.preventDefault(); confirmDeleteLane(b.dataset.laneRename); } });
+  });
+  app.querySelectorAll('.lane:not(.lane-fixed)').forEach(bindLane);
   app.querySelector('[data-lane-new]')?.addEventListener('click', async () => {
     const name = await promptDialog('New lane', { placeholder: 'Lane name', confirmLabel: 'Add' });
     if (name) addLane(S.currentList, name);
@@ -323,30 +324,57 @@ function editLaneName(laneId) {
   input.focus(); input.select();
 }
 
-/* Lane header ⋯: rename, move left / right, delete (never the last lane
-   beside Done). Done has no menu and no lane moves past it. Deleting moves
-   the lane's tasks to the board's first lane. */
-function openLaneMenu(anchor, laneId) {
+/* Lanes (PRD-improvements US-02, owner's review 2026-11-17). Hold a lane
+   outside its cards to lift it and drop it between two others; Done stays
+   last. Hold longer without moving and an X appears in its top right.
+   Removing asks first: the lane's cards go to the leftmost other lane, or
+   to Deleted when only Done would be left. */
+function bindLane(lane) {
+  const board = lane.closest('.board');
+  const laneId = lane.dataset.lane;
+  let target = null;           // the lane the dragged one goes in front of (Done for "at the end")
+  const mark = (el) => {
+    if (target === el) return;
+    target?.classList.remove('lane-drop');
+    target = el; target?.classList.add('lane-drop');
+  };
+  bindHold(lane, {
+    ignore: '.kcard,.addcard,.lane-note,.lane-name-input',
+    ghostClass: 'lane',
+    canDrag: () => !UI.query,
+    scroller: () => board,
+    axis: 'x',
+    onDragMove: (ev) => {
+      const others = [...board.querySelectorAll('.lane')].filter((l) => l !== lane);
+      mark(others.find((l) => { const r = l.getBoundingClientRect(); return ev.clientX < r.left + r.width / 2; })
+        || others.find((l) => l.classList.contains('lane-fixed')) || null);
+    },
+    onDragEnd: () => { lane.dataset.dropBefore = target?.dataset.lane || ''; mark(null); },
+    onDrop: () => {
+      const before = lane.dataset.dropBefore; delete lane.dataset.dropBefore;
+      const rest = lanesOf(S.currentList).filter((l) => l.id !== laneId && l.id !== DONE_LANE);
+      const i = rest.findIndex((l) => l.id === before);
+      reorderLane(S.currentList, laneId, i === -1 ? rest.length : i);
+    },
+    armButtons: () => [{ icon: 'x', label: `Remove lane ${laneName(S.currentList, laneId)}`, onClick: () => confirmDeleteLane(laneId) }],
+  });
+}
+
+async function confirmDeleteLane(laneId) {
   const listId = S.currentList;
-  const lanes = lanesOf(listId), lane = lanes.find((l) => l.id === laneId);
-  if (!lane || laneId === DONE_LANE) return;
-  const items = [{ label: 'Rename', icon: 'text', onClick: () => editLaneName(laneId) }];
-  if (canMoveLane(listId, laneId, -1)) items.push({ label: 'Move left', icon: 'chevronLeft', onClick: () => moveLane(listId, laneId, -1) });
-  if (canMoveLane(listId, laneId, 1)) items.push({ label: 'Move right', icon: 'chevronRight', onClick: () => moveLane(listId, laneId, 1) });
-  if (canDeleteLane(listId, laneId)) {
-    items.push({ divider: true }, {
-      label: 'Delete lane', icon: 'trash', danger: true,
-      onClick: async () => {
-        const n = laneTaskCount(listId, laneId);
-        const to = lanes.find((l) => l.id !== laneId && l.id !== DONE_LANE)?.name;
-        const body = n ? `${n} task${n === 1 ? '' : 's'} in ${lane.name} will move to ${to}.` : `${lane.name} is empty.`;
-        if (!await confirmDialog(`Delete ${lane.name}?`, body, { confirmLabel: 'Delete', danger: true })) return;
-        deleteLane(listId, laneId);
-        toast(n ? `Lane deleted · ${n} moved to ${to}` : 'Lane deleted');
-      },
-    });
-  }
-  openMenu(anchor, items);
+  if (!canDeleteLane(listId, laneId)) return;
+  const name = laneName(listId, laneId);
+  const n = laneTaskCount(listId, laneId);
+  const heir = laneHeir(listId, laneId);
+  const cards = `${n} card${n === 1 ? '' : 's'}`;
+  const body = !n ? `${name} is empty.`
+    : heir ? `Its ${cards} move to ${laneName(listId, heir)}.`
+      : `Its ${cards} move to Deleted, where they stay for ${RETENTION_DAYS} days. Done is the only lane left on this board.`;
+  if (!await confirmDialog(`Remove ${name}?`, body, { confirmLabel: 'Remove', danger: true })) return;
+  buzz('MEDIUM');
+  const r = deleteLane(listId, laneId);
+  if (!r) return;
+  toast(r.moved ? `Lane removed · ${r.moved} moved to ${laneName(listId, r.to)}` : r.binned ? `Lane removed · ${r.binned} moved to Deleted` : 'Lane removed');
 }
 
 /* ── Gestures ────────────────────────────────────────────────────────── */

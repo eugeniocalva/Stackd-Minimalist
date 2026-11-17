@@ -14,7 +14,9 @@ import * as share from '../share.js';
 /* — New board (AC-12.1, AC-12.2) — */
 
 export async function newBoardFlow() {
-  const kind = await choiceDialog('New board', 'Only for you, or shared with other people? People on a shared board see and change its cards.',
+  /* no Personal / Shared question where there can be no account (the apps until
+     the secure-storage plugin, a file:// copy): every board is personal there */
+  const kind = !account.availability().ok ? 'personal' : await choiceDialog('New board', 'Only for you, or shared with other people? People on a shared board see and change its cards.',
     [{ id: 'personal', label: 'Personal' }, { id: 'shared', label: 'Shared' }]);
   if (!kind) return;
   if (kind === 'personal') {

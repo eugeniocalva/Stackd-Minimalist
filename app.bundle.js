@@ -414,6 +414,16 @@
   var lanesOf = (listId) => listById(listId)?.lanes || defaultLanes();
   var laneName = (listId, laneId) => lanesOf(listId).find((l) => l.id === laneId)?.name || laneId;
   var firstLane = (listId) => (lanesOf(listId).find((l) => l.id !== DONE_LANE) || lanesOf(listId)[0]).id;
+  function workLane(listId) {
+    const list3 = listById(listId);
+    if (!list3) return firstLane(listId);
+    const lane = list3.lanes.find((l) => l.id !== DONE_LANE);
+    if (lane) return lane.id;
+    const id = list3.lanes.some((l) => l.id === "backlog") ? uid() : "backlog";
+    list3.lanes.unshift({ id, name: "Backlog" });
+    return id;
+  }
+  var laneOr = (listId, laneId) => lanesOf(listId).some((l) => l.id === laneId) ? laneId : workLane(listId);
   var validLane = (listId, laneId) => lanesOf(listId).some((l) => l.id === laneId) ? laneId : firstLane(listId);
   var laneTaskCount = (listId, laneId) => S.tasks.filter((t) => t.status === "active" && t.listId === listId && t.lane === laneId).length;
   var TASK_SORTS = [
@@ -850,7 +860,7 @@
   function reopenLane(t) {
     const o = doneOrigin.get(t.id);
     doneOrigin.delete(t.id);
-    return o && o.listId === t.listId && o.lane !== DONE_LANE ? validLane(t.listId, o.lane) : firstLane(t.listId);
+    return o && o.listId === t.listId && o.lane !== DONE_LANE && lanesOf(t.listId).some((l) => l.id === o.lane) ? o.lane : workLane(t.listId);
   }
   function toggleDone(id) {
     const t = taskById(id);
@@ -884,7 +894,7 @@
   function moveToLane(id, lane) {
     const t = taskById(id);
     if (!t || !lane) return;
-    lane = validLane(t.listId, lane);
+    if (!lanesOf(t.listId).some((l) => l.id === lane)) lane = workLane(t.listId);
     if (lane === DONE_LANE && t.recur !== "none" && t.due) {
       rollForward(id);
       return;
@@ -907,7 +917,7 @@
       dueTime: draft2.dueTime || null,
       recur: draft2.recur || "none",
       reminder: draft2.reminder ?? null,
-      lane: validLane(draft2.listId, draft2.lane || firstLane(draft2.listId)),
+      lane: draft2.lane && lanesOf(draft2.listId).some((l) => l.id === draft2.lane) ? draft2.lane : workLane(draft2.listId),
       order: nextOrder(),
       from: draft2.from || null
     });
@@ -1423,8 +1433,11 @@
   function moveTask(id, listId, lane) {
     const t = taskById(id);
     if (!t || !isLive(listById(listId))) return;
-    lane = validLane(listId, lane);
-    if (lane === DONE_LANE && t.recur !== "none" && t.due) lane = validLane(listId, t.lane);
+    lane = laneOr(listId, lane);
+    if (lane === DONE_LANE && t.recur !== "none" && t.due) {
+      lane = laneOr(listId, t.lane);
+      if (lane === DONE_LANE) lane = workLane(listId);
+    }
     if (t.listId === listId && t.lane === lane) return;
     const wasDone = t.done;
     if (lane === DONE_LANE && t.listId === listId) rememberOrigin(t);
@@ -1441,7 +1454,7 @@
   function copyTask(id, listId, lane) {
     const t = taskById(id);
     if (!t || !isLive(listById(listId))) return null;
-    lane = validLane(listId, lane);
+    lane = laneOr(listId, lane);
     const copy = blankTask(listId, t.title, {
       lane,
       done: lane === DONE_LANE,
@@ -1572,34 +1585,48 @@
     lane.name = n;
     commit();
   }
-  var canMoveLane = (listId, laneId, dir) => {
-    const lanes = lanesOf(listId);
-    const i = lanes.findIndex((l) => l.id === laneId), j = i + dir;
-    return i !== -1 && laneId !== DONE_LANE && j >= 0 && j < lanes.length && lanes[j].id !== DONE_LANE;
-  };
-  function moveLane(listId, laneId, dir) {
-    const lanes = listById(listId)?.lanes;
-    if (!lanes || !canMoveLane(listId, laneId, dir)) return;
-    const i = lanes.findIndex((l) => l.id === laneId), j = i + dir;
-    [lanes[i], lanes[j]] = [lanes[j], lanes[i]];
-    commit();
-  }
-  var canDeleteLane = (listId, laneId) => laneId !== DONE_LANE && lanesOf(listId).filter((l) => l.id !== DONE_LANE && l.id !== laneId).length > 0;
+  var canDeleteLane = (listId, laneId) => laneId !== DONE_LANE && lanesOf(listId).some((l) => l.id === laneId);
+  var laneHeir = (listId, laneId) => lanesOf(listId).find((l) => l.id !== DONE_LANE && l.id !== laneId)?.id || null;
   function deleteLane(listId, laneId) {
     const list3 = listById(listId);
     if (!list3 || !canDeleteLane(listId, laneId)) return null;
+    const to = laneHeir(listId, laneId);
     list3.lanes = list3.lanes.filter((l) => l.id !== laneId);
-    const to = firstLane(listId);
-    let moved = 0;
+    let moved = 0, binned = 0;
+    const now2 = Date.now();
     S.tasks.forEach((t) => {
       if (t.listId === listId && t.lane === laneId) {
-        t.lane = to;
-        if (t.status === "active") moved += 1;
+        if (to) {
+          t.lane = to;
+          if (t.status === "active") moved += 1;
+        } else if (t.status === "active") {
+          snapshotOrigin(t);
+          t.status = "deleted";
+          t.deletedAt = now2;
+          t.archivedAt = null;
+          leaveDetail(t.id);
+          touch(t);
+          binned += 1;
+        }
       }
-      if (t.origin?.listId === listId && t.origin.lane === laneId) t.origin.lane = to;
+      if (to && t.origin?.listId === listId && t.origin.lane === laneId) t.origin.lane = to;
     });
     commit();
-    return moved;
+    return { moved, binned, to };
+  }
+  function reorderLane(listId, laneId, index) {
+    const list3 = listById(listId);
+    if (!list3 || laneId === DONE_LANE) return;
+    const lane = list3.lanes.find((l) => l.id === laneId);
+    if (!lane) return;
+    const others = list3.lanes.filter((l) => l.id !== laneId && l.id !== DONE_LANE);
+    const done2 = list3.lanes.find((l) => l.id === DONE_LANE);
+    const i = Math.max(0, Math.min(others.length, index));
+    others.splice(i, 0, lane);
+    const next = done2 ? [...others, done2] : others;
+    if (next.every((l, k) => l === list3.lanes[k])) return;
+    list3.lanes = next;
+    commit();
   }
   function setTheme(theme) {
     if (!THEMES.includes(theme) || S.theme === theme) return;
@@ -1711,7 +1738,7 @@
     const o = t.origin || { listId: t.listId, lane: t.lane, order: t.order };
     const fellBack = !isLive(listById(o.listId));
     t.listId = fellBack ? activeLists()[0].id : o.listId;
-    t.lane = fellBack ? firstLane(t.listId) : validLane(t.listId, o.lane);
+    t.lane = !fellBack && lanesOf(t.listId).some((l) => l.id === o.lane) ? o.lane : workLane(t.listId);
     t.order = keepPosition ? o.order : nextOrder();
     t.done = t.lane === DONE_LANE;
     t.status = "active";
@@ -2059,6 +2086,8 @@
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
       m.content = theme === "dark" ? "#0b0f19" : "#f4f7f9";
     });
+    globalThis.Capacitor?.Plugins?.Keyboard?.setStyle?.({ style: theme === "dark" ? "DARK" : "LIGHT" })?.catch?.(() => {
+    });
   }
 
   // src/haptics.js
@@ -2288,10 +2317,19 @@
         el.removeEventListener("pointercancel", cancel);
         el.removeEventListener("touchmove", blockScroll);
       };
+      const swallowClick = () => {
+        const stop = (ev) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+        };
+        el.addEventListener("click", stop, { capture: true, once: true });
+        setTimeout(() => el.removeEventListener("click", stop, { capture: true }), 400);
+      };
       const up = (ev) => {
         const wasDragging = dragging;
         finish3();
         endDrag();
+        if (wasDragging || held) swallowClick();
         if (wasDragging) onDrop?.(ev);
         else if (!held && !wasArmed && Math.hypot(ev.clientX - sx, ev.clientY - sy) < SLOP) onTap?.(ev);
       };
@@ -2305,7 +2343,8 @@
       el.addEventListener("pointercancel", cancel);
     });
   }
-  function bindMenuSwipe(root, { canOpen, open: open2 }) {
+  var EDGE_PX = 24;
+  function bindSwipeRight(root, { canStart, start: start2 }) {
     let s = null;
     const sideways = (target) => {
       for (let n = target; n && n !== root; n = n.parentElement) {
@@ -2317,27 +2356,66 @@
       s = null;
       if (e.touches.length !== 1) return;
       const t = e.touches[0];
-      if (!canOpen(e.target, t.clientX) || sideways(e.target)) return;
-      s = { x: t.clientX, y: t.clientY };
+      const edge = t.clientX <= EDGE_PX;
+      if (!canStart(e.target, t.clientX, edge) || !edge && sideways(e.target)) return;
+      s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0 };
     }, { passive: true });
     root.addEventListener("touchmove", (e) => {
       if (!s) return;
       const t = e.touches[0];
-      const dx = t.clientX - s.x, dy = Math.abs(t.clientY - s.y);
-      if (dy > 24 && dy > Math.abs(dx)) {
-        s = null;
-        return;
+      const dx = t.clientX - s.x, dy = t.clientY - s.y;
+      if (!s.live) {
+        if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) {
+          s = null;
+          return;
+        }
+        if (dx < -10) {
+          s = null;
+          return;
+        }
+        if (dx < 12) return;
+        s.live = start2();
+        if (!s.live) {
+          s = null;
+          return;
+        }
+        s.x = t.clientX - 1;
       }
-      if (dx > 64 && dx > dy * 2) {
-        s = null;
-        open2();
-      }
-    }, { passive: true });
-    const end = () => {
+      e.preventDefault();
+      const now2 = performance.now();
+      s.v = (t.clientX - s.last[0]) / Math.max(1, now2 - s.last[1]);
+      s.last = [t.clientX, now2];
+      s.live.move(Math.max(0, Math.min(1, (t.clientX - s.x) / window.innerWidth)));
+    }, { passive: false });
+    const end = (cancelled2) => {
+      if (!s) return;
+      const live = s.live, p = (s.last[0] - s.x) / window.innerWidth, v = s.v;
       s = null;
+      live?.settle(!cancelled2 && (p > 1 / 3 || v > 0.5 && p > 0.08));
     };
-    root.addEventListener("touchend", end, { passive: true });
-    root.addEventListener("touchcancel", end, { passive: true });
+    root.addEventListener("touchend", () => end(false), { passive: true });
+    root.addEventListener("touchcancel", () => end(true), { passive: true });
+  }
+  function slideTo(el, to, done2) {
+    const reduce2 = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce2) {
+      el.style.transform = to;
+      done2();
+      return;
+    }
+    el.style.transition = "transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+    requestAnimationFrame(() => {
+      el.style.transform = to;
+    });
+    let finished = false;
+    const fin = () => {
+      if (finished) return;
+      finished = true;
+      el.style.transition = "";
+      done2();
+    };
+    el.addEventListener("transitionend", fin, { once: true });
+    setTimeout(fin, 320);
   }
 
   // src/ui/primitives.js
@@ -2430,8 +2508,8 @@
         <h2 id="dlg-title">${esc(title)}</h2>
         <p>${esc(body)}</p>
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-cancel>Cancel</button>
-          <button class="btn ${danger ? "btn-danger" : "btn-primary"}" data-ok>${esc(confirmLabel)}</button>
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          <button class="btn ${danger ? "btn-danger" : "btn-primary"}" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
       </div>`, { onClose: (r) => resolve(r === true) });
       ov.querySelector("[data-cancel]").addEventListener("click", () => close(false));
@@ -2446,8 +2524,8 @@
         <h2 id="dlg-title">${esc(title)}</h2>
         <p id="dlg-body">${esc(body)}</p>
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-cancel>Cancel</button>
-          ${choices.map((c) => `<button class="btn ${c.danger ? "btn-danger" : "btn-primary"}" data-choice="${esc(c.id)}">${esc(c.label)}</button>`).join("")}
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          ${choices.map((c) => `<button class="btn ${c.danger ? "btn-danger" : "btn-primary"}" data-choice="${esc(c.id)}"><span class="btn-label">${esc(c.label)}</span></button>`).join("")}
         </div>
       </div>`, { onClose: (r) => resolve(typeof r === "string" ? r : null) });
       ov.querySelector("[data-cancel]").addEventListener("click", () => close(null));
@@ -2462,8 +2540,8 @@
         <h2 id="dlg-title">${esc(title)}</h2>
         <input class="input" data-field value="${esc(value)}" placeholder="${esc(placeholder)}" aria-label="${esc(title)}" autocomplete="off">
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-cancel>Cancel</button>
-          <button class="btn btn-primary" data-ok>${esc(confirmLabel)}</button>
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          <button class="btn btn-primary" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
       </div>`, { onClose: (r) => resolve(typeof r === "string" && (r.trim() || allowEmpty) ? r.trim() : null) });
       const input = ov.querySelector("[data-field]");
@@ -2806,6 +2884,7 @@
       ...initial ? { title: initial.title || "", due: initial.due || null, priority: initial.priority || "none", tags: [...initial.tags || []] } : {}
     };
     if (!S.priorities.some((p) => p.id === draft2.priority)) draft2.priority = "none";
+    if (!fixedList && !activeLists().some((l) => l.id === draft2.listId)) draft2.listId = activeLists()[0]?.id;
     const allTags2 = allTags();
     const dueOpts = [
       { label: "Today", value: daysFrom(0) },
@@ -2822,6 +2901,13 @@
       <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
     </div>
     <input class="input sheet-title" placeholder="What needs doing?" value="${esc(draft2.title)}" autofocus>
+    <!-- first, so the keyboard never hides which board the task goes to (owner's review 2026-11-17, AC-09.2) -->
+    <div class="chip-group">
+      <span class="microlabel">Board</span>
+      <div class="chip-row" data-list>
+        ${(fixedList ? S.lists.filter((l) => l.id === fixedList) : activeLists()).map((l) => `<button class="chip ${l.id === draft2.listId ? "on" : ""}" data-val="${l.id}" ${fixedList ? 'disabled aria-disabled="true"' : ""}>${esc(l.name)}${fixedList && lane ? ` · ${esc(laneName(l.id, lane))}` : ""}</button>`).join("")}
+      </div>
+    </div>
     <div class="chip-group">
       <span class="microlabel">Due</span>
       <div class="chip-row" data-due>
@@ -2848,12 +2934,6 @@
         <button class="chip" data-addtag>+ Add tag</button>
       </div>
     </div>
-    <div class="chip-group">
-      <span class="microlabel">Board</span>
-      <div class="chip-row" data-list>
-        ${(fixedList ? S.lists.filter((l) => l.id === fixedList) : activeLists()).map((l) => `<button class="chip ${l.id === draft2.listId ? "on" : ""}" data-val="${l.id}" ${fixedList ? 'disabled aria-disabled="true"' : ""}>${esc(l.name)}${fixedList && lane ? ` · ${esc(laneName(l.id, lane))}` : ""}</button>`).join("")}
-      </div>
-    </div>
     <button class="btn btn-primary btn-block" data-submit>${esc(submitLabel)}</button>
   </div>`;
     document.body.appendChild(ov);
@@ -2868,6 +2948,7 @@
     });
     q("[data-close]").addEventListener("click", close);
     q(".sheet-title").focus();
+    q("[data-list] .chip.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
     const selectOne = (rowSel, chip) => {
       ov.querySelectorAll(`${rowSel} .chip`).forEach((c) => c.classList.remove("on"));
       chip?.classList.add("on");
@@ -4024,6 +4105,11 @@
   var plural2 = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
   var countsLine = (c) => [plural2(c.list, "board"), plural2(c.task, "task"), plural2(c.note, "note"), plural2(c.meeting, "meeting")].join(", ");
   function openSignIn({ mode = null } = {}) {
+    const avail = availability();
+    if (!avail.ok) {
+      toast(avail.reason === "file" ? "Open Stack'd from its website to sign in." : avail.reason === "legacy" ? "Sign in at the new address." : "Sign-in arrives in the next update of the app.", { ms: 5e3 });
+      return;
+    }
     const st = { mode, step: mode ? mode === "create" ? "age" : "email" : "choose", email: "", ticket: null, known: null, first: null, error: "", sentAt: 0 };
     const history2 = [];
     const { ov, close } = overlay('<div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="step-title"></div>');
@@ -4056,7 +4142,7 @@
         <span class="hint">${stepCount()}</span>
         <button type="button" class="icon-btn" data-close data-keep aria-label="Close">${icon("x")}</button>
       </div>
-      <h2 id="step-title">${esc(title)}</h2>`;
+      <h2 id="step-title" tabindex="-1">${esc(title)}</h2>`;
     }
     function draw3() {
       pad3?.destroy();
@@ -4139,7 +4225,7 @@
           if (st.known === false) go("pin-new");
           else go("email");
         });
-        sel?.focus();
+        q("#step-title")?.focus();
       }
       if (s === "email") {
         const input = q("[data-email]");
@@ -4378,7 +4464,7 @@
 
   // src/ui/sharing.js
   async function newBoardFlow() {
-    const kind = await choiceDialog(
+    const kind = !availability().ok ? "personal" : await choiceDialog(
       "New board",
       "Only for you, or shared with other people? People on a shared board see and change its cards.",
       [{ id: "personal", label: "Personal" }, { id: "shared", label: "Shared" }]
@@ -6424,11 +6510,10 @@
       const isDone = lane.id === DONE_LANE;
       const headCls = lane.id === "inprogress" ? "active" : isDone ? "muted" : "";
       return `
-    <div class="lane" data-lane="${lane.id}">
+    <div class="lane ${isDone ? "lane-fixed" : ""}" data-lane="${lane.id}">
       <div class="lane-head ${headCls}">
-        ${isDone ? `<span class="lane-name">${esc(lane.name)}</span>` : `<button class="lane-name" data-lane-rename="${lane.id}" title="Rename" aria-label="Rename lane ${esc(lane.name)}">${esc(lane.name)}</button>`}
+        ${isDone ? `<span class="lane-name">${esc(lane.name)}</span>` : `<button class="lane-name" data-lane-rename="${lane.id}" title="Rename" aria-label="Rename lane ${esc(lane.name)}" aria-keyshortcuts="Delete">${esc(lane.name)}</button>`}
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
-        ${isDone ? `<button class="lane-menu" disabled aria-label="${esc(lane.name)} lane options, not available: this lane is fixed" title="This lane cannot be renamed or moved">${icon("more", 16)}</button>` : `<button class="lane-menu" data-lane-menu="${lane.id}" aria-label="${esc(lane.name)} lane options" aria-haspopup="menu">${icon("more", 16)}</button>`}
       </div>
       <div class="lane-cards">
         ${cards.map((t) => `
@@ -6583,8 +6668,16 @@
       });
     });
     app.querySelectorAll("[data-lane-add]").forEach((b) => b.addEventListener("click", () => openSheet({ lane: b.dataset.laneAdd })));
-    app.querySelectorAll("[data-lane-menu]").forEach((b) => b.addEventListener("click", (e) => openLaneMenu(e.currentTarget, b.dataset.laneMenu)));
-    app.querySelectorAll("[data-lane-rename]").forEach((b) => b.addEventListener("click", () => editLaneName(b.dataset.laneRename)));
+    app.querySelectorAll("[data-lane-rename]").forEach((b) => {
+      b.addEventListener("click", () => editLaneName(b.dataset.laneRename));
+      b.addEventListener("keydown", (e) => {
+        if (e.key === "Delete") {
+          e.preventDefault();
+          confirmDeleteLane(b.dataset.laneRename);
+        }
+      });
+    });
+    app.querySelectorAll(".lane:not(.lane-fixed)").forEach(bindLane);
     app.querySelector("[data-lane-new]")?.addEventListener("click", async () => {
       const name = await promptDialog("New lane", { placeholder: "Lane name", confirmLabel: "Add" });
       if (name) addLane(S.currentList, name);
@@ -6628,29 +6721,56 @@
     input.focus();
     input.select();
   }
-  function openLaneMenu(anchor, laneId) {
+  function bindLane(lane) {
+    const board = lane.closest(".board");
+    const laneId = lane.dataset.lane;
+    let target = null;
+    const mark = (el) => {
+      if (target === el) return;
+      target?.classList.remove("lane-drop");
+      target = el;
+      target?.classList.add("lane-drop");
+    };
+    bindHold(lane, {
+      ignore: ".kcard,.addcard,.lane-note,.lane-name-input",
+      ghostClass: "lane",
+      canDrag: () => !UI.query,
+      scroller: () => board,
+      axis: "x",
+      onDragMove: (ev) => {
+        const others = [...board.querySelectorAll(".lane")].filter((l) => l !== lane);
+        mark(others.find((l) => {
+          const r = l.getBoundingClientRect();
+          return ev.clientX < r.left + r.width / 2;
+        }) || others.find((l) => l.classList.contains("lane-fixed")) || null);
+      },
+      onDragEnd: () => {
+        lane.dataset.dropBefore = target?.dataset.lane || "";
+        mark(null);
+      },
+      onDrop: () => {
+        const before = lane.dataset.dropBefore;
+        delete lane.dataset.dropBefore;
+        const rest = lanesOf(S.currentList).filter((l) => l.id !== laneId && l.id !== DONE_LANE);
+        const i = rest.findIndex((l) => l.id === before);
+        reorderLane(S.currentList, laneId, i === -1 ? rest.length : i);
+      },
+      armButtons: () => [{ icon: "x", label: `Remove lane ${laneName(S.currentList, laneId)}`, onClick: () => confirmDeleteLane(laneId) }]
+    });
+  }
+  async function confirmDeleteLane(laneId) {
     const listId = S.currentList;
-    const lanes = lanesOf(listId), lane = lanes.find((l) => l.id === laneId);
-    if (!lane || laneId === DONE_LANE) return;
-    const items = [{ label: "Rename", icon: "text", onClick: () => editLaneName(laneId) }];
-    if (canMoveLane(listId, laneId, -1)) items.push({ label: "Move left", icon: "chevronLeft", onClick: () => moveLane(listId, laneId, -1) });
-    if (canMoveLane(listId, laneId, 1)) items.push({ label: "Move right", icon: "chevronRight", onClick: () => moveLane(listId, laneId, 1) });
-    if (canDeleteLane(listId, laneId)) {
-      items.push({ divider: true }, {
-        label: "Delete lane",
-        icon: "trash",
-        danger: true,
-        onClick: async () => {
-          const n = laneTaskCount(listId, laneId);
-          const to = lanes.find((l) => l.id !== laneId && l.id !== DONE_LANE)?.name;
-          const body = n ? `${n} task${n === 1 ? "" : "s"} in ${lane.name} will move to ${to}.` : `${lane.name} is empty.`;
-          if (!await confirmDialog(`Delete ${lane.name}?`, body, { confirmLabel: "Delete", danger: true })) return;
-          deleteLane(listId, laneId);
-          toast(n ? `Lane deleted · ${n} moved to ${to}` : "Lane deleted");
-        }
-      });
-    }
-    openMenu(anchor, items);
+    if (!canDeleteLane(listId, laneId)) return;
+    const name = laneName(listId, laneId);
+    const n = laneTaskCount(listId, laneId);
+    const heir = laneHeir(listId, laneId);
+    const cards = `${n} card${n === 1 ? "" : "s"}`;
+    const body = !n ? `${name} is empty.` : heir ? `Its ${cards} move to ${laneName(listId, heir)}.` : `Its ${cards} move to Deleted, where they stay for ${RETENTION_DAYS} days. Done is the only lane left on this board.`;
+    if (!await confirmDialog(`Remove ${name}?`, body, { confirmLabel: "Remove", danger: true })) return;
+    buzz("MEDIUM");
+    const r = deleteLane(listId, laneId);
+    if (!r) return;
+    toast(r.moved ? `Lane removed · ${r.moved} moved to ${laneName(listId, r.to)}` : r.binned ? `Lane removed · ${r.binned} moved to Deleted` : "Lane removed");
   }
   var openRow = null;
   var openSide = null;
@@ -8930,16 +9050,19 @@
   ];
   function openAddMenu() {
     const { ov, close } = overlay(`
-    <div class="sheet add-menu" role="dialog" aria-label="Add">
-      <div class="sheet-handle"></div>
+    <div class="add-menu" role="dialog" aria-label="Add">
       <div class="add-grid">
-        ${TILES.map((t) => `
-        <button class="add-tile" data-tile="${t.id}">
+        ${TILES.map((t, i) => `
+        <button class="add-tile" data-tile="${t.id}" style="--i: ${i}">
           <span class="add-tile-icon">${icon(t.icon, 20)}</span>
           <span>${t.label}</span>
         </button>`).join("")}
       </div>
     </div>`);
+    ov.classList.add("add-overlay");
+    ov.querySelector(".add-menu").addEventListener("click", (e) => {
+      if (!e.target.closest("[data-tile]")) close();
+    });
     ov.querySelectorAll("[data-tile]").forEach((b) => b.addEventListener("click", () => {
       close();
       TILES.find((t) => t.id === b.dataset.tile).run();
@@ -9556,7 +9679,6 @@
           <span class="lname">New board…</span>
         </div>
       </div>
-      <span class="hint menu-hint">Hold a board to move it · keep holding to remove</span>
       <h2 class="menu-title">Notes</h2>
       <div class="card list-card">
         <div class="lrow" data-open-notes>
@@ -9835,6 +9957,10 @@
     draw2();
     keepScroll(was);
   }
+  function screenHTML() {
+    return UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meeting" ? meetingHTML() : UI.screen === "meetings" ? meetingsHTML() : mobileListHTML();
+  }
+  var withNav = () => !["detail", "note", "meeting"].includes(UI.screen) && !(UI.screen === "notes" && UI.composer.expanded);
   function draw2() {
     applyTheme();
     if (isRecording() && !(UI.screen === "meeting" && UI.detailId === recordingMeetingId())) {
@@ -9859,9 +9985,9 @@
       app.innerHTML = banner + desktopHTML();
       bindDesktop();
     } else {
-      const screen = UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meetings" ? meetingsHTML() : UI.screen === "meeting" ? meetingHTML() : mobileListHTML();
-      const withNav = !["detail", "note", "meeting"].includes(UI.screen) && !(UI.screen === "notes" && UI.composer.expanded);
-      app.innerHTML = banner + screen + (withNav ? mobileNavHTML() : "");
+      const screen = screenHTML();
+      const nav = withNav();
+      app.innerHTML = banner + screen + (nav ? mobileNavHTML() : "");
       if (UI.screen === "lists") bindListsMenu();
       else if (UI.screen === "detail") bindDetail();
       else if (UI.screen === "folders") bindFolders();
@@ -9871,7 +9997,7 @@
       else if (UI.screen === "meetings") bindMeetings();
       else if (UI.screen === "meeting") bindMeeting();
       else bindMobileList();
-      if (withNav) bindMobileNav();
+      if (nav) bindMobileNav();
     }
     bindMoveBanner();
     if (focusAddsub || UI.refocusAddsub) {
@@ -9985,18 +10111,95 @@
       rerender();
     }
   });
-  bindMenuSwipe(app, {
-    canOpen: (target, x) => {
-      if (isDesktop.matches || !S.onboarded || isRecording()) return false;
-      if (target.closest('input, textarea, select, [contenteditable="true"], [data-editor], .bottom-nav, .row.open, .swiping')) return false;
-      if (UI.screen === "list" && S.view === "kanban") return !target.closest(".board");
-      return ["list", "notes", "meetings", "folders", "settings"].includes(UI.screen) && x <= window.innerWidth / 2;
-    },
-    open: () => {
-      UI.menuSlide = true;
-      UI.screen = "lists";
-      rerender();
+  var TOP_LEVEL = ["list", "notes", "meetings", "folders", "settings"];
+  var ITEMS = ".row, .kcard, .lane, .board, .card, .set-row, .lrow, .chip-row, .search-row, .invite-card, .notice";
+  var FIELDS = 'input, textarea, select, [contenteditable="true"], [data-editor]';
+  function asScreen(screen, build) {
+    const was = { screen: UI.screen, slide: UI.menuSlide };
+    UI.screen = screen;
+    UI.menuSlide = false;
+    try {
+      return build();
+    } finally {
+      UI.screen = was.screen;
+      UI.menuSlide = was.slide;
     }
+  }
+  function peekLayer(html, cls) {
+    const el = document.createElement("div");
+    el.className = `peek ${cls}`;
+    el.setAttribute("aria-hidden", "true");
+    el.inert = true;
+    el.innerHTML = html;
+    document.body.appendChild(el);
+    return el;
+  }
+  function peekMenu() {
+    const layer = peekLayer(asScreen("lists", () => listsMenuHTML() + mobileNavHTML()), "peek-over");
+    const dim = document.createElement("div");
+    dim.className = "peek-dim";
+    document.body.insertBefore(dim, layer);
+    const at = (p) => `translateX(${(p - 1) * 100}%)`;
+    layer.style.transform = at(0);
+    return {
+      move: (p) => {
+        layer.style.transform = at(p);
+        dim.style.opacity = String(p);
+      },
+      settle: (open2) => {
+        dim.style.transition = "opacity 220ms ease";
+        dim.style.opacity = open2 ? "1" : "0";
+        slideTo(layer, at(open2 ? 1 : 0), () => {
+          if (open2) {
+            UI.menuSlide = false;
+            UI.screen = "lists";
+            rerender();
+          }
+          layer.remove();
+          dim.remove();
+        });
+      }
+    };
+  }
+  function peekBack() {
+    const t = taskById(UI.detailId);
+    const to = t && t.status !== "active" ? "folders" : "list";
+    const under = peekLayer(asScreen(to, () => screenHTML() + mobileNavHTML()), "peek-under");
+    const at = (p) => `translateX(${p * 100}%)`;
+    const behind = (p) => `translateX(${(p - 1) * 24}%)`;
+    app.classList.add("is-peeking");
+    under.style.transform = behind(0);
+    return {
+      move: (p) => {
+        app.style.transform = at(p);
+        under.style.transform = behind(p);
+        under.style.setProperty("--peek-dim", String(1 - p));
+      },
+      settle: (open2) => {
+        under.style.transition = "transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+        under.style.transform = behind(open2 ? 1 : 0);
+        slideTo(app, at(open2 ? 1 : 0), () => {
+          app.style.transform = "";
+          app.classList.remove("is-peeking");
+          if (open2) {
+            if (to === "folders") UI.detailId = null;
+            UI.screen = to;
+            rerender();
+          }
+          under.remove();
+        });
+      }
+    };
+  }
+  bindSwipeRight(app, {
+    canStart: (target, x, edge) => {
+      if (isDesktop.matches || !S.onboarded || locked() || isRecording()) return false;
+      if (document.querySelector(".peek, .overlay") || target.closest(`.bottom-nav, ${FIELDS}`)) return false;
+      if (UI.screen === "detail") return edge || !target.closest(".subrow, .chip-row");
+      if (!TOP_LEVEL.includes(UI.screen) || UI.screen === "notes" && UI.composer.expanded) return false;
+      return edge || !target.closest(ITEMS);
+    },
+    start: () => UI.screen === "detail" ? peekBack() : peekMenu()
   });
   isDesktop.addEventListener("change", render);
   systemDark.addEventListener("change", render);

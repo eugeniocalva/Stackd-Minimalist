@@ -2588,7 +2588,8 @@ bindHold(el, {
   onDelete(),             // badge pressed
 })
 disarm()                  // removes the badge, if any
-bindMenuSwipe(root, { enabled(), open() })
+bindSwipeRight(root, { canStart(target, x, edge), start() → { move(p), settle(open) } })   // §48
+slideTo(el, transform, done)
 
 /* store.js */
 activeLists(): List[]
@@ -2807,3 +2808,67 @@ read-only (Could), members inviting others (open question, now: owner only).
   request by email within 30 days; reading copyright complaints at
   hi@stackdplatform.com.
 - Not legal advice: a lawyer reads both pages before publishing (PRD §06).
+
+## 48. As built: the owner's review of 2026-11-17
+
+The owner tested TestFlight build 10 against `docs/prd-improvements.md`
+and the accounts flow. What changed, and where:
+
+- **Lanes without a menu** (US-02, AC-02.2 and AC-02.5 to 02.7).
+  `board.js` drops the lane "⋯" and `openLaneMenu`. `bindLane` puts
+  `bindHold` on each lane except Done, ignoring presses on cards, "+ Add
+  card" and the rename field. A drag marks the lane it will go in front of
+  (`.lane-drop`, a bar in the gap) and drops with `reorderLane(listId,
+  laneId, index)`, which keeps Done last. The long hold arms an X;
+  `confirmDeleteLane` names where the cards go (`laneHeir`). Delete on a
+  focused lane name is the keyboard way.
+  - `bindHold` swallows the click that follows a drag or a hold, so a
+    lane lifted by its name does not open rename.
+  - **Store.** `canDeleteLane` allows any lane but Done. `deleteLane`
+    returns `{ moved, binned, to }`. With no heir, active cards go to
+    Deleted with their origin.
+  - **`workLane(listId)`** gives the first lane that is not Done, and adds
+    a Backlog to a board that has only Done. `addTask`, reopening,
+    `restoreTask`, `moveToLane`, `moveTask` and `copyTask` fall back to it
+    instead of `firstLane`, which on such a board would have been Done.
+- **Swipes that follow the finger** (AC-07.1, AC-07.3, AC-04.7).
+  `gestures.js` replaces `bindMenuSwipe` with `bindSwipeRight`. It
+  decides the direction after 12 px. Then it stops the page scrolling
+  (non-passive `touchmove`) and reports progress until release, where a
+  third of the width, or a flick over 0.5 px/ms, completes.
+  - `app.js` draws what the swipe reveals as an inert `.peek` layer from
+    the screen's own markup (`screenHTML()` through `asScreen()`).
+  - **Menu:** the menu slides over the page with `.peek-dim`.
+  - **Open card:** `#app` itself slides right (`.is-peeking`) over its
+    board, which moves in from 24% to the left, unshaded as it comes.
+  - On completion the real screen renders under the same pixels and the
+    layer goes.
+  - **Where a swipe starts:** not on `.row, .kcard, .lane, .board, .card,
+    .set-row, .lrow, .chip-row` or a field; always from the left 24 px.
+- **The "+" grid** (AC-09.1): no sheet. The overlay gets `.add-overlay`
+  (the page blurred and washed at 50% of its background), and the tiles
+  rise in turn (`--i`, 45 ms apart).
+- **New task** (AC-09.2): the Board row comes right under the title, so
+  the keyboard does not hide it. It preselects the last board, or the first
+  active one when that is gone.
+- **The iPhone keyboard** (AC-09.4). With `"resize": "native"` the web view
+  shrinks, and around iOS 26's floating keyboard the window shows through,
+  black by default.
+  - `ios-testflight.yml` patches the generated `AppDelegate.swift` so that
+    every window and its root view get the app background (#f4f7f9, or
+    #0b0f19 in dark mode). The step fails if the patch does not land.
+  - `theme.js` sets the keyboard's style to the app's theme.
+  - Not checked on a device yet.
+- **Dialog buttons** (AC-04.4): the label is a block `<span class="btn-label">`
+  trimmed to its capital letters (`text-box: trim-both cap alphabetic`).
+  It centres the same way whatever ascent and descent a platform reads from
+  Manrope. Where `text-box` is not supported, it is as before.
+- **The card's X** sits halfway down the card (AC-04.2).
+- **Sign-in in the apps.** New board › Shared › Sign in opened the sheet
+  on a device that cannot keep a session (no secure-storage plugin), which
+  is how build 10 showed it. `openSignIn` now checks `availability()`
+  first, and `newBoardFlow` skips the Personal / Shared question where
+  there can be no account. The birth-year step focuses its question, not
+  the year list, so iOS does not open the wheel at once.
+- **Removed:** the "Hold a board to move it" hint in the main menu.
+

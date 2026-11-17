@@ -19,17 +19,21 @@ const TILES = [
 ];
 
 export function openAddMenu() {
+  /* no sheet around them (owner's review 2026-11-17, AC-09.1): the four
+     tiles alone, over the blurred page, rising one after another */
   const { ov, close } = overlay(`
-    <div class="sheet add-menu" role="dialog" aria-label="Add">
-      <div class="sheet-handle"></div>
+    <div class="add-menu" role="dialog" aria-label="Add">
       <div class="add-grid">
-        ${TILES.map((t) => `
-        <button class="add-tile" data-tile="${t.id}">
+        ${TILES.map((t, i) => `
+        <button class="add-tile" data-tile="${t.id}" style="--i: ${i}">
           <span class="add-tile-icon">${icon(t.icon, 20)}</span>
           <span>${t.label}</span>
         </button>`).join('')}
       </div>
     </div>`);
+  ov.classList.add('add-overlay');
+  /* a tap between or around the tiles closes too */
+  ov.querySelector('.add-menu').addEventListener('click', (e) => { if (!e.target.closest('[data-tile]')) close(); });
   ov.querySelectorAll('[data-tile]').forEach((b) =>
     b.addEventListener('click', () => { close(); TILES.find((t) => t.id === b.dataset.tile).run(); }));
   ov.querySelector('[data-tile]').focus();

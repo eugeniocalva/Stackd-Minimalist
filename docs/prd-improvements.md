@@ -115,13 +115,26 @@ jumping.*
 
 - [x] AC-02.1 The Done lane's name is not editable: tapping it does
       nothing and it is not announced as a button.
-- [x] AC-02.2 The Done lane's "⋯" menu is shown disabled and opens
-      nothing.
+- [x] AC-02.2 *(revised 2026-11-17)* No lane has a "⋯" menu, Done
+      included.
 - [x] AC-02.3 The Done lane is always the last column. No other lane can
       be moved past it; "Move right" is not offered to the lane before it.
 - [x] AC-02.4 A board whose Done lane was moved in an earlier version
       opens with Done last. A Done lane renamed in an earlier version
       keeps that name.
+- [x] AC-02.5 *(owner's review 2026-11-17)* A lane other than Done is
+      dragged like a card, by holding it outside its cards (its header,
+      the space between and below the cards). While it moves, a bar in
+      the gap shows where it will land; Done stays last whatever the drop.
+- [x] AC-02.6 *(2026-11-17)* Holding a lane about 1.2 s without moving
+      shows the delete badge in its top-right corner, named "Remove lane
+      {name}". Delete on the lane's focused name does the same from the
+      keyboard. Tapping the name still renames it.
+- [x] AC-02.7 *(2026-11-17)* Removing asks first: "Remove {name}?" with
+      where its cards go. They move to the leftmost other lane. When Done
+      would be the only lane left, they go to Deleted instead (30 days,
+      Restore), and the next card added to or restored onto that board
+      brings a Backlog lane back.
 
 ### US-03 — Dragging a card (brief 4)
 - [x] AC-03.1 While a card is dragged, the lane under it is marked on
@@ -134,18 +147,27 @@ jumping.*
 - [x] AC-04.1 On touch, holding a card about 350 ms lifts it and it can
       be dragged (as in 1.5.0). With a mouse, dragging starts on move.
 - [x] AC-04.2 Holding about 1.2 s without moving puts the card down and
-      shows a delete badge in its top-right corner: a 24 px circle with
-      an "X", hit area ≥ 44 px, named "Delete card: {title}".
+      shows a delete badge at its right edge, halfway down the card
+      *(2026-11-17: was its top-right corner)*: a 24 px circle with an
+      "X", hit area ≥ 44 px, named "Delete card: {title}".
 - [x] AC-04.3 The badge stays until it is used or the user taps anywhere
       else. It has no timeout.
 - [x] AC-04.4 Pressing the badge opens a dialog: "Delete “{title}”?",
       Cancel and Delete. Delete moves the card to Deleted and shows the
-      Deleted toast with Undo.
+      Deleted toast with Undo. *(2026-11-17)* Dialog button labels are
+      centred on their capital letters, so they sit in the middle on
+      every platform.
 - [x] AC-04.5 Without holding: a focused card opens with Enter and asks
       to delete with the Delete or Backspace key; the detail screen
       keeps its Move and Delete buttons.
 - [x] AC-04.6 A board narrowed by search does not lift cards (as in
       1.5.0) but still shows the delete badge.
+- [x] AC-04.7 *(owner's review 2026-11-17)* On an open card, a swipe to
+      the right takes it back to its board (or to Archived / Deleted for
+      a card opened there). The card follows the finger and the board
+      shows underneath as it goes; released past a third of the width,
+      or flicked, it finishes, otherwise it springs back. It starts from
+      the left edge, or anywhere but a field or a subtask.
 
 ### US-05 — The Deleted toast (brief 6)
 - [x] AC-05.1 Every toast fades in and fades out over about 250 ms. A
@@ -160,15 +182,21 @@ jumping.*
 - [x] AC-06.3 Archived and Deleted are two pages, each with its own
       title. The Archived / Deleted tabs are gone. The Tasks / Notes /
       Meetings / Boards switch inside each page stays.
+- [x] AC-06.4 *(2026-11-17)* The main menu has no "Hold a board to move
+      it" hint under Boards.
 
 ### US-07 — Swipe to the main menu (brief 10)
-- [x] AC-07.1 On mobile, a swipe to the right opens the main menu, which
-      slides in from the left, when it starts: anywhere outside the
-      lanes on the Kanban view; in the left half of the screen on the
-      List view, Notes, Meetings, Archived, Deleted and Settings.
+- [x] AC-07.1 *(revised 2026-11-17)* On mobile, on a board (List or
+      Kanban), Notes, Meetings, Archived, Deleted and Settings, a swipe to
+      the right brings in the main menu following the finger, over the
+      page, which dims as it comes. Released past a third of the width,
+      or flicked, it opens; otherwise it slides back.
 - [x] AC-07.2 A swipe inside the lanes still scrolls the board, as today.
-- [x] AC-07.3 The swipe never fires from a text field, a slider, a row
-      that is slid open, or anything that scrolls sideways.
+- [x] AC-07.3 *(revised 2026-11-17)* A swipe that starts on an item does
+      nothing: a row (a task, done or not, a note, a meeting, an archived
+      or deleted entry), a card, a lane, a Settings card, a text field,
+      anything that scrolls sideways. It starts on the space around them
+      (titles, headers, gaps), and always from the left edge (24 px).
 - [x] AC-07.4 With reduced motion the menu appears without sliding.
 
 ### US-08 — Main menu header (brief 11)
@@ -182,12 +210,23 @@ jumping.*
 ### US-09 — One "+" menu (brief 12)
 - [x] AC-09.1 On mobile, "+" opens the Add menu on every page that shows
       it: a grid of Add task, Add note, Add meeting, Add automation.
+      *(2026-11-17)* The four tiles alone, without a sheet around them,
+      over the page blurred and washed with its background; they rise one
+      after another.
 - [x] AC-09.2 Add task opens the New task sheet for the current board.
+      *(2026-11-17)* The sheet's first row, under the title, is Board: the
+      board the task goes to, the one last open, changeable like the
+      other rows.
       Add note opens Notes with the composer focused. Add meeting
       creates a meeting and opens it. Add automation opens Settings ›
       Automations.
 - [x] AC-09.3 The menu closes on a choice, on Escape and on a tap
       outside; focus starts on the first tile; tiles are ≥ 44 px.
+
+- [ ] AC-09.4 *(owner's review 2026-11-17)* On iPhone, the keyboard of
+      a note, a board name or any other field has the app's background
+      around it, not black, and takes the app's light or dark style. Built
+      into the iOS workflow; to check on the next TestFlight build.
 
 ### US-10 — Reorder, archive and delete boards (brief 15)
 - [x] AC-10.1 In the main menu and the desktop sidebar, holding a board

@@ -126,6 +126,18 @@ jobs:
       - name: Sync web assets and plugins (pod install)
         run: npx cap sync ios
 
+      # The keyboard resizes the web view ("resize": "native"), and on iOS 26
+      # it floats with rounded corners: around it the window shows, black by
+      # default (owner's review 2026-11-17). The window and the root view get
+      # the app's background instead, light or dark with the phone.
+      - name: Window background behind the keyboard
+        run: |
+          F=ios/App/App/AppDelegate.swift
+          grep -q 'didFinishLaunchingWithOptions' "$F" || { echo "::error::AppDelegate.swift has no didFinishLaunchingWithOptions - the Capacitor template changed"; exit 1; }
+          perl -0pi -e 's/(didFinishLaunchingWithOptions[^{]*\{\n)/$1        \/\/ Stack\x27d: the app background where the web view does not reach (around the keyboard)\n        let stackdBackground = UIColor { \$0.userInterfaceStyle == .dark\n            ? UIColor(red: 11 \/ 255.0, green: 15 \/ 255.0, blue: 25 \/ 255.0, alpha: 1)\n            : UIColor(red: 244 \/ 255.0, green: 247 \/ 255.0, blue: 249 \/ 255.0, alpha: 1) }\n        DispatchQueue.main.async {\n            for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {\n                for w in scene.windows { w.backgroundColor = stackdBackground; w.rootViewController?.view.backgroundColor = stackdBackground }\n            }\n        }\n/' "$F"
+          grep -q 'stackdBackground' "$F" || { echo "::error::could not add the window background to AppDelegate.swift"; exit 1; }
+          sed -n '/didFinishLaunchingWithOptions/,/return true/p' "$F"
+
       - name: Check the native plugins landed
         run: |
           grep -q "CapacitorLocalNotifications" ios/App/Podfile \

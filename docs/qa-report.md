@@ -722,3 +722,54 @@ Not the QA walk and not the release gate; nothing deployed;
   secure-storage plugin is chosen, so accounts, sync and shared boards
   cannot be tried from this build. The Privacy and Terms links point to
   `app.stackdplatform.com`, which is not deployed yet.
+
+## Owner's manual test: 2026-11-17, TestFlight build 10
+
+The owner walked `docs/prd-improvements.md` on an iPhone (build 10,
+`078f110`). These criteria passed as built: AC-01.1–01.4, 02.1, 02.3,
+02.4, 03.1, 03.2, 04.1, 04.3, 04.5, 04.6, US-05, 07.2, 07.4, 08.1–08.3,
+09.3, 10.1–10.8, 12.1. AC-11.1 was not tested.
+
+Changed after the test (architecture §48; the PRD marks each with the date):
+
+| Point | What was found | What was done |
+|---|---|---|
+| AC-02.2 | Done's disabled "⋯" | No lane has a "⋯". Lanes are dragged by holding them outside their cards, a long hold gives the X, and removal asks first. Cards go to the leftmost lane, or to Deleted if only Done is left; Backlog comes back on the next card (AC-02.5–02.7). |
+| AC-04.2 | The card's X sat high | Halfway down the card. Measured 30.3 px above and below on a 75 px card. |
+| AC-04.4 | "Delete" looked low in the red button | Dialog labels trimmed to cap height. In Chrome: 18.2 px above and below on a 48 px button. Safari supports the trim from iOS 18.2. |
+| US-04 | No way back from an open card by swiping | Swipe right: the card slides off over its board (AC-04.7). |
+| US-06 | Hint under Boards in the menu | Removed. |
+| AC-07.1 | The menu jumped in | It follows the finger, with the page dimming, and springs back if released early. |
+| AC-07.3 | A swipe on a done task, a note, a meeting, an archived row or a Settings card opened the menu | Nothing happens on items. It works from gaps and titles, and always from the left edge. |
+| AC-09.1 | The tiles sat in a large white sheet | The tiles alone over the blurred page, rising in turn. |
+| AC-09.2 | Board not visible in New task | Board is the first row, preselected. |
+| AC-09.2, AC-10.9 | A black area around the iPhone keyboard (note, board name) | The iOS workflow gives the window the app background, and the keyboard follows the theme (AC-09.4). **To check on the next build.** |
+| AC-12.2 | Sign-in appeared in the app; the year wheel opened over the question; then "No connection" | The app should not offer sign-in yet: New board › Shared › Sign in skipped the check. It is now checked on every way in, and New board does not ask Personal or Shared in the app. The year list stays closed until tapped. "No connection" was the live Worker, which has no accounts deployed; expected. |
+| AC-12.11 | Terms and Privacy open nothing | Their address, `app.stackdplatform.com`, is not deployed yet. Left for the website work. |
+| US-13 | Not testable | It is the release process (security review per release; entries in this report), not an app feature. |
+
+- **Verified in the browser preview** (375 × 812, touch emulation, real
+  pointer and touch events):
+  - lane drag, drop bar and saved order;
+  - lane X, removal to the leftmost lane, removal to Deleted, Backlog
+    returning;
+  - the card X centred;
+  - swipes doing nothing on a row and on a Settings card, opening from the
+    edge and from a gap, a slow short swipe springing back, the card swipe
+    showing its board underneath;
+  - the "+" grid;
+  - the Board row first;
+  - the sign-in guard with a simulated app;
+  - the birth-year focus.
+- **Checks:** `npm run check` passes, with new store checks for lane
+  removal, Backlog returning and lane reorder.
+- **Not verified:**
+  - real finger timing;
+  - the keyboard background (iOS only);
+  - Safari's rendering of the trimmed labels.
+- **Security:**
+  - no new request, storage or permission;
+  - the tiles' `style="--i"` attribute is allowed by the existing
+    `style-src 'unsafe-inline'`;
+  - the workflow change edits only the generated `AppDelegate.swift`;
+  - the sign-in fix removes a way into a flow the device cannot complete.

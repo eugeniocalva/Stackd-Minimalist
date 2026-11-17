@@ -146,7 +146,9 @@ agreeing to.*
       step count and Back on each: **Age**, **Email**, **Code**, **PIN**.
 - [ ] AC-02.2 **Age.** The question is "What year were you born?" with a
       year picker, no default year. It is not a tick box and does not
-      mention the age required before the answer.
+      mention the age required before the answer. *(2026-11-17)* The picker
+      stays closed until it is tapped, so the question is read first (on
+      iPhone, focusing it opened the year wheel over the question).
 - [ ] AC-02.3 A year that makes the user younger than 18 on 1 January of
       the current year ends the flow with "Accounts are for adults. You
       can keep using Stack'd on this device without one." The device

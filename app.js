@@ -35,7 +35,7 @@ import * as media from './src/media.js';
 import { isRecording, recordingMeetingId } from './src/ui/recorder.js';
 import { toast } from './src/ui/primitives.js';
 import { openPlanRequired, openAllowanceUsed } from './src/ui/paywall.js';
-import { bindMenuSwipe } from './src/ui/gestures.js';
+import { bindSwipeRight, slideTo } from './src/ui/gestures.js';
 
 /* Every render replaces the whole screen, which would send each scroller
    back to its start: tick a card in the third lane and the board jumps to
@@ -70,6 +70,21 @@ function render() {
   keepScroll(was);
 }
 
+/** The markup of the current mobile screen, not yet bound. */
+function screenHTML() {
+  return UI.screen === 'lists' ? listsMenuHTML()
+    : UI.screen === 'detail' ? detailHTML()
+    : UI.screen === 'folders' ? foldersHTML()
+    : UI.screen === 'settings' ? settingsHTML()
+    : UI.screen === 'notes' ? notesHTML()
+    : UI.screen === 'note' ? noteDetailHTML()
+    : UI.screen === 'meeting' ? meetingHTML()
+    : UI.screen === 'meetings' ? meetingsHTML()
+    : mobileListHTML();
+}
+/* no nav on a detail, nor behind an open composer (its toolbar must stay above the keyboard) */
+const withNav = () => !['detail', 'note', 'meeting'].includes(UI.screen) && !(UI.screen === 'notes' && UI.composer.expanded);
+
 function draw() {
   applyTheme();
   /* a running recording pins the app to its meeting (AC-04.2): stop it first */
@@ -87,18 +102,9 @@ function draw() {
     app.innerHTML = banner + desktopHTML();
     bindDesktop();
   } else {
-    const screen = UI.screen === 'lists' ? listsMenuHTML()
-      : UI.screen === 'detail' ? detailHTML()
-      : UI.screen === 'folders' ? foldersHTML()
-      : UI.screen === 'settings' ? settingsHTML()
-      : UI.screen === 'notes' ? notesHTML()
-      : UI.screen === 'note' ? noteDetailHTML()
-      : UI.screen === 'meetings' ? meetingsHTML()
-      : UI.screen === 'meeting' ? meetingHTML()
-      : mobileListHTML();
-    /* no nav on a detail, nor behind an open composer (its toolbar must stay above the keyboard) */
-    const withNav = !['detail', 'note', 'meeting'].includes(UI.screen) && !(UI.screen === 'notes' && UI.composer.expanded);
-    app.innerHTML = banner + screen + (withNav ? mobileNavHTML() : '');
+    const screen = screenHTML();
+    const nav = withNav();
+    app.innerHTML = banner + screen + (nav ? mobileNavHTML() : '');
     if (UI.screen === 'lists') bindListsMenu();
     else if (UI.screen === 'detail') bindDetail();
     else if (UI.screen === 'folders') bindFolders();
@@ -108,7 +114,7 @@ function draw() {
     else if (UI.screen === 'meetings') bindMeetings();
     else if (UI.screen === 'meeting') bindMeeting();
     else bindMobileList();
-    if (withNav) bindMobileNav();
+    if (nav) bindMobileNav();
   }
   bindMoveBanner();
   if (focusAddsub || UI.refocusAddsub) {
@@ -215,18 +221,86 @@ function openTask(id) {
 document.addEventListener('click', (e) => {
   if (UI.sortMenu && !e.target.closest('.sortwrap')) { UI.sortMenu = false; rerender(); }
 });
-/* Mobile: a swipe to the right opens the main menu, sliding in from the left
-   (PRD-improvements US-07). On the Kanban view it starts anywhere outside
-   the lanes, which keep the gesture for scrolling; on the other top-level
-   pages it starts in the left half of the screen. */
-bindMenuSwipe(app, {
-  canOpen: (target, x) => {
-    if (isDesktop.matches || !S.onboarded || isRecording()) return false;
-    if (target.closest('input, textarea, select, [contenteditable="true"], [data-editor], .bottom-nav, .row.open, .swiping')) return false;
-    if (UI.screen === 'list' && S.view === 'kanban') return !target.closest('.board');
-    return ['list', 'notes', 'meetings', 'folders', 'settings'].includes(UI.screen) && x <= window.innerWidth / 2;
+/* Mobile: a swipe to the right that follows the finger (PRD-improvements
+   AC-07.1 to 07.3, US-04; owner's review 2026-11-17). On a top-level page
+   the main menu slides in over it; on an open card the card slides off and
+   its board (or folder) shows underneath. A swipe that starts on a row, a
+   card, a lane or a field does nothing (they have gestures of their own);
+   from the left edge it always works. */
+const TOP_LEVEL = ['list', 'notes', 'meetings', 'folders', 'settings'];
+const ITEMS = '.row, .kcard, .lane, .board, .card, .set-row, .lrow, .chip-row, .search-row, .invite-card, .notice';
+const FIELDS = 'input, textarea, select, [contenteditable="true"], [data-editor]';
+
+/** Another screen's markup, drawn as it would be, without changing where we are. */
+function asScreen(screen, build) {
+  const was = { screen: UI.screen, slide: UI.menuSlide };
+  UI.screen = screen; UI.menuSlide = false;
+  try { return build(); } finally { UI.screen = was.screen; UI.menuSlide = was.slide; }
+}
+function peekLayer(html, cls) {
+  const el = document.createElement('div');
+  el.className = `peek ${cls}`;
+  el.setAttribute('aria-hidden', 'true');
+  el.inert = true;
+  el.innerHTML = html;
+  document.body.appendChild(el);
+  return el;
+}
+
+/* the menu comes in from the left, over the page, with the page dimmed */
+function peekMenu() {
+  const layer = peekLayer(asScreen('lists', () => listsMenuHTML() + mobileNavHTML()), 'peek-over');
+  const dim = document.createElement('div');
+  dim.className = 'peek-dim';
+  document.body.insertBefore(dim, layer);
+  const at = (p) => `translateX(${(p - 1) * 100}%)`;
+  layer.style.transform = at(0);
+  return {
+    move: (p) => { layer.style.transform = at(p); dim.style.opacity = String(p); },
+    settle: (open) => {
+      dim.style.transition = 'opacity 220ms ease';
+      dim.style.opacity = open ? '1' : '0';
+      slideTo(layer, at(open ? 1 : 0), () => {
+        if (open) { UI.menuSlide = false; UI.screen = 'lists'; rerender(); }
+        layer.remove(); dim.remove();
+      });
+    },
+  };
+}
+
+/* the card goes right, its board comes from a little to the left */
+function peekBack() {
+  const t = taskById(UI.detailId);
+  const to = t && t.status !== 'active' ? 'folders' : 'list';
+  const under = peekLayer(asScreen(to, () => screenHTML() + mobileNavHTML()), 'peek-under');
+  const at = (p) => `translateX(${p * 100}%)`;
+  const behind = (p) => `translateX(${(p - 1) * 24}%)`;
+  app.classList.add('is-peeking');
+  under.style.transform = behind(0);
+  return {
+    move: (p) => { app.style.transform = at(p); under.style.transform = behind(p); under.style.setProperty('--peek-dim', String(1 - p)); },
+    settle: (open) => {
+      under.style.transition = 'transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+      under.style.transform = behind(open ? 1 : 0);
+      slideTo(app, at(open ? 1 : 0), () => {
+        app.style.transform = '';
+        app.classList.remove('is-peeking');
+        if (open) { if (to === 'folders') UI.detailId = null; UI.screen = to; rerender(); }
+        under.remove();
+      });
+    },
+  };
+}
+
+bindSwipeRight(app, {
+  canStart: (target, x, edge) => {
+    if (isDesktop.matches || !S.onboarded || lock.locked() || isRecording()) return false;
+    if (document.querySelector('.peek, .overlay') || target.closest(`.bottom-nav, ${FIELDS}`)) return false;
+    if (UI.screen === 'detail') return edge || !target.closest('.subrow, .chip-row');
+    if (!TOP_LEVEL.includes(UI.screen) || (UI.screen === 'notes' && UI.composer.expanded)) return false;
+    return edge || !target.closest(ITEMS);
   },
-  open: () => { UI.menuSlide = true; UI.screen = 'lists'; rerender(); },
+  start: () => (UI.screen === 'detail' ? peekBack() : peekMenu()),
 });
 isDesktop.addEventListener('change', render);
 systemDark.addEventListener('change', render); // theme 'system' follows the OS live

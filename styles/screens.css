@@ -89,15 +89,18 @@
   background: var(--bg-surface); color: var(--text-primary); caret-color: var(--color-accent);
   outline: 2px solid var(--color-accent); text-overflow: clip;
 }
-.lane-menu {
-  position: relative; width: 28px; height: 28px; margin-right: -6px; border-radius: 50%; color: var(--text-tertiary);
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.lane-menu::after { content: ''; position: absolute; inset: -6px; } /* 40px touch target */
-.lane-menu:hover { background: var(--bg-surface); color: var(--text-primary); }
-.lane-menu:disabled { opacity: 0.4; cursor: default; background: transparent; color: var(--text-tertiary); }
 .lane-head span.lane-name { padding: 4px 0; }   /* Done: a label, not a button */
-.lane-menu svg { width: 16px; height: 16px; }
+/* Lanes are lifted like cards (US-02, 2026-11-17): hold outside the cards.
+   The lane they will go in front of shows a bar in the gap on its left. */
+.lane { position: relative; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.lane:not(.lane-fixed) { cursor: grab; }
+.lane.dragging { opacity: 0.35; }
+.lane.drag-ghost { position: fixed; rotate: 1deg; }   /* .lane is relative; its ghost is not */
+.lane.lane-drop::before {
+  content: ''; position: absolute; top: var(--space-2); bottom: var(--space-2); left: calc(var(--space-3) / -2 - 2px);
+  width: 4px; border-radius: 2px; background: var(--color-accent);
+}
+.lane.is-armed .lane-count { visibility: hidden; }
 /* the column after the last lane that adds one */
 .lane-add {
   flex: none; width: min(180px, 56vw); align-self: flex-start; min-height: 56px; padding: var(--space-3);
@@ -121,6 +124,8 @@
 .kcard.dragging { opacity: 0.35; }
 .kcard.is-armed .grip { visibility: hidden; }
 .kcard.is-armed .kcard-line { padding-right: 26px; }
+/* the X sits halfway down the card, whatever its height (AC-04.2) */
+.kcard .hold-bar { top: 50%; margin-top: -12px; }
 
 /* ── Hold buttons (gestures.js): the "X" after a long hold, and on a board
    row the two that move it. 24px circles with a 44px hit area; they stay
@@ -174,9 +179,22 @@
   line-height: 1.3; color: var(--text-primary); margin: var(--space-5) var(--space-1) var(--space-3);
 }
 .menu-title:first-child { margin-top: 0; }
-.scroll-area > .menu-hint { text-align: left; margin: var(--space-2) var(--space-1) 0; }
 .menu-screen.slide-in { animation: menuIn 0.28s var(--ease-spring); }
 @keyframes menuIn { from { transform: translateX(-100%); } }
+/* Swipes that follow the finger (app.js, AC-07.1 and US-04): .peek is what
+   the swipe reveals, drawn like #app but inert. The menu slides over the
+   page with the page dimmed; under an open card the board waits, a little
+   to the left and shaded, while the card slides off it. */
+.peek {
+  position: fixed; inset: 0; display: flex; flex-direction: column; overflow: hidden;
+  padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
+  background: var(--bg-base); pointer-events: none; will-change: transform;
+}
+.peek-over { z-index: calc(var(--z-nav) + 2); box-shadow: 8px 0 32px rgb(0 0 0 / 0.14); }
+.peek-dim { position: fixed; inset: 0; z-index: calc(var(--z-nav) + 1); background: rgb(8 12 20 / 0.28); opacity: 0; pointer-events: none; }
+.peek-under { z-index: 0; }
+.peek-under::after { content: ''; position: absolute; inset: 0; background: rgb(8 12 20 / 0.16); opacity: var(--peek-dim, 1); }
+#app.is-peeking { position: relative; z-index: 1; background: var(--bg-base); box-shadow: -10px 0 30px rgb(0 0 0 / 0.16); will-change: transform; }
 
 /* Board rows: held, dragged, dropped on (PRD-improvements US-10) */
 .lrow[data-id], .side-item[data-id] { position: relative; -webkit-touch-callout: none; }

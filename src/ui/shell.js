@@ -208,7 +208,6 @@ export function listsMenuHTML() {
           <span class="lname">New board…</span>
         </div>
       </div>
-      <span class="hint menu-hint">Hold a board to move it · keep holding to remove</span>
       <h2 class="menu-title">Notes</h2>
       <div class="card list-card">
         <div class="lrow" data-open-notes>

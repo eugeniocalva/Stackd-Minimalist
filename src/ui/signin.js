@@ -27,6 +27,13 @@ const countsLine = (c) => [plural(c.list, 'board'), plural(c.task, 'task'), plur
 
 /** mode: 'create' | 'signin' */
 export function openSignIn({ mode = null } = {}) {
+  /* every way in checks first: a device that cannot hold a session (the apps
+     until the secure-storage plugin, a file:// copy, the old address) says why */
+  const avail = account.availability();
+  if (!avail.ok) {
+    toast(avail.reason === 'file' ? "Open Stack'd from its website to sign in." : avail.reason === 'legacy' ? 'Sign in at the new address.' : 'Sign-in arrives in the next update of the app.', { ms: 5000 });
+    return;
+  }
   const st = { mode, step: mode ? (mode === 'create' ? 'age' : 'email') : 'choose', email: '', ticket: null, known: null, first: null, error: '', sentAt: 0 };
   const history = [];
   const { ov, close } = overlay('<div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="step-title"></div>');
@@ -55,7 +62,7 @@ export function openSignIn({ mode = null } = {}) {
         <span class="hint">${stepCount()}</span>
         <button type="button" class="icon-btn" data-close data-keep aria-label="Close">${icon('x')}</button>
       </div>
-      <h2 id="step-title">${esc(title)}</h2>`;
+      <h2 id="step-title" tabindex="-1">${esc(title)}</h2>`;
   }
 
   function draw() {
@@ -134,7 +141,8 @@ export function openSignIn({ mode = null } = {}) {
         if (!account.checkAge(sel.value)) { draw(); return; }   // the refusal screen, remembered for 24 h
         if (st.known === false) go('pin-new'); else go('email');
       });
-      sel?.focus();
+      /* the question first: focusing the list would open the iOS wheel over it (owner's review 2026-11-17) */
+      q('#step-title')?.focus();
     }
     if (s === 'email') {
       const input = q('[data-email]');

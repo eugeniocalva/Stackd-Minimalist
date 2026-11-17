@@ -7,7 +7,8 @@
    that stays until it is pressed or something else is. Nothing is deleted
    by the press itself: the badge calls onDelete, which asks first.
 
-   bindMenuSwipe: a swipe to the right that opens the main menu. */
+   bindSwipeRight: a swipe to the right that follows the finger: the main
+   menu slides in over a top-level page, an open card slides off its board. */
 
 import { buzz } from '../haptics.js';
 import { icon } from './icons.js';
@@ -147,9 +148,17 @@ export function bindHold(el, {
       el.removeEventListener('pointercancel', cancel);
       el.removeEventListener('touchmove', blockScroll);
     };
+    /* after a drag or a long hold, the click the browser still sends is not
+       a tap: a lane lifted by its name must not open the rename field */
+    const swallowClick = () => {
+      const stop = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+      el.addEventListener('click', stop, { capture: true, once: true });
+      setTimeout(() => el.removeEventListener('click', stop, { capture: true }), 400);
+    };
     const up = (ev) => {
       const wasDragging = dragging;
       finish(); endDrag();
+      if (wasDragging || held) swallowClick();
       if (wasDragging) onDrop?.(ev);
       else if (!held && !wasArmed && Math.hypot(ev.clientX - sx, ev.clientY - sy) < SLOP) onTap?.(ev);
     };
@@ -162,10 +171,17 @@ export function bindHold(el, {
   });
 }
 
-/** A one-finger swipe to the right inside `root` calls open(), unless
-    canOpen(target, startX) says this is not the place for it. Passive: it
-    never blocks scrolling, it only watches. */
-export function bindMenuSwipe(root, { canOpen, open }) {
+/** A one-finger swipe to the right that follows the finger (PRD-improvements
+    AC-07.1, US-04; owner's review 2026-11-17). canStart(target, x) says
+    whether a touch may start one here. Once the finger has moved sideways
+    more than it has moved down, start() builds whatever the swipe reveals
+    and returns { move(p), settle(open) }: move gets the progress 0…1 on
+    every frame, settle is called on release, open when the swipe went far
+    enough (a third of the width) or fast enough. A swipe that starts in a
+    sideways scroller (a chip row, the lanes) belongs to the scroller, except
+    from the left edge. While a swipe runs the page does not scroll. */
+export const EDGE_PX = 24;
+export function bindSwipeRight(root, { canStart, start }) {
   let s = null;
   const sideways = (target) => {
     for (let n = target; n && n !== root; n = n.parentElement) {
@@ -177,17 +193,46 @@ export function bindMenuSwipe(root, { canOpen, open }) {
     s = null;
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
-    if (!canOpen(e.target, t.clientX) || sideways(e.target)) return;
-    s = { x: t.clientX, y: t.clientY };
+    const edge = t.clientX <= EDGE_PX;
+    if (!canStart(e.target, t.clientX, edge) || (!edge && sideways(e.target))) return;
+    s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0 };
   }, { passive: true });
   root.addEventListener('touchmove', (e) => {
     if (!s) return;
     const t = e.touches[0];
-    const dx = t.clientX - s.x, dy = Math.abs(t.clientY - s.y);
-    if (dy > 24 && dy > Math.abs(dx)) { s = null; return; }      // a vertical scroll
-    if (dx > 64 && dx > dy * 2) { s = null; open(); }
-  }, { passive: true });
-  const end = () => { s = null; };
-  root.addEventListener('touchend', end, { passive: true });
-  root.addEventListener('touchcancel', end, { passive: true });
+    const dx = t.clientX - s.x, dy = t.clientY - s.y;
+    if (!s.live) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { s = null; return; }   // a vertical scroll
+      if (dx < -10) { s = null; return; }                                         // the other way
+      if (dx < 12) return;
+      s.live = start();
+      if (!s.live) { s = null; return; }
+      s.x = t.clientX - 1;                                                         // no jump at the start
+    }
+    e.preventDefault();
+    const now = performance.now();
+    s.v = (t.clientX - s.last[0]) / Math.max(1, now - s.last[1]);
+    s.last = [t.clientX, now];
+    s.live.move(Math.max(0, Math.min(1, (t.clientX - s.x) / window.innerWidth)));
+  }, { passive: false });
+  const end = (cancelled) => {
+    if (!s) return;
+    const live = s.live, p = (s.last[0] - s.x) / window.innerWidth, v = s.v;
+    s = null;
+    live?.settle(!cancelled && (p > 1 / 3 || (v > 0.5 && p > 0.08)));
+  };
+  root.addEventListener('touchend', () => end(false), { passive: true });
+  root.addEventListener('touchcancel', () => end(true), { passive: true });
+}
+
+/** Slides el to translateX(to) with the swipe easing, then calls done(). */
+export function slideTo(el, to, done) {
+  const reduce = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) { el.style.transform = to; done(); return; }
+  el.style.transition = 'transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+  requestAnimationFrame(() => { el.style.transform = to; });
+  let finished = false;
+  const fin = () => { if (finished) return; finished = true; el.style.transition = ''; done(); };
+  el.addEventListener('transitionend', fin, { once: true });
+  setTimeout(fin, 320);                                  // no transitionend when nothing moved
 }
