@@ -6508,10 +6508,9 @@
       const cards = ts.filter((t) => t.lane === lane.id);
       const inLane = all.filter((t) => t.lane === lane.id).length;
       const isDone = lane.id === DONE_LANE;
-      const headCls = lane.id === "inprogress" ? "active" : isDone ? "muted" : "";
       return `
     <div class="lane ${isDone ? "lane-fixed" : ""}" data-lane="${lane.id}">
-      <div class="lane-head ${headCls}">
+      <div class="lane-head">
         ${isDone ? `<span class="lane-name">${esc(lane.name)}</span>` : `<button class="lane-name" data-lane-rename="${lane.id}" title="Rename" aria-label="Rename lane ${esc(lane.name)}" aria-keyshortcuts="Delete">${esc(lane.name)}</button>`}
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
       </div>

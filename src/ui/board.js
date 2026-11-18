@@ -95,13 +95,12 @@ export function kanbanHTML({ desktop = false } = {}) {
     const cards = ts.filter((t) => t.lane === lane.id);
     const inLane = all.filter((t) => t.lane === lane.id).length;
     const isDone = lane.id === DONE_LANE;
-    const headCls = lane.id === 'inprogress' ? 'active' : isDone ? 'muted' : '';
     /* Done is fixed (PRD-improvements US-02): its name is text and it is
        neither dragged nor removed. The other lanes: tap the name to rename,
        hold the lane outside its cards to drag it, hold longer for the X. */
     return `
     <div class="lane ${isDone ? 'lane-fixed' : ''}" data-lane="${lane.id}">
-      <div class="lane-head ${headCls}">
+      <div class="lane-head">
         ${isDone
           ? `<span class="lane-name">${esc(lane.name)}</span>`
           : `<button class="lane-name" data-lane-rename="${lane.id}" title="Rename" aria-label="Rename lane ${esc(lane.name)}" aria-keyshortcuts="Delete">${esc(lane.name)}</button>`}
