@@ -95,6 +95,7 @@ export function bindHold(el, {
       ghost.className = `${ghostClass} drag-ghost`;
       ghost.removeAttribute('tabindex');
       ghost.style.width = `${r.width}px`;
+      ghost.style.height = `${r.height}px`;   // a lane is as tall as the board it stretches in, not its content
       ghost.style.left = `${r.left}px`;
       ghost.style.top = `${r.top}px`;
       document.body.appendChild(ghost);

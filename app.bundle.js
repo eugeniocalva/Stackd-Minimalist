@@ -2244,6 +2244,7 @@
         ghost.className = `${ghostClass} drag-ghost`;
         ghost.removeAttribute("tabindex");
         ghost.style.width = `${r.width}px`;
+        ghost.style.height = `${r.height}px`;
         ghost.style.left = `${r.left}px`;
         ghost.style.top = `${r.top}px`;
         document.body.appendChild(ghost);

@@ -94,8 +94,10 @@
    The lane they will go in front of shows a bar in the gap on its left. */
 .lane { position: relative; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .lane:not(.lane-fixed) { cursor: grab; }
-.lane.dragging { opacity: 0.35; }
-.lane.drag-ghost { position: fixed; rotate: 1deg; }   /* .lane is relative; its ghost is not */
+/* lifted: the whole column comes up, ringed, and its place stays as a dashed
+   outline, so it is clear the lane moves and not a card (owner's review 2026-11-18) */
+.lane.dragging { opacity: 0.4; box-shadow: inset 0 0 0 2px var(--color-border); outline: 2px dashed var(--text-tertiary); outline-offset: -2px; }
+.lane.drag-ghost { position: fixed; rotate: 1deg; scale: 1.02; opacity: 0.96; box-shadow: var(--shadow-float), inset 0 0 0 2px var(--color-accent); }   /* .lane is relative; its ghost is not */
 .lane.lane-drop::before {
   content: ''; position: absolute; top: var(--space-2); bottom: var(--space-2); left: calc(var(--space-3) / -2 - 2px);
   width: 4px; border-radius: 2px; background: var(--color-accent);
