@@ -190,12 +190,23 @@
 .peek {
   position: fixed; inset: 0; display: flex; flex-direction: column; overflow: hidden;
   padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
-  background: var(--bg-base); pointer-events: none; will-change: transform;
+  background: var(--bg-base); pointer-events: none; will-change: transform; contain: layout paint style;
 }
-.peek-over { z-index: calc(var(--z-nav) + 2); box-shadow: 8px 0 32px rgb(0 0 0 / 0.14); }
-.peek-dim { position: fixed; inset: 0; z-index: calc(var(--z-nav) + 1); background: rgb(8 12 20 / 0.28); opacity: 0; pointer-events: none; }
-.peek-under { z-index: 0; }
-.peek-under::after { content: ''; position: absolute; inset: 0; background: rgb(8 12 20 / 0.16); opacity: var(--peek-dim, 1); }
+/* Kept cheap for the phone (owner's review of build 11):
+   - built ahead and hidden until the swipe starts (.peek-waiting);
+   - nothing frosted inside a layer that moves: the blur would be worked
+     out again on every frame;
+   - what fades (.peek-dim, .peek-shade) is a layer of its own, so a frame
+     changes its opacity and repaints nothing.
+   The menu and its dim sit under the bottom bar, which stays in place. */
+.peek-waiting { visibility: hidden; }
+.peek .page-head, #app.is-peeking .page-head { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--bg-base); }
+.peek-over { z-index: calc(var(--z-nav) - 1); box-shadow: 6px 0 24px rgb(0 0 0 / 0.14); }
+.peek-dim, .peek-shade { position: fixed; inset: 0; pointer-events: none; will-change: opacity; }
+.peek-dim { z-index: calc(var(--z-nav) - 2); background: rgb(8 12 20 / 0.28); opacity: 0; }
+.peek-under, .peek-nav, .peek-shade { z-index: 0; }
+.peek-nav { position: fixed; inset: 0; pointer-events: none; }
+.peek-shade { background: rgb(8 12 20 / 0.16); }
 #app.is-peeking { position: relative; z-index: 1; background: var(--bg-base); box-shadow: -10px 0 30px rgb(0 0 0 / 0.16); will-change: transform; }
 
 /* Board rows: held, dragged, dropped on (PRD-improvements US-10) */

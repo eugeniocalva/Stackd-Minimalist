@@ -2843,6 +2843,32 @@ and the accounts flow. What changed, and where:
     board, which moves in from 24% to the left, unshaded as it comes.
   - On completion the real screen renders under the same pixels and the
     layer goes.
+  - **Smoother, after build 11** (the owner: it stutters while dragging,
+    and two bottom bars show). Measured in the preview: the swipe built
+    its layer when it was recognised, 19 ms in one touch event, and the
+    moving layer carried two frosted elements and the bottom bar.
+    - **Built ahead.** `bindSwipeRight` takes `prepare` and `discard`.
+      `prepare` runs just after a finger lands where a swipe may start,
+      and `app.js` builds the layers hidden (`.peek-waiting`). The
+      recognising event now takes 2 ms. The layers live for that touch
+      only, and `draw()` drops them too.
+    - **Nothing frosted moves.** `.page-head` loses its backdrop blur
+      inside `.peek` and inside `#app.is-peeking`. The blur would be
+      worked out again on every frame.
+    - **Fades are layers.** The menu's dim and the board's shade
+      (`.peek-shade`, which replaces a pseudo-element driven by a custom
+      property) are elements with `will-change: opacity`, so a frame
+      repaints nothing.
+    - **The bottom bar stays.** The menu layer has no bar and sits under
+      the real one (z-index one below `--z-nav`, its dim two below). The
+      Boards tab lights up as the menu settles. Under an open card the
+      board's bar is a layer of its own (`.peek-nav`) that does not move
+      with the board.
+    - **Claimed sooner.** The swipe starts after 8 px, mostly sideways,
+      under the 10 pt at which iOS starts to scroll the page, so the page
+      cannot scroll under it. If the page is already scrolling (the event
+      cannot be cancelled), there is no swipe.
+    - A second finger no longer orphans a running swipe.
   - **Where a swipe starts:** not on `.row, .kcard, .lane, .board, .card,
     .set-row, .lrow, .chip-row` or a field; always from the left 24 px.
 - **The "+" grid** (AC-09.1): no sheet. The overlay gets `.add-overlay`
@@ -2857,7 +2883,24 @@ and the accounts flow. What changed, and where:
   - `ios-testflight.yml` patches the generated `AppDelegate.swift` so that
     every window and its root view get the app background (#f4f7f9, or
     #0b0f19 in dark mode). The step fails if the patch does not land.
-  - `theme.js` sets the keyboard's style to the app's theme.
+  - **Build 11** chose light or dark from the phone, so a light app on a
+    phone in dark mode still showed #0b0f19 around the keyboard (the
+    owner's screenshot, sampled). The keyboard itself stayed dark too:
+    `applyTheme` returned early at launch, because `pretheme.js` had
+    already set `data-theme`, so `Keyboard.setStyle` never ran.
+  - **Now** the step appends a `StackdTheme` class to
+    `AppDelegate.swift`, a `WKScriptMessageHandler` named
+    `stackdTheme`, attached once the app has launched. `applyTheme` posts
+    the setting to it (`'light' | 'dark' | 'system'`), apart from the
+    `data-theme` check, and also writes it to `data-theme-setting`, which
+    the handler reads when it attaches in case the post came first. It
+    sets every window's `overrideUserInterfaceStyle` to light, dark or
+    unspecified. That makes the background and the keyboard follow the
+    app's theme, not the phone's.
+  - `'system'` is sent as such, not resolved. Forcing the resolved theme
+    on the window would also fix the web view's `prefers-color-scheme`,
+    and the app could no longer follow the phone.
+  - Any other message is ignored.
   - Not checked on a device yet.
 - **Dialog buttons** (AC-04.4): the label is a block `<span class="btn-label">`
   trimmed to its capital letters (`text-box: trim-both cap alphabetic`).

@@ -190,7 +190,9 @@ jumping.*
       Kanban), Notes, Meetings, Archived, Deleted and Settings, a swipe to
       the right brings in the main menu following the finger, over the
       page, which dims as it comes. Released past a third of the width,
-      or flicked, it opens; otherwise it slides back.
+      or flicked, it opens; otherwise it slides back. *(Owner's review of
+      build 11, 2026-11-18)* The bottom bar and its "+" stay in place
+      while the menu slides in beneath them: one bar, one "+".
 - [x] AC-07.2 A swipe inside the lanes still scrolls the board, as today.
 - [x] AC-07.3 *(revised 2026-11-17)* A swipe that starts on an item does
       nothing: a row (a task, done or not, a note, a meeting, an archived
@@ -227,6 +229,9 @@ jumping.*
       a note, a board name or any other field has the app's background
       around it, not black, and takes the app's light or dark style. Built
       into the iOS workflow; to check on the next TestFlight build.
+      *(Owner's review of build 11, 2026-11-18: still dark around a light
+      app on a phone in dark mode. The surround now follows the app's
+      setting, not the phone's.)*
 
 ### US-10 — Reorder, archive and delete boards (brief 15)
 - [x] AC-10.1 In the main menu and the desktop sidebar, holding a board

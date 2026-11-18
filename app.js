@@ -87,6 +87,7 @@ const withNav = () => !['detail', 'note', 'meeting'].includes(UI.screen) && !(UI
 
 function draw() {
   applyTheme();
+  dropWaiting();                 // a layer built ahead for a swipe shows the screen as it was
   /* a running recording pins the app to its meeting (AC-04.2): stop it first */
   if (isRecording() && !(UI.screen === 'meeting' && UI.detailId === recordingMeetingId())) {
     UI.screen = 'meeting'; UI.detailId = recordingMeetingId();
@@ -237,9 +238,10 @@ function asScreen(screen, build) {
   UI.screen = screen; UI.menuSlide = false;
   try { return build(); } finally { UI.screen = was.screen; UI.menuSlide = was.slide; }
 }
+/* An inert layer on <body>, drawn from a screen's own markup. */
 function peekLayer(html, cls) {
   const el = document.createElement('div');
-  el.className = `peek ${cls}`;
+  el.className = cls;
   el.setAttribute('aria-hidden', 'true');
   el.inert = true;
   el.innerHTML = html;
@@ -247,46 +249,93 @@ function peekLayer(html, cls) {
   return el;
 }
 
-/* the menu comes in from the left, over the page, with the page dimmed */
+/* What a swipe reveals is built when the finger lands (bindSwipeRight's
+   prepare), hidden, so nothing is built or laid out while the finger moves:
+   that showed as a hitch (owner's review of build 11). It lives for that
+   touch only, and the next draw drops it too. Nothing in a layer that moves
+   is frosted, and what fades is a layer of its own (screens.css), so a
+   frame of the swipe moves and fades layers and repaints nothing. */
+let waiting = null;      // { kind, els, … } built and hidden
+let peeking = false;     // a swipe is running or settling
+function dropWaiting() { waiting?.els.forEach((el) => el.remove()); waiting = null; }
+
+/* the menu comes in from the left over the page, which dims; the bottom bar
+   and its "+" stay where they are, above both */
+function buildMenuPeek() {
+  const dim = peekLayer('', 'peek-dim');
+  const layer = peekLayer(asScreen('lists', listsMenuHTML), 'peek peek-over');
+  return { kind: 'menu', layer, dim, els: [dim, layer] };
+}
+/* the card goes right; its board waits underneath, a little to the left and
+   shaded, with its bottom bar already in place */
+function buildBackPeek() {
+  const t = taskById(UI.detailId);
+  const to = t && t.status !== 'active' ? 'folders' : 'list';
+  const under = peekLayer(asScreen(to, screenHTML), 'peek peek-under');
+  const nav = peekLayer(asScreen(to, mobileNavHTML), 'peek-nav');
+  const shade = peekLayer('', 'peek-shade');
+  return { kind: 'back', to, under, shade, els: [under, nav, shade] };
+}
+const peekKind = () => (UI.screen === 'detail' ? 'back' : 'menu');
+function preparePeek() {
+  const kind = peekKind();
+  if (waiting?.kind === kind) return;
+  dropWaiting();
+  waiting = kind === 'back' ? buildBackPeek() : buildMenuPeek();
+  waiting.els.forEach((el) => el.classList.add('peek-waiting'));
+}
+function takePeek() {
+  preparePeek();
+  const peek = waiting;
+  waiting = null;
+  peek.els.forEach((el) => el.classList.remove('peek-waiting'));
+  peeking = true;
+  return peek;
+}
+const endPeek = (peek) => { peek.els.forEach((el) => el.remove()); peeking = false; };
+const shift = (px) => `translate3d(${px.toFixed(1)}px, 0, 0)`;
+
 function peekMenu() {
-  const layer = peekLayer(asScreen('lists', () => listsMenuHTML() + mobileNavHTML()), 'peek-over');
-  const dim = document.createElement('div');
-  dim.className = 'peek-dim';
-  document.body.insertBefore(dim, layer);
-  const at = (p) => `translateX(${(p - 1) * 100}%)`;
+  const peek = takePeek();
+  const { layer, dim } = peek;
+  const w = window.innerWidth;
+  const at = (p) => shift((p - 1) * w);
   layer.style.transform = at(0);
   return {
     move: (p) => { layer.style.transform = at(p); dim.style.opacity = String(p); },
     settle: (open) => {
+      /* the bar's Boards tab lights up as the menu arrives, not after */
+      if (open) app.querySelectorAll('.bottom-nav [data-nav]').forEach((b) => b.classList.toggle('active', b.dataset.nav === 'lists'));
       dim.style.transition = 'opacity 220ms ease';
       dim.style.opacity = open ? '1' : '0';
       slideTo(layer, at(open ? 1 : 0), () => {
         if (open) { UI.menuSlide = false; UI.screen = 'lists'; rerender(); }
-        layer.remove(); dim.remove();
+        endPeek(peek);
       });
     },
   };
 }
 
-/* the card goes right, its board comes from a little to the left */
 function peekBack() {
-  const t = taskById(UI.detailId);
-  const to = t && t.status !== 'active' ? 'folders' : 'list';
-  const under = peekLayer(asScreen(to, () => screenHTML() + mobileNavHTML()), 'peek-under');
-  const at = (p) => `translateX(${p * 100}%)`;
-  const behind = (p) => `translateX(${(p - 1) * 24}%)`;
+  const peek = takePeek();
+  const { to, under, shade } = peek;
+  const w = window.innerWidth;
+  const at = (p) => shift(p * w);
+  const behind = (p) => shift((p - 1) * 0.24 * w);
   app.classList.add('is-peeking');
   under.style.transform = behind(0);
   return {
-    move: (p) => { app.style.transform = at(p); under.style.transform = behind(p); under.style.setProperty('--peek-dim', String(1 - p)); },
+    move: (p) => { app.style.transform = at(p); under.style.transform = behind(p); shade.style.opacity = String(1 - p); },
     settle: (open) => {
       under.style.transition = 'transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)';
       under.style.transform = behind(open ? 1 : 0);
+      shade.style.transition = 'opacity 220ms ease';
+      shade.style.opacity = open ? '0' : '1';
       slideTo(app, at(open ? 1 : 0), () => {
         app.style.transform = '';
         app.classList.remove('is-peeking');
         if (open) { if (to === 'folders') UI.detailId = null; UI.screen = to; rerender(); }
-        under.remove();
+        endPeek(peek);
       });
     },
   };
@@ -295,11 +344,13 @@ function peekBack() {
 bindSwipeRight(app, {
   canStart: (target, x, edge) => {
     if (isDesktop.matches || !S.onboarded || lock.locked() || isRecording()) return false;
-    if (document.querySelector('.peek, .overlay') || target.closest(`.bottom-nav, ${FIELDS}`)) return false;
+    if (peeking || document.querySelector('.overlay') || target.closest(`.bottom-nav, ${FIELDS}`)) return false;
     if (UI.screen === 'detail') return edge || !target.closest('.subrow, .chip-row');
     if (!TOP_LEVEL.includes(UI.screen) || (UI.screen === 'notes' && UI.composer.expanded)) return false;
     return edge || !target.closest(ITEMS);
   },
+  prepare: preparePeek,
+  discard: dropWaiting,
   start: () => (UI.screen === 'detail' ? peekBack() : peekMenu()),
 });
 isDesktop.addEventListener('change', render);

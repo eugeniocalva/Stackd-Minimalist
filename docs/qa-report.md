@@ -773,3 +773,53 @@ Changed after the test (architecture §48; the PRD marks each with the date):
     `style-src 'unsafe-inline'`;
   - the workflow change edits only the generated `AppDelegate.swift`;
   - the sign-in fix removes a way into a flow the device cannot complete.
+
+### Owner's review of build 11 (2026-11-18): the keyboard surround
+
+- **Seen:** a light app on a phone in dark mode still had a dark band around
+  the keyboard's rounded corners, and the keyboard was dark. Sampled from
+  the screenshot: #0c0f18, the app's dark background.
+- **Cause:** the build-11 patch did land, but it picked light or dark from
+  the phone. `Keyboard.setStyle` never ran at launch: `applyTheme`
+  returned early because `pretheme.js` had already set `data-theme`.
+- **Fix** (architecture §48):
+  - `theme.js` always tells the shell the app's setting;
+  - the iOS workflow adds a `stackdTheme` handler that sets the window's
+    light or dark (unspecified for 'system').
+- **Verified:**
+  - the workflow step run against Capacitor's own iOS template: the import,
+    the launch call and the class land, and the step's guards pass;
+  - in the browser preview, `data-theme-setting` is set at launch;
+  - a stub handler receives light, dark, system and light as the setting
+    changes, and nothing when it does not.
+- **Not verified:** the Swift compiles only in CI; the look on a device
+  comes with the next TestFlight build.
+- **Security:**
+  - the handler accepts three fixed strings and only changes light or dark;
+  - no new request, storage or permission.
+
+### Owner's review of build 11 (2026-11-18): the swipe to the right
+
+- **Seen:** the swipe stutters while dragging, and two bottom bars and two
+  "+" show during it. The owner chose to tune the current swipe (not to
+  rebuild it on native scrolling), for both swipes, with the bottom bar
+  staying in place.
+- **Measured before** (preview, 375 px): the event that recognised the
+  swipe took 19.4 ms, building the whole menu. The moving layer had 127
+  nodes, the bottom bar and two frosted elements.
+- **Fix** (architecture §48): layers built when the finger lands, nothing
+  frosted in a moving layer, fades as their own layers, the bottom bar
+  left in place, the swipe claimed after 8 px.
+- **Measured after:** the recognising event takes 1.9 ms (menu) and 2.8 ms
+  (open card). The menu layer has 91 nodes, no bar and nothing frosted.
+- **Verified in the preview:**
+  - one bottom bar and one "+" during both swipes;
+  - the Boards tab lights up at release, and the menu opens;
+  - a short swipe springs back; a tap and a vertical move leave no layer;
+  - a touch the page is already scrolling starts no swipe;
+  - the open card slides off its board, and nothing is left behind;
+  - no console errors; `npm run check` passes.
+- **Not verified:** the frame rate on an iPhone, which only a TestFlight
+  build shows. A web view may also limit finger-following to 60 frames a
+  second, which this change cannot lift.
+- **Security:** no new request, storage or permission.

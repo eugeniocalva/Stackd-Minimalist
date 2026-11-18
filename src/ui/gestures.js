@@ -180,9 +180,19 @@ export function bindHold(el, {
     every frame, settle is called on release, open when the swipe went far
     enough (a third of the width) or fast enough. A swipe that starts in a
     sideways scroller (a chip row, the lanes) belongs to the scroller, except
-    from the left edge. While a swipe runs the page does not scroll. */
+    from the left edge. While a swipe runs the page does not scroll.
+
+    Smoothness (owner's review of build 11):
+    - prepare() is called just after a finger lands where a swipe may
+      start, so start() has nothing left to build while the finger moves;
+      discard() when that touch ends without a swipe.
+    - The swipe is claimed after START_PX, under the 10 pt at which iOS
+      starts to scroll the page. From then on the page cannot scroll under
+      the swipe. If the page got there first (the event can no longer be
+      cancelled), there is no swipe: the two never run together. */
 export const EDGE_PX = 24;
-export function bindSwipeRight(root, { canStart, start }) {
+const START_PX = 8;
+export function bindSwipeRight(root, { canStart, start, prepare = null, discard = null }) {
   let s = null;
   const sideways = (target) => {
     for (let n = target; n && n !== root; n = n.parentElement) {
@@ -191,23 +201,27 @@ export function bindSwipeRight(root, { canStart, start }) {
     return false;
   };
   root.addEventListener('touchstart', (e) => {
-    s = null;
+    if (s?.live) return;                    // a second finger does not end the swipe under the first
+    drop();
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
     const edge = t.clientX <= EDGE_PX;
     if (!canStart(e.target, t.clientX, edge) || (!edge && sideways(e.target))) return;
-    s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0 };
+    const touch = s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0 };
+    if (prepare) setTimeout(() => { if (s === touch && !touch.live) prepare(); }, 0);
   }, { passive: true });
+  const drop = () => { if (s && !s.live) discard?.(); s = null; };
   root.addEventListener('touchmove', (e) => {
     if (!s) return;
     const t = e.touches[0];
     const dx = t.clientX - s.x, dy = t.clientY - s.y;
     if (!s.live) {
-      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { s = null; return; }   // a vertical scroll
-      if (dx < -10) { s = null; return; }                                         // the other way
-      if (dx < 12) return;
+      if (!e.cancelable) { drop(); return; }                                      // the page is already scrolling
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { drop(); return; }   // a vertical scroll
+      if (dx < -10) { drop(); return; }                                           // the other way
+      if (dx < START_PX || dx <= Math.abs(dy)) return;
       s.live = start();
-      if (!s.live) { s = null; return; }
+      if (!s.live) { drop(); return; }
       s.x = t.clientX - 1;                                                         // no jump at the start
     }
     e.preventDefault();
@@ -218,6 +232,7 @@ export function bindSwipeRight(root, { canStart, start }) {
   }, { passive: false });
   const end = (cancelled) => {
     if (!s) return;
+    if (!s.live) { drop(); return; }
     const live = s.live, p = (s.last[0] - s.x) / window.innerWidth, v = s.v;
     s = null;
     live?.settle(!cancelled && (p > 1 / 3 || (v > 0.5 && p > 0.08)));

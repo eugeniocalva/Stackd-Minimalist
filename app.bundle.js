@@ -2079,13 +2079,20 @@
   // src/theme.js
   var systemDark = window.matchMedia("(prefers-color-scheme: dark)");
   var resolvedTheme = () => S.theme === "light" || S.theme === "dark" ? S.theme : systemDark.matches ? "dark" : "light";
+  var toldNative = "";
   function applyTheme() {
     const theme = resolvedTheme();
-    if (document.documentElement.dataset.theme === theme) return;
-    document.documentElement.dataset.theme = theme;
-    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
-      m.content = theme === "dark" ? "#0b0f19" : "#f4f7f9";
-    });
+    if (document.documentElement.dataset.theme !== theme) {
+      document.documentElement.dataset.theme = theme;
+      document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+        m.content = theme === "dark" ? "#0b0f19" : "#f4f7f9";
+      });
+    }
+    const setting = S.theme === "light" || S.theme === "dark" ? S.theme : "system";
+    if (toldNative === `${setting}/${theme}`) return;
+    toldNative = `${setting}/${theme}`;
+    document.documentElement.dataset.themeSetting = setting;
+    globalThis.webkit?.messageHandlers?.stackdTheme?.postMessage(setting);
     globalThis.Capacitor?.Plugins?.Keyboard?.setStyle?.({ style: theme === "dark" ? "DARK" : "LIGHT" })?.catch?.(() => {
     });
   }
@@ -2345,7 +2352,8 @@
     });
   }
   var EDGE_PX = 24;
-  function bindSwipeRight(root, { canStart, start: start2 }) {
+  var START_PX = 8;
+  function bindSwipeRight(root, { canStart, start: start2, prepare = null, discard = null }) {
     let s = null;
     const sideways = (target) => {
       for (let n = target; n && n !== root; n = n.parentElement) {
@@ -2354,30 +2362,42 @@
       return false;
     };
     root.addEventListener("touchstart", (e) => {
-      s = null;
+      if (s?.live) return;
+      drop();
       if (e.touches.length !== 1) return;
       const t = e.touches[0];
       const edge = t.clientX <= EDGE_PX;
       if (!canStart(e.target, t.clientX, edge) || !edge && sideways(e.target)) return;
-      s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0 };
+      const touch3 = s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0 };
+      if (prepare) setTimeout(() => {
+        if (s === touch3 && !touch3.live) prepare();
+      }, 0);
     }, { passive: true });
+    const drop = () => {
+      if (s && !s.live) discard?.();
+      s = null;
+    };
     root.addEventListener("touchmove", (e) => {
       if (!s) return;
       const t = e.touches[0];
       const dx = t.clientX - s.x, dy = t.clientY - s.y;
       if (!s.live) {
+        if (!e.cancelable) {
+          drop();
+          return;
+        }
         if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) {
-          s = null;
+          drop();
           return;
         }
         if (dx < -10) {
-          s = null;
+          drop();
           return;
         }
-        if (dx < 12) return;
+        if (dx < START_PX || dx <= Math.abs(dy)) return;
         s.live = start2();
         if (!s.live) {
-          s = null;
+          drop();
           return;
         }
         s.x = t.clientX - 1;
@@ -2390,6 +2410,10 @@
     }, { passive: false });
     const end = (cancelled2) => {
       if (!s) return;
+      if (!s.live) {
+        drop();
+        return;
+      }
       const live = s.live, p = (s.last[0] - s.x) / window.innerWidth, v = s.v;
       s = null;
       live?.settle(!cancelled2 && (p > 1 / 3 || v > 0.5 && p > 0.08));
@@ -9963,6 +9987,7 @@
   var withNav = () => !["detail", "note", "meeting"].includes(UI.screen) && !(UI.screen === "notes" && UI.composer.expanded);
   function draw2() {
     applyTheme();
+    dropWaiting();
     if (isRecording() && !(UI.screen === "meeting" && UI.detailId === recordingMeetingId())) {
       UI.screen = "meeting";
       UI.detailId = recordingMeetingId();
@@ -10127,19 +10152,58 @@
   }
   function peekLayer(html, cls) {
     const el = document.createElement("div");
-    el.className = `peek ${cls}`;
+    el.className = cls;
     el.setAttribute("aria-hidden", "true");
     el.inert = true;
     el.innerHTML = html;
     document.body.appendChild(el);
     return el;
   }
+  var waiting = null;
+  var peeking = false;
+  function dropWaiting() {
+    waiting?.els.forEach((el) => el.remove());
+    waiting = null;
+  }
+  function buildMenuPeek() {
+    const dim = peekLayer("", "peek-dim");
+    const layer = peekLayer(asScreen("lists", listsMenuHTML), "peek peek-over");
+    return { kind: "menu", layer, dim, els: [dim, layer] };
+  }
+  function buildBackPeek() {
+    const t = taskById(UI.detailId);
+    const to = t && t.status !== "active" ? "folders" : "list";
+    const under = peekLayer(asScreen(to, screenHTML), "peek peek-under");
+    const nav = peekLayer(asScreen(to, mobileNavHTML), "peek-nav");
+    const shade = peekLayer("", "peek-shade");
+    return { kind: "back", to, under, shade, els: [under, nav, shade] };
+  }
+  var peekKind = () => UI.screen === "detail" ? "back" : "menu";
+  function preparePeek() {
+    const kind = peekKind();
+    if (waiting?.kind === kind) return;
+    dropWaiting();
+    waiting = kind === "back" ? buildBackPeek() : buildMenuPeek();
+    waiting.els.forEach((el) => el.classList.add("peek-waiting"));
+  }
+  function takePeek() {
+    preparePeek();
+    const peek = waiting;
+    waiting = null;
+    peek.els.forEach((el) => el.classList.remove("peek-waiting"));
+    peeking = true;
+    return peek;
+  }
+  var endPeek = (peek) => {
+    peek.els.forEach((el) => el.remove());
+    peeking = false;
+  };
+  var shift = (px) => `translate3d(${px.toFixed(1)}px, 0, 0)`;
   function peekMenu() {
-    const layer = peekLayer(asScreen("lists", () => listsMenuHTML() + mobileNavHTML()), "peek-over");
-    const dim = document.createElement("div");
-    dim.className = "peek-dim";
-    document.body.insertBefore(dim, layer);
-    const at = (p) => `translateX(${(p - 1) * 100}%)`;
+    const peek = takePeek();
+    const { layer, dim } = peek;
+    const w = window.innerWidth;
+    const at = (p) => shift((p - 1) * w);
     layer.style.transform = at(0);
     return {
       move: (p) => {
@@ -10147,6 +10211,7 @@
         dim.style.opacity = String(p);
       },
       settle: (open2) => {
+        if (open2) app.querySelectorAll(".bottom-nav [data-nav]").forEach((b) => b.classList.toggle("active", b.dataset.nav === "lists"));
         dim.style.transition = "opacity 220ms ease";
         dim.style.opacity = open2 ? "1" : "0";
         slideTo(layer, at(open2 ? 1 : 0), () => {
@@ -10155,29 +10220,30 @@
             UI.screen = "lists";
             rerender();
           }
-          layer.remove();
-          dim.remove();
+          endPeek(peek);
         });
       }
     };
   }
   function peekBack() {
-    const t = taskById(UI.detailId);
-    const to = t && t.status !== "active" ? "folders" : "list";
-    const under = peekLayer(asScreen(to, () => screenHTML() + mobileNavHTML()), "peek-under");
-    const at = (p) => `translateX(${p * 100}%)`;
-    const behind = (p) => `translateX(${(p - 1) * 24}%)`;
+    const peek = takePeek();
+    const { to, under, shade } = peek;
+    const w = window.innerWidth;
+    const at = (p) => shift(p * w);
+    const behind = (p) => shift((p - 1) * 0.24 * w);
     app.classList.add("is-peeking");
     under.style.transform = behind(0);
     return {
       move: (p) => {
         app.style.transform = at(p);
         under.style.transform = behind(p);
-        under.style.setProperty("--peek-dim", String(1 - p));
+        shade.style.opacity = String(1 - p);
       },
       settle: (open2) => {
         under.style.transition = "transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)";
         under.style.transform = behind(open2 ? 1 : 0);
+        shade.style.transition = "opacity 220ms ease";
+        shade.style.opacity = open2 ? "0" : "1";
         slideTo(app, at(open2 ? 1 : 0), () => {
           app.style.transform = "";
           app.classList.remove("is-peeking");
@@ -10186,7 +10252,7 @@
             UI.screen = to;
             rerender();
           }
-          under.remove();
+          endPeek(peek);
         });
       }
     };
@@ -10194,11 +10260,13 @@
   bindSwipeRight(app, {
     canStart: (target, x, edge) => {
       if (isDesktop.matches || !S.onboarded || locked() || isRecording()) return false;
-      if (document.querySelector(".peek, .overlay") || target.closest(`.bottom-nav, ${FIELDS}`)) return false;
+      if (peeking || document.querySelector(".overlay") || target.closest(`.bottom-nav, ${FIELDS}`)) return false;
       if (UI.screen === "detail") return edge || !target.closest(".subrow, .chip-row");
       if (!TOP_LEVEL.includes(UI.screen) || UI.screen === "notes" && UI.composer.expanded) return false;
       return edge || !target.closest(ITEMS);
     },
+    prepare: preparePeek,
+    discard: dropWaiting,
     start: () => UI.screen === "detail" ? peekBack() : peekMenu()
   });
   isDesktop.addEventListener("change", render);

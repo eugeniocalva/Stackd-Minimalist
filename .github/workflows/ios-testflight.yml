@@ -129,14 +129,69 @@ jobs:
       # The keyboard resizes the web view ("resize": "native"), and on iOS 26
       # it floats with rounded corners: around it the window shows, black by
       # default (owner's review 2026-11-17). The window and the root view get
-      # the app's background instead, light or dark with the phone.
-      - name: Window background behind the keyboard
+      # the app's background instead. Build 11 took light or dark from the
+      # phone, so a light app on a dark phone still showed dark around the
+      # keyboard (owner's review of build 11): the window now takes the app's
+      # own setting, which src/theme.js sends to the "stackdTheme" handler
+      # ('light' | 'dark' | 'system'; 'system' leaves it to the phone).
+      - name: Window background and theme behind the keyboard
         run: |
           F=ios/App/App/AppDelegate.swift
           grep -q 'didFinishLaunchingWithOptions' "$F" || { echo "::error::AppDelegate.swift has no didFinishLaunchingWithOptions - the Capacitor template changed"; exit 1; }
-          perl -0pi -e 's/(didFinishLaunchingWithOptions[^{]*\{\n)/$1        \/\/ Stack\x27d: the app background where the web view does not reach (around the keyboard)\n        let stackdBackground = UIColor { \$0.userInterfaceStyle == .dark\n            ? UIColor(red: 11 \/ 255.0, green: 15 \/ 255.0, blue: 25 \/ 255.0, alpha: 1)\n            : UIColor(red: 244 \/ 255.0, green: 247 \/ 255.0, blue: 249 \/ 255.0, alpha: 1) }\n        DispatchQueue.main.async {\n            for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {\n                for w in scene.windows { w.backgroundColor = stackdBackground; w.rootViewController?.view.backgroundColor = stackdBackground }\n            }\n        }\n/' "$F"
-          grep -q 'stackdBackground' "$F" || { echo "::error::could not add the window background to AppDelegate.swift"; exit 1; }
-          sed -n '/didFinishLaunchingWithOptions/,/return true/p' "$F"
+          grep -q '^import Capacitor' "$F" || { echo "::error::AppDelegate.swift does not import Capacitor - the Capacitor template changed"; exit 1; }
+          perl -0pi -e 's/^import UIKit\n/import UIKit\nimport WebKit\n/m; s/(didFinishLaunchingWithOptions[^{]*\{\n)/$1        DispatchQueue.main.async { StackdTheme.attach() }   \/\/ Stack\x27d: the app\x27s theme around the keyboard\n/' "$F"
+          cat >> "$F" <<'SWIFT'
+
+          // Stack'd (owner's review of builds 10 and 11): the keyboard resizes the
+          // web view and, on iOS 26, floats with rounded corners, so the window
+          // shows around it. The window gets the app's background, and the app's
+          // light or dark rather than the phone's: theme.js sends its setting to
+          // the "stackdTheme" handler, and is asked for it here in case it was
+          // sent before the handler existed.
+          final class StackdTheme: NSObject, WKScriptMessageHandler {
+              static let shared = StackdTheme()
+              static let background = UIColor { $0.userInterfaceStyle == .dark
+                  ? UIColor(red: 11 / 255.0, green: 15 / 255.0, blue: 25 / 255.0, alpha: 1)
+                  : UIColor(red: 244 / 255.0, green: 247 / 255.0, blue: 249 / 255.0, alpha: 1) }
+
+              static var windows: [UIWindow] {
+                  UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap { $0.windows }
+              }
+
+              static func attach() {
+                  for w in windows {
+                      w.backgroundColor = background
+                      w.rootViewController?.view.backgroundColor = background
+                      guard let web = (w.rootViewController as? CAPBridgeViewController)?.webView else { continue }
+                      let scripts = web.configuration.userContentController
+                      scripts.removeScriptMessageHandler(forName: "stackdTheme")
+                      scripts.add(shared, name: "stackdTheme")
+                      web.evaluateJavaScript("document.documentElement.dataset.themeSetting || ''") { value, _ in
+                          if let setting = value as? String { apply(setting) }
+                      }
+                  }
+              }
+
+              /// 'light' | 'dark' | 'system'; anything else is ignored.
+              static func apply(_ setting: String) {
+                  let style: UIUserInterfaceStyle
+                  switch setting {
+                  case "light": style = .light
+                  case "dark": style = .dark
+                  case "system": style = .unspecified
+                  default: return
+                  }
+                  for w in windows { w.overrideUserInterfaceStyle = style }
+              }
+
+              func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+                  if let setting = message.body as? String { StackdTheme.apply(setting) }
+              }
+          }
+          SWIFT
+          grep -q '^import WebKit' "$F" && grep -q 'StackdTheme.attach()' "$F" && grep -q 'class StackdTheme' "$F" \
+            || { echo "::error::could not add the window theme to AppDelegate.swift"; exit 1; }
+          sed -n '1,/return true/p' "$F"
 
       - name: Check the native plugins landed
         run: |
