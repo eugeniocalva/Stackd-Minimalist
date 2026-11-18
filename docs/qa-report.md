@@ -823,3 +823,20 @@ Changed after the test (architecture §48; the PRD marks each with the date):
   build shows. A web view may also limit finger-following to 60 frames a
   second, which this change cannot lift.
 - **Security:** no new request, storage or permission.
+
+### Apple's SDK warning on builds 11 and 12 (2026-11-18): ITMS-90725
+
+- **Seen:** App Store Connect accepted both builds with a warning: built
+  with the iOS 26.5 SDK, and from April 2027 only the iOS 27 SDK (Xcode 27)
+  or later is accepted.
+- **Fix:** `ios-testflight.yml` runs on GitHub's `xcode-27` image, selects
+  the newest released Xcode on it (never a beta or a release candidate) and
+  fails if the iOS SDK is older than `MIN_IOS_SDK` (27).
+- **Checked here:** the selection picks 27.2 from the image's list and
+  skips beta and release-candidate names; the guard passes 27.2 and refuses
+  26.5. The installed Capacitor template already has a scene delegate.
+- **Not verified yet:** a build on that image. Capacitor 8.5, the pods and
+  the `AppDelegate.swift` patch have not been compiled with Xcode 27, and
+  an app built with a new SDK can look or behave differently on the phone.
+- **Limits:** the image is a GitHub "preview", so runs may queue. Apple
+  raises this floor every spring, so the warning returns for the next SDK.

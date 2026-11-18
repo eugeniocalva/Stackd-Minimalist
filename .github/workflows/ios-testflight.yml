@@ -1,9 +1,20 @@
 # iOS build -> App Store Connect / TestFlight, on GitHub's hosted Macs.
 # Adapted from Stack'd Finance's workflow of the same name.
 #
-# Why this exists: there is no Mac on the team, and Apple requires Xcode 26
-# (macOS only) for every upload. GitHub's macos-26 image ships Xcode 26, and
-# macOS runners are free on a public repository.
+# Why this exists: there is no Mac on the team, and Apple requires a recent
+# Xcode (macOS only) for every upload. macOS runners are free on a public
+# repository.
+#
+# Which Xcode: from April 2027 Apple accepts only builds made with the iOS 27
+# SDK (Xcode 27) or later, and warned about it on every upload made with
+# Xcode 26 (ITMS-90725, builds 11 and 12). So:
+# - `runs-on` is GitHub's image that ships Xcode 27;
+# - the newest released Xcode on it is selected, never a beta or a release
+#   candidate (Apple refuses uploads built with those);
+# - the job fails at once if the iOS SDK is older than MIN_IOS_SDK.
+# Apple raises this floor every spring. When the warning comes back for the
+# next SDK, change `runs-on` to the image that ships that Xcode and raise
+# MIN_IOS_SDK; nothing else here names a version.
 #
 # MANUAL ONLY (workflow_dispatch). The repository is public, so there is
 # deliberately no push / pull_request trigger: nothing a fork or a pull request
@@ -48,9 +59,12 @@ concurrency:
 
 jobs:
   testflight:
-    runs-on: macos-26
+    # GitHub's Xcode 27 image (macOS 27). It is still labelled "preview" in
+    # actions/runner-images (issue 14404): runs may queue for longer.
+    runs-on: xcode-27
     timeout-minutes: 60
     env:
+      MIN_IOS_SDK: '27'
       TEAM_ID: YA3DTZR26U
       BUNDLE_ID: com.eugeniocalva.stackd
       WORKSPACE: ios/App/App.xcworkspace
@@ -81,10 +95,16 @@ jobs:
           node-version: '24'
           cache: npm
 
-      - name: Select Xcode 26
+      - name: Select the newest released Xcode
         run: |
-          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -n 1)"
+          ls -d /Applications/Xcode_*.app
+          XCODE="$(ls -d /Applications/Xcode_*.app | grep -Eiv 'beta|rc|preview|candidate' | sort -V | tail -n 1)"
+          [ -n "$XCODE" ] || { echo "::error::no released Xcode on this image"; exit 1; }
+          sudo xcode-select -s "$XCODE"
           xcodebuild -version
+          SDK="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iOS SDK $SDK"
+          [ "${SDK%%.*}" -ge "$MIN_IOS_SDK" ] || { echo "::error::iOS SDK $SDK is older than $MIN_IOS_SDK, which Apple requires (ITMS-90725). Use an image with a newer Xcode in runs-on."; exit 1; }
 
       - name: Check the secrets are present
         env:
