@@ -835,8 +835,32 @@ Changed after the test (architecture §48; the PRD marks each with the date):
 - **Checked here:** the selection picks 27.2 from the image's list and
   skips beta and release-candidate names; the guard passes 27.2 and refuses
   26.5. The installed Capacitor template already has a scene delegate.
-- **Not verified yet:** a build on that image. Capacitor 8.5, the pods and
-  the `AppDelegate.swift` patch have not been compiled with Xcode 27, and
-  an app built with a new SDK can look or behave differently on the phone.
+- **Test build** (run 13, commit 59de0fe, no upload): Xcode 27.2 (27B52),
+  iOS SDK 27.2. Capacitor 8.5, the pods and the `AppDelegate.swift` patch
+  compile; archive, signing and the .ipa checks pass.
+- **Not verified yet:** how a build made with the iOS 27 SDK looks and
+  behaves on the phone. That comes with the next TestFlight upload.
 - **Limits:** the image is a GitHub "preview", so runs may queue. Apple
   raises this floor every spring, so the warning returns for the next SDK.
+
+### Store age signals, phases 2 to 4 (2026-11-19)
+
+- **Built** (`docs/prd-age-signals.md` §10):
+  - the plugin `@capawesome/capacitor-age-signals` 0.5.1, reviewed and
+    pinned;
+  - `src/agesignal.js`;
+  - the sign-in, paywall and approval gates;
+  - the plugin checks in both workflows, and the iOS entitlement behind
+    `vars.IOS_DECLARED_AGE_RANGE`.
+- **Checks:** `npm run check` passes, with the new `check-age`.
+- **Preview** (fake store answers): every gate behaves as specified; no
+  console errors.
+- **Not verified:** the paywall gate (no store purchases on the web), any
+  device, the native builds with the plugin.
+- **Security:**
+  - the plugin was read before it was installed, and the installed copy
+    matches;
+  - the age answer stays in memory and is never sent;
+  - the fake is reachable only from code, and the plugin's own fake refuses
+    release builds;
+  - no new request from our code.

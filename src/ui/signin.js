@@ -7,6 +7,9 @@
    (AC-02.7), so either path can turn into the other there: a new email on
    "Sign in" gets the Age step before its PIN, a known one on "Create" goes
    to "Enter your PIN". Nothing about the age is ever sent but the yes.
+   Where the store gives an age (docs/prd-age-signals.md §04, 2), it
+   replaces the birth year: an adult skips the Age step, a minor is told
+   accounts are for adults.
 
    After a session: the first sync decides upload / download, or asks
    Merge / Use my account (AC-06.2 to 06.4). */
@@ -16,6 +19,7 @@ import { pinpadHTML, bindPinpad } from './pinpad.js';
 import { esc } from '../util.js';
 import { icon } from './icons.js';
 import * as account from '../account.js';
+import * as agesignal from '../agesignal.js';
 import * as sync from '../sync.js';
 import { TERMS_URL, PRIVACY_URL } from '../legal.js';
 import { rerender } from '../store.js';
@@ -50,7 +54,8 @@ export function openSignIn({ mode = null } = {}) {
   const busy = (on) => sheet.querySelectorAll('button, input, select').forEach((b) => { if (!b.dataset.keep) b.disabled = on; });
 
   const stepCount = () => {
-    const order = st.mode === 'create' || st.known === false ? ['age', 'email', 'code', 'pin'] : ['email', 'code', 'pin'];
+    const storeAdult = agesignal.current()?.age === 'adult';
+    const order = (st.mode === 'create' || st.known === false) && !storeAdult ? ['age', 'email', 'code', 'pin'] : ['email', 'code', 'pin'];
     const i = order.indexOf(st.step.startsWith('pin') ? 'pin' : st.step);
     return i === -1 ? '' : `Step ${i + 1} of ${order.length}`;
   };
@@ -68,6 +73,12 @@ export function openSignIn({ mode = null } = {}) {
   function draw() {
     pad?.destroy(); pad = null;
     clearInterval(resendTimer);
+    /* the store's answer, when there is one, decides the Age step */
+    if (st.step === 'age') {
+      const store = agesignal.current()?.age;
+      if (store === 'adult') { st.step = st.known === false ? 'pin-new' : 'email'; }
+      else if (store === 'minor') { st.step = 'age-minor'; }
+    }
     const s = st.step;
     let html = '';
     if (s === 'choose') {
@@ -75,6 +86,10 @@ export function openSignIn({ mode = null } = {}) {
         <p class="step-text">An account keeps your boards, tasks, notes and meetings the same on your phone and your computer. Recordings stay on the device that made them.</p>
         <button type="button" class="btn btn-primary btn-block" data-mode="create">Create an account</button>
         <button type="button" class="btn btn-secondary btn-block" data-mode="signin">I have an account</button>`;
+    } else if (s === 'age-minor') {
+      html = `${head('Accounts are for adults')}
+        <p class="step-text">Your store account says you are under 18. You can keep using Stack'd on this device without an account.</p>
+        <button type="button" class="btn btn-secondary btn-block" data-close>Close</button>`;
     } else if (s === 'age') {
       const until = account.ageRefusedUntil();
       const year = new Date().getFullYear();
@@ -130,8 +145,10 @@ export function openSignIn({ mode = null } = {}) {
     const q = (sel) => sheet.querySelector(sel);
     q('[data-back]')?.addEventListener('click', back);
     sheet.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => close()));
-    sheet.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
-      st.mode = b.dataset.mode; go(st.mode === 'create' ? 'age' : 'email');
+    sheet.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', async () => {
+      st.mode = b.dataset.mode;
+      if (st.mode === 'create') { busy(true); await agesignal.ask(); }   // may show the store's prompt once
+      go(st.mode === 'create' ? 'age' : 'email');
     }));
     const s = st.step;
     if (s === 'age') {
@@ -173,7 +190,10 @@ export function openSignIn({ mode = null } = {}) {
         try {
           const r = await account.verify(st.email, code);
           st.ticket = r.ticket; st.known = r.account === 'existing';
-          if (!st.known) go(account.ageRefusedUntil() || st.mode !== 'create' ? 'age' : 'pin-new');
+          if (!st.known) {
+            if (st.mode !== 'create') await agesignal.ask();
+            go(account.ageRefusedUntil() || st.mode !== 'create' ? 'age' : 'pin-new');
+          }
           else go(r.pinLocked ? 'locked' : 'pin-enter');
         } catch (e) { st.error = e.message; draw(); }
       };

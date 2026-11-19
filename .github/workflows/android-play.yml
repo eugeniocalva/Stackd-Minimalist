@@ -125,7 +125,7 @@ jobs:
 
       - name: Check the native plugins landed
         run: |
-          for p in capacitor-haptics capacitor-keyboard capacitor-local-notifications stackd-recording-service; do
+          for p in capacitor-haptics capacitor-keyboard capacitor-local-notifications capawesome-capacitor-age-signals stackd-recording-service; do
             grep -q "$p" android/capacitor.settings.gradle \
               || { echo "::error::$p is missing from android/capacitor.settings.gradle"; exit 1; }
           done

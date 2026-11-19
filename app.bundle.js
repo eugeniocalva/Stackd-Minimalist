@@ -2751,20 +2751,20 @@
       }).join("");
     }
     function syncFields() {
-      const set2 = (sel, prop, val) => {
+      const set3 = (sel, prop, val) => {
         const el = q(sel);
         if (prop === "value" && el === document.activeElement) return;
         if (el[prop] !== val) el[prop] = val;
       };
-      set2('[data-on="start"]', "checked", !!d.start);
-      set2('[data-on="due"]', "checked", !!d.due);
-      set2('[data-f="start"]', "value", d.start || "");
-      set2('[data-f="due"]', "value", d.due || "");
-      set2('[data-f="dueTime"]', "value", d.dueTime || "");
-      set2('[data-f="recur"]', "value", d.recur);
-      set2('[data-f="reminder"]', "value", d.reminder === null ? "" : String(d.reminder));
-      set2('[data-f="start"]', "disabled", !d.start);
-      for (const f of ["due", "dueTime", "recur", "reminder"]) set2(`[data-f="${f}"]`, "disabled", !d.due);
+      set3('[data-on="start"]', "checked", !!d.start);
+      set3('[data-on="due"]', "checked", !!d.due);
+      set3('[data-f="start"]', "value", d.start || "");
+      set3('[data-f="due"]', "value", d.due || "");
+      set3('[data-f="dueTime"]', "value", d.dueTime || "");
+      set3('[data-f="recur"]', "value", d.recur);
+      set3('[data-f="reminder"]', "value", d.reminder === null ? "" : String(d.reminder));
+      set3('[data-f="start"]', "disabled", !d.start);
+      for (const f of ["due", "dueTime", "recur", "reminder"]) set3(`[data-f="${f}"]`, "disabled", !d.due);
       sheet2.querySelectorAll("[data-row]").forEach((r) => r.classList.toggle("armed", r.dataset.row === armed2));
       if (invalid()) q("[data-hint]").innerHTML = '<span class="error">Start must be on or before the due date</span>';
       else q("[data-hint]").textContent = reminderHint(d, done2);
@@ -3096,7 +3096,7 @@
     </div>
   </div>`;
   }
-  function bindPinpad(root, { onComplete, onChange: onChange2 = null } = {}) {
+  function bindPinpad(root, { onComplete, onChange: onChange3 = null } = {}) {
     const pad3 = root.querySelector("[data-pinpad]");
     const dots = pad3.querySelectorAll(".pin-dot");
     const live = pad3.querySelector("[data-pin-dots]");
@@ -3105,7 +3105,7 @@
     const show2 = () => {
       dots.forEach((d, i) => d.classList.toggle("on", i < pin.length));
       live.setAttribute("aria-label", `${pin.length} of ${PIN_LENGTH} digits entered`);
-      onChange2?.(pin.length);
+      onChange3?.(pin.length);
     };
     const press = (k) => {
       if (busy || pad3.classList.contains("is-disabled")) return;
@@ -3328,24 +3328,24 @@
     if (!ok) localStorage.setItem(AGE_KEY, String(now2.getTime()));
     return ok;
   }
-  function deviceLabel(ua = globalThis.navigator?.userAgent || "", platform2 = client()) {
-    if (platform2 === "ios") return /iPad/.test(ua) ? "iPad" : "iPhone";
-    if (platform2 === "android") return "Android";
+  function deviceLabel(ua = globalThis.navigator?.userAgent || "", platform3 = client()) {
+    if (platform3 === "ios") return /iPad/.test(ua) ? "iPad" : "iPhone";
+    if (platform3 === "android") return "Android";
     const os = /Windows/.test(ua) ? "Windows" : /Mac OS X|Macintosh/.test(ua) ? "macOS" : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Linux/.test(ua) ? "Linux" : "another system";
     return `Browser on ${os}`;
   }
   var start = (email) => request("/v1/auth/start", { method: "POST", body: { email } });
   var verify = (email, code) => request("/v1/auth/verify", { method: "POST", body: { email, code } });
-  async function established(answer2, pin) {
-    const a = answer2.account;
-    if (answer2.token) {
-      if (!await set(TOKEN_KEY, answer2.token)) throw Object.assign(new Error("This device cannot keep a session safely."), { code: "misconfigured" });
-      setBearer(answer2.token);
+  async function established(answer3, pin) {
+    const a = answer3.account;
+    if (answer3.token) {
+      if (!await set(TOKEN_KEY, answer3.token)) throw Object.assign(new Error("This device cannot keep a session safely."), { code: "misconfigured" });
+      setBearer(answer3.token);
     }
     write({
       userId: a.id,
       email: a.email,
-      sessionId: answer2.sessionId,
+      sessionId: answer3.sessionId,
       platform: client(),
       pinVersion: a.pinVersion,
       accepted: a.accepted,
@@ -3427,6 +3427,62 @@
     write(null);
     forgetHooks.forEach((fn) => fn({ keepData, reason: reason2, was }));
   }
+
+  // src/agesignal.js
+  var ADULT = 18;
+  var plugin4 = () => {
+    const cap = globalThis.Capacitor;
+    return cap?.isNativePlatform?.() ? cap.Plugins?.AgeSignals || null : null;
+  };
+  var platform = () => globalThis.Capacitor?.getPlatform?.() || "web";
+  function read3(r) {
+    if (!r || r.status && r.status !== "SHARED" || !r.ageRange) return null;
+    const { lowerBound: lo, upperBound: hi } = r.ageRange;
+    const age = Number.isFinite(lo) && lo >= ADULT ? "adult" : Number.isFinite(hi) && hi < ADULT ? "minor" : null;
+    if (!age) return null;
+    const sc = r.significantChange?.status;
+    return { age, waiting: age === "minor" && (sc === "PENDING" || sc === "DECLINED") };
+  }
+  var answer;
+  var fake;
+  var listeners2 = /* @__PURE__ */ new Set();
+  var set2 = (next) => {
+    const was = JSON.stringify(answer ?? null);
+    answer = next;
+    if (JSON.stringify(next) !== was) listeners2.forEach((fn) => fn(next));
+    return next;
+  };
+  var current2 = () => answer ?? null;
+  function onChange2(fn) {
+    listeners2.add(fn);
+    return () => listeners2.delete(fn);
+  }
+  async function check() {
+    if (fake !== void 0) return set2(fake);
+    const p = plugin4();
+    if (!p) return set2(null);
+    try {
+      if (platform() === "android") return set2(read3(await p.getAgeRange()));
+      const req = await p.getRegulatoryRequirements().catch(() => null);
+      if (!req?.ageAssuranceRequired) return set2(answer ?? null);
+      return set2(read3(await p.requestAgeRange({ ageGates: [ADULT] })));
+    } catch {
+      return set2(answer ?? null);
+    }
+  }
+  async function ask() {
+    if (fake !== void 0) return set2(fake);
+    if (answer) return answer;
+    const p = plugin4();
+    if (!p) return set2(null);
+    try {
+      return set2(read3(await p.requestAgeRange({ ageGates: [ADULT] })));
+    } catch {
+      return set2(null);
+    }
+  }
+  var isMinor = () => current2()?.age === "minor";
+  var waiting = () => current2()?.waiting === true;
 
   // src/backup.js
   var FILE_APP = "stackd";
@@ -3844,14 +3900,14 @@
   };
   var started = () => !!(signedIn() && (doc || load()));
   var status = { state: "synced", pending: 0, lastSyncAt: null, paused: null };
-  var listeners2 = /* @__PURE__ */ new Set();
+  var listeners3 = /* @__PURE__ */ new Set();
   var state2 = () => status;
   function onState(fn) {
-    listeners2.add(fn);
+    listeners3.add(fn);
   }
   function setStatus(patchObj) {
     status = { ...status, ...patchObj };
-    listeners2.forEach((fn) => fn(status));
+    listeners3.forEach((fn) => fn(status));
   }
   var timer = null;
   var running = null;
@@ -4091,9 +4147,9 @@
       }
       const live = all.filter((c) => !c.deleted);
       const lists = live.filter((c) => c.kind === "list").map((c) => cleanRemote("list", c.data, { lists: [], priorities: [] }));
-      const set2 = live.find((c) => c.kind === "settings");
-      const settings2 = set2 ? cleanRemote("settings", set2.data, { lists, priorities: [] }) : { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels };
-      const read3 = (kind) => live.filter((c) => c.kind === kind).flatMap((c) => {
+      const set3 = live.find((c) => c.kind === "settings");
+      const settings2 = set3 ? cleanRemote("settings", set3.data, { lists, priorities: [] }) : { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels };
+      const read4 = (kind) => live.filter((c) => c.kind === kind).flatMap((c) => {
         try {
           return [cleanRemote(kind, c.data, { lists, priorities: settings2.priorities })];
         } catch {
@@ -4101,7 +4157,7 @@
         }
       });
       if (lists.some((l) => l.status === "active")) {
-        replaceRecords({ lists, tasks: read3("task"), notes: read3("note"), meetings: read3("meeting"), settings: settings2 });
+        replaceRecords({ lists, tasks: read4("task"), notes: read4("note"), meetings: read4("meeting"), settings: settings2 });
       }
       doc.cursor = cursor;
       for (const [key, r] of collect(S)) {
@@ -4156,7 +4212,8 @@
       if (!b.dataset.keep) b.disabled = on;
     });
     const stepCount = () => {
-      const order = st.mode === "create" || st.known === false ? ["age", "email", "code", "pin"] : ["email", "code", "pin"];
+      const storeAdult = current2()?.age === "adult";
+      const order = (st.mode === "create" || st.known === false) && !storeAdult ? ["age", "email", "code", "pin"] : ["email", "code", "pin"];
       const i = order.indexOf(st.step.startsWith("pin") ? "pin" : st.step);
       return i === -1 ? "" : `Step ${i + 1} of ${order.length}`;
     };
@@ -4173,6 +4230,14 @@
       pad3?.destroy();
       pad3 = null;
       clearInterval(resendTimer);
+      if (st.step === "age") {
+        const store2 = current2()?.age;
+        if (store2 === "adult") {
+          st.step = st.known === false ? "pin-new" : "email";
+        } else if (store2 === "minor") {
+          st.step = "age-minor";
+        }
+      }
       const s = st.step;
       let html = "";
       if (s === "choose") {
@@ -4180,6 +4245,10 @@
         <p class="step-text">An account keeps your boards, tasks, notes and meetings the same on your phone and your computer. Recordings stay on the device that made them.</p>
         <button type="button" class="btn btn-primary btn-block" data-mode="create">Create an account</button>
         <button type="button" class="btn btn-secondary btn-block" data-mode="signin">I have an account</button>`;
+      } else if (s === "age-minor") {
+        html = `${head("Accounts are for adults")}
+        <p class="step-text">Your store account says you are under 18. You can keep using Stack'd on this device without an account.</p>
+        <button type="button" class="btn btn-secondary btn-block" data-close>Close</button>`;
       } else if (s === "age") {
         const until = ageRefusedUntil();
         const year = (/* @__PURE__ */ new Date()).getFullYear();
@@ -4232,8 +4301,12 @@
       const q = (sel) => sheet2.querySelector(sel);
       q("[data-back]")?.addEventListener("click", back);
       sheet2.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => close()));
-      sheet2.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => {
+      sheet2.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", async () => {
         st.mode = b.dataset.mode;
+        if (st.mode === "create") {
+          busy(true);
+          await ask();
+        }
         go(st.mode === "create" ? "age" : "email");
       }));
       const s = st.step;
@@ -4299,8 +4372,10 @@
             const r = await verify(st.email, code);
             st.ticket = r.ticket;
             st.known = r.account === "existing";
-            if (!st.known) go(ageRefusedUntil() || st.mode !== "create" ? "age" : "pin-new");
-            else go(r.pinLocked ? "locked" : "pin-enter");
+            if (!st.known) {
+              if (st.mode !== "create") await ask();
+              go(ageRefusedUntil() || st.mode !== "create" ? "age" : "pin-new");
+            } else go(r.pinLocked ? "locked" : "pin-enter");
           } catch (e) {
             st.error = e.message;
             draw3();
@@ -4471,7 +4546,7 @@
     if (canRemoveList(id)) softDeleteList(id);
     request2("share");
   }
-  async function answer(inviteId, accept2) {
+  async function answer2(inviteId, accept2) {
     const r = await request(`/v1/invites/${encodeURIComponent(inviteId)}/${accept2 ? "accept" : "decline"}`, { method: "POST", body: {} });
     applyShared(r.shared);
     if (accept2) await now();
@@ -4656,7 +4731,7 @@
     root.querySelectorAll("[data-accept-invite]").forEach((b) => b.addEventListener("click", async () => {
       b.disabled = true;
       try {
-        await answer(b.dataset.acceptInvite, true);
+        await answer2(b.dataset.acceptInvite, true);
         toast("Joined. The board is in your list.");
       } catch (e) {
         toast(e.message);
@@ -4666,7 +4741,7 @@
     }));
     root.querySelectorAll("[data-decline-invite]").forEach((b) => b.addEventListener("click", async () => {
       try {
-        await answer(b.dataset.declineInvite, false);
+        await answer2(b.dataset.declineInvite, false);
       } catch (e) {
         toast(e.message);
       }
@@ -4793,8 +4868,8 @@
     }
     rolling.add(id);
     el?.classList.add("done");
-    const check = el?.querySelector(".check");
-    if (check) check.checked = true;
+    const check2 = el?.querySelector(".check");
+    if (check2) check2.checked = true;
     setTimeout(() => {
       rolling.delete(id);
       const r = rollForward(id);
@@ -5212,15 +5287,15 @@
   var RC_KEYS = { ios: "appl_REPLACE_ME", android: "goog_REPLACE_ME" };
   var PAID_TIERS = ["plus", "pro", "max"];
   var PRODUCT_IDS = { plus: "plus_monthly", pro: "pro_monthly", max: "max_monthly" };
-  var plugin4 = () => globalThis.Capacitor?.Plugins?.Purchases;
-  var platform = () => globalThis.Capacitor?.getPlatform?.() || "web";
-  var available3 = () => !!(globalThis.Capacitor?.isNativePlatform?.() && typeof plugin4()?.configure === "function" && RC_KEYS[platform()] && !RC_KEYS[platform()].includes("REPLACE_ME"));
+  var plugin5 = () => globalThis.Capacitor?.Plugins?.Purchases;
+  var platform2 = () => globalThis.Capacitor?.getPlatform?.() || "web";
+  var available3 = () => !!(globalThis.Capacitor?.isNativePlatform?.() && typeof plugin5()?.configure === "function" && RC_KEYS[platform2()] && !RC_KEYS[platform2()].includes("REPLACE_ME"));
   var configured = false;
   var offeringsCache = null;
   async function configure(subscriberId) {
     if (!available3() || configured) return false;
     try {
-      await plugin4().configure({ apiKey: RC_KEYS[platform()], appUserID: subscriberId });
+      await plugin5().configure({ apiKey: RC_KEYS[platform2()], appUserID: subscriberId });
       configured = true;
     } catch (e) {
       console.warn("purchases: configure failed", e?.message || e);
@@ -5230,8 +5305,8 @@
   async function identify(userId) {
     if (!configured) return;
     try {
-      await plugin4().logIn({ appUserID: userId });
-      await plugin4().syncPurchases();
+      await plugin5().logIn({ appUserID: userId });
+      await plugin5().syncPurchases();
       offeringsCache = null;
     } catch (e) {
       console.warn("purchases: identify failed", e?.message || e);
@@ -5240,7 +5315,7 @@
   async function anonymous(subscriberId) {
     if (!configured) return;
     try {
-      await plugin4().logIn({ appUserID: subscriberId });
+      await plugin5().logIn({ appUserID: subscriberId });
       offeringsCache = null;
     } catch (e) {
       console.warn("purchases: anonymous failed", e?.message || e);
@@ -5250,7 +5325,7 @@
     if (!configured) return {};
     if (offeringsCache && !force) return offeringsCache;
     try {
-      const res = await plugin4().getOfferings();
+      const res = await plugin5().getOfferings();
       const packages = res?.current?.availablePackages || [];
       const out = {};
       PAID_TIERS.forEach((tier) => {
@@ -5275,7 +5350,7 @@
     const offer = (await offerings())[tier];
     if (!offer) throw new Error("This plan is not available in the store right now.");
     try {
-      const res = await plugin4().purchasePackage({ aPackage: offer.package });
+      const res = await plugin5().purchasePackage({ aPackage: offer.package });
       return { tier: tierOf(res?.customerInfo), customerInfo: res?.customerInfo };
     } catch (e) {
       if (cancelled(e)) return { cancelled: true };
@@ -5283,12 +5358,12 @@
     }
   }
   async function restore() {
-    const res = await plugin4().restorePurchases();
+    const res = await plugin5().restorePurchases();
     return { tier: tierOf(res?.customerInfo), customerInfo: res?.customerInfo };
   }
   async function manageUrl() {
     try {
-      const res = await plugin4().getCustomerInfo();
+      const res = await plugin5().getCustomerInfo();
       return res?.customerInfo?.managementURL || null;
     } catch {
       return null;
@@ -5296,6 +5371,7 @@
   }
 
   // src/ui/paywall.js
+  var MINOR_LINE = "Plans need a parent’s approval, given in your store account.";
   var BLURB = {
     plus: "A 30-minute call most working days",
     pro: "Two 30-minute calls every working day",
@@ -5310,12 +5386,12 @@
     return { locked: false, hint: `${fmtDuration(p.audioSecondsLeft * 1e3)} of audio left` };
   }
   var prices = {};
-  var storeName = () => ({ ios: "App Store", android: "Google Play" })[platform()] || "App Store or Google Play";
+  var storeName = () => ({ ios: "App Store", android: "Google Play" })[platform2()] || "App Store or Google Play";
   var renewalLine = (price) => `${price} per month, renews automatically every month. Cancel any time in ${storeName()} settings.`;
-  function cardHTML(tier, current2) {
+  function cardHTML(tier, current3) {
     const price = prices[tier] || PLAN_PRICES[tier];
-    const isCurrent = current2 === tier;
-    const action = !available3() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : `<button type="button" class="btn ${current2 === "free" || current2 === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current2 === "free" || current2 === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current2) ? "Upgrade" : "Switch"}</button>`;
+    const isCurrent = current3 === tier;
+    const action = !available3() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : isMinor() ? `<span class="hint">${esc(MINOR_LINE)}</span>` : `<button type="button" class="btn ${current3 === "free" || current3 === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current3 === "free" || current3 === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current3) ? "Upgrade" : "Switch"}</button>`;
     return `
   <div class="plan-card ${isCurrent ? "is-current" : ""}">
     <div class="plan-head">
@@ -5335,17 +5411,17 @@
   </div>`;
   function planSectionHTML() {
     const p = S.plan;
-    const current2 = p.tier;
-    const paid = PAID_TIERS.includes(current2);
-    const status2 = !p.checkedAt ? "Not checked yet" : current2 === "free" ? "Free · the AI steps need a plan" : current2 === "tester" ? "Tester · allowance resets daily" : `Renews ${p.renewsAt ? fmtDate(p.renewsAt, S.dateFormat) : "monthly"}`;
-    const bars = p.checkedAt && current2 !== "free" ? `
+    const current3 = p.tier;
+    const paid = PAID_TIERS.includes(current3);
+    const status2 = !p.checkedAt ? "Not checked yet" : current3 === "free" ? "Free · the AI steps need a plan" : current3 === "tester" ? "Tester · allowance resets daily" : `Renews ${p.renewsAt ? fmtDate(p.renewsAt, S.dateFormat) : "monthly"}`;
+    const bars = p.checkedAt && current3 !== "free" ? `
     ${bar("Audio", p.audioSecondsLeft, p.audioSecondsTotal, `${fmtDuration(p.audioSecondsLeft * 1e3)} of ${fmtDuration(p.audioSecondsTotal * 1e3)}`)}
     ${bar("Summaries", p.summariesLeft, p.summariesTotal, `${p.summariesLeft} of ${p.summariesTotal}`)}` : "";
     return `
   <span class="section-title list-label" id="settings-plan">Plan</span>
   <div class="card plan-current">
     <div class="plan-head">
-      <span class="plan-name">${planName(current2)}</span>
+      <span class="plan-name">${planName(current3)}</span>
       <span class="hint">${esc(status2)}</span>
     </div>
     ${bars}
@@ -5356,7 +5432,7 @@
     </div>
   </div>
   <div class="plan-cards">
-    ${PAID_TIERS.map((t) => cardHTML(t, current2)).join("")}
+    ${PAID_TIERS.map((t) => cardHTML(t, current3)).join("")}
   </div>
   <p class="hint set-hint">${available3() ? "Monthly subscriptions renew automatically until cancelled in your store account. The allowance resets on the renewal date; unused minutes and summaries do not carry over." : "Subscribe in the Stack’d app on iPhone or Android; the plan then applies there. Monthly subscriptions renew until cancelled."}
     <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>`;
@@ -5405,6 +5481,11 @@
   }
   async function purchase(tier, btn) {
     if (btn) btn.disabled = true;
+    if ((await ask())?.age === "minor") {
+      toast(MINOR_LINE, { ms: 6e3 });
+      rerender();
+      return;
+    }
     try {
       const r = await buy(tier);
       if (r.cancelled) {
@@ -5644,13 +5725,13 @@
   }
   var isLocked = false;
   var reason = null;
-  var listeners3 = /* @__PURE__ */ new Set();
+  var listeners4 = /* @__PURE__ */ new Set();
   var locked = () => isLocked;
   var lockReason = () => reason;
   function onLockChange(fn) {
-    listeners3.add(fn);
+    listeners4.add(fn);
   }
-  var emit = () => listeners3.forEach((fn) => fn(isLocked));
+  var emit = () => listeners4.forEach((fn) => fn(isLocked));
   var settings = () => current()?.lock || { after: "5m", biometrics: false };
   function lock(why = null) {
     if (!signedIn() || settings().after === "off" && why !== "pin_required") return;
@@ -5845,7 +5926,7 @@
       <button class="btn btn-secondary btn-block set-under" data-signout>Sign out of this device</button>
       ${legalLinks()}`;
   }
-  function askPin(title, { text: text2 = "", check }) {
+  function askPin(title, { text: text2 = "", check: check2 }) {
     return new Promise((resolve) => {
       let pad3;
       const { ov, close } = overlay(`
@@ -5861,7 +5942,7 @@
       ov.querySelector("[data-close]").addEventListener("click", () => close(null));
       pad3 = bindPinpad(ov, {
         onComplete: async (pin) => {
-          const err = check ? await check(pin) : null;
+          const err = check2 ? await check2(pin) : null;
           if (err) pad3.error(err);
           else close(pin);
         }
@@ -6098,9 +6179,9 @@
   async function runImport(file) {
     try {
       const done2 = await importFile(file, {
-        confirm: ({ counts, current: current2, recordingsLost }) => confirmDialog(
+        confirm: ({ counts, current: current3, recordingsLost }) => confirmDialog(
           "Replace what is on this device?",
-          `The file has ${countLine(counts)}. They replace the ${countLine(current2)} on this device, which cannot be undone.${recordingsLost ? ` ${plural3(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
+          `The file has ${countLine(counts)}. They replace the ${countLine(current3)} on this device, which cannot be undone.${recordingsLost ? ` ${plural3(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
           { confirmLabel: "Replace", danger: true }
         )
       });
@@ -7028,7 +7109,7 @@
   }
 
   // src/ui/tagpicker.js
-  function openTagPicker({ tags, onChange: onChange2 }) {
+  function openTagPicker({ tags, onChange: onChange3 }) {
     let selected = [...tags];
     const pool = normalizeTags([...selected, ...allTags()]);
     const ov = document.createElement("div");
@@ -7069,7 +7150,7 @@
     input.focus();
     const emit2 = () => {
       selected = normalizeTags(selected);
-      onChange2(selected);
+      onChange3(selected);
     };
     const has = (name) => selected.some((s) => s.toLowerCase() === name.toLowerCase());
     q("[data-pool]").addEventListener("click", (e) => {
@@ -7179,7 +7260,7 @@
     else if (el.value) el.setSelectionRange(el.value.length, el.value.length);
   }
   function bindEditor(host, opts) {
-    const { get: get2, set: set2, mode = "composer" } = opts;
+    const { get: get2, set: set3, mode = "composer" } = opts;
     const expanded = () => opts.expanded ? opts.expanded() : true;
     let formatOpen = opts.formatOpen ? opts.formatOpen() : false;
     const setFormatOpen = (v) => {
@@ -7220,7 +7301,7 @@
       });
       const title = q('[data-f="title"]');
       title.addEventListener("input", () => {
-        set2({ title: title.value });
+        set3({ title: title.value });
         updateAdd();
       });
       title.addEventListener("keydown", (e) => {
@@ -7232,7 +7313,7 @@
       const body = q('[data-f="body"]');
       body.addEventListener("input", () => {
         if (emptyBody(body)) body.innerHTML = "";
-        set2({ body: sanitize(body.innerHTML) });
+        set3({ body: sanitize(body.innerHTML) });
         updateAdd();
       });
       const applyFormat = (cmd) => {
@@ -7264,7 +7345,7 @@
         if (!document.execCommand("insertHTML", false, ins)) document.execCommand("insertText", false, text2);
       });
       const items = () => get2().checklist || [];
-      const setItems = (list3) => set2({ checklist: list3 });
+      const setItems = (list3) => set3({ checklist: list3 });
       qa("[data-ci]").forEach((input) => {
         const id = input.dataset.ci;
         const item = () => items().find((c) => c.id === id);
@@ -7309,24 +7390,24 @@
       }));
       qa("[data-tag-remove]").forEach((b) => b.addEventListener("click", () => {
         const name = b.dataset.tagRemove.toLowerCase();
-        set2({ tags: get2().tags.filter((t) => t.toLowerCase() !== name) });
+        set3({ tags: get2().tags.filter((t) => t.toLowerCase() !== name) });
         render2(null);
       }));
       q('[data-tool="tags"]').addEventListener("click", () => {
         openTagPicker({ tags: get2().tags, onChange: (tags) => {
-          set2({ tags });
+          set3({ tags });
           render2(null);
         } });
       });
       q('[data-tool="color"]').addEventListener("click", (e) => {
-        const current2 = get2().color;
+        const current3 = get2().color;
         const pick2 = (color) => {
-          set2({ color });
+          set3({ color });
           render2("body");
         };
         openMenu(e.currentTarget, [
-          { label: "None", swatch: "none", checked: !current2, onClick: () => pick2(null) },
-          ...NOTE_COLORS.map((c) => ({ label: COLOR_NAME2[c], swatch: c, checked: current2 === c, onClick: () => pick2(c) }))
+          { label: "None", swatch: "none", checked: !current3, onClick: () => pick2(null) },
+          ...NOTE_COLORS.map((c) => ({ label: COLOR_NAME2[c], swatch: c, checked: current3 === c, onClick: () => pick2(c) }))
         ]);
       });
       q('[data-tool="checklist"]').addEventListener("click", async () => {
@@ -7419,7 +7500,7 @@
       if (d) d.textContent = datesLine(n);
     };
     flushCurrent = flush;
-    const set2 = (patch2) => {
+    const set3 = (patch2) => {
       if (patch2.checklist !== void 0 && patch2.checklist !== null) patch2 = { ...patch2, checklist: authoringOrder(n.checklist, patch2.checklist) };
       Object.assign(n, patch2);
       n.updatedAt = Date.now();
@@ -7427,7 +7508,7 @@
       timer2 = setTimeout(flush, 500);
     };
     const host = app.querySelector("[data-editor-host]");
-    bindEditor(host, { mode: "detail", get: () => view(n), set: set2, resortOnToggle: true });
+    bindEditor(host, { mode: "detail", get: () => view(n), set: set3, resortOnToggle: true });
     host.addEventListener("focusout", (e) => {
       if (!host.contains(e.relatedTarget)) flush();
     });
@@ -8359,14 +8440,14 @@
     unlisten?.();
     const merged = mergeAdjacent(m.transcript.segments).filter((s) => s.startMs !== null && s.startMs !== void 0);
     unlisten = onPlayerTime((ms, playing) => {
-      let current2 = null;
+      let current3 = null;
       merged.forEach((s) => {
-        if (s.startMs <= ms + 50) current2 = s.id;
+        if (s.startMs <= ms + 50) current3 = s.id;
       });
       root.querySelectorAll(".tseg.playing").forEach((el) => {
-        if (!playing || el.dataset.seg !== current2) el.classList.remove("playing");
+        if (!playing || el.dataset.seg !== current3) el.classList.remove("playing");
       });
-      if (playing && current2) root.querySelector(`.tseg[data-seg="${current2}"]`)?.classList.add("playing");
+      if (playing && current3) root.querySelector(`.tseg[data-seg="${current3}"]`)?.classList.add("playing");
     });
     root.querySelectorAll("[data-edit]").forEach((p) => {
       const original = p.textContent;
@@ -8396,9 +8477,9 @@
     });
     root.querySelectorAll("[data-speaker]").forEach((b) => b.addEventListener("click", async () => {
       const label = b.dataset.speaker;
-      const current2 = m.transcript.speakers[label] || "";
+      const current3 = m.transcript.speakers[label] || "";
       const name = await promptDialog(`Name for ${speakerName(m.transcript, label)}`, {
-        value: current2,
+        value: current3,
         placeholder: speakerName({ speakers: {} }, label),
         confirmLabel: "Rename",
         allowEmpty: true
@@ -9946,6 +10027,32 @@
     });
   }
 
+  // src/ui/approval.js
+  var store = () => globalThis.Capacitor?.getPlatform?.() === "ios" ? "Screen Time" : "Google Family Link";
+  function approvalHTML() {
+    return `
+  <main class="screen lock-screen" role="main" aria-labelledby="approval-title">
+    <div class="lock-card">
+      <span class="lock-icon" aria-hidden="true">${icon("lock", 22)}</span>
+      <h1 class="lock-title" id="approval-title" tabindex="-1">Waiting for a parent</h1>
+      <p class="hint">A parent or guardian needs to approve Stack'd for your account in ${store()}. Your boards, notes and meetings stay on this device.</p>
+      <button type="button" class="btn btn-secondary btn-block" data-approval-check>Check again</button>
+    </div>
+  </main>`;
+  }
+  function bindApproval() {
+    app.querySelector("#approval-title")?.focus();
+    app.querySelector("[data-approval-check]")?.addEventListener("click", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      await check();
+      if (waiting()) {
+        b.disabled = false;
+        toast("Not approved yet");
+      }
+    });
+  }
+
   // app.js
   var screenKey = () => [isDesktop.matches, UI.screen, S.currentList, S.view, UI.folder, UI.folderKind, UI.detailId].join("|");
   var shownKey = null;
@@ -9995,6 +10102,12 @@
     }
     const focusAddsub = document.activeElement?.classList?.contains("addsub-input");
     const banner = moveBannerHTML();
+    if (waiting()) {
+      document.querySelectorAll(".overlay").forEach((o) => o.remove());
+      app.innerHTML = approvalHTML();
+      bindApproval();
+      return;
+    }
     if (!S.onboarded) {
       app.innerHTML = banner + onboardingHTML();
       bindOnboarding();
@@ -10085,6 +10198,11 @@
     request2(reason2);
   }
   ready.then(() => syncSoon("boot"));
+  onChange2(() => render());
+  check();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") check();
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") syncSoon("focus");
   });
@@ -10159,11 +10277,11 @@
     document.body.appendChild(el);
     return el;
   }
-  var waiting = null;
+  var waiting2 = null;
   var peeking = false;
   function dropWaiting() {
-    waiting?.els.forEach((el) => el.remove());
-    waiting = null;
+    waiting2?.els.forEach((el) => el.remove());
+    waiting2 = null;
   }
   function buildMenuPeek() {
     const dim = peekLayer("", "peek-dim");
@@ -10181,15 +10299,15 @@
   var peekKind = () => UI.screen === "detail" ? "back" : "menu";
   function preparePeek() {
     const kind = peekKind();
-    if (waiting?.kind === kind) return;
+    if (waiting2?.kind === kind) return;
     dropWaiting();
-    waiting = kind === "back" ? buildBackPeek() : buildMenuPeek();
-    waiting.els.forEach((el) => el.classList.add("peek-waiting"));
+    waiting2 = kind === "back" ? buildBackPeek() : buildMenuPeek();
+    waiting2.els.forEach((el) => el.classList.add("peek-waiting"));
   }
   function takePeek() {
     preparePeek();
-    const peek = waiting;
-    waiting = null;
+    const peek = waiting2;
+    waiting2 = null;
     peek.els.forEach((el) => el.classList.remove("peek-waiting"));
     peeking = true;
     return peek;

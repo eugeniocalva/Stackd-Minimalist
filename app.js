@@ -36,6 +36,8 @@ import { isRecording, recordingMeetingId } from './src/ui/recorder.js';
 import { toast } from './src/ui/primitives.js';
 import { openPlanRequired, openAllowanceUsed } from './src/ui/paywall.js';
 import { bindSwipeRight, slideTo } from './src/ui/gestures.js';
+import * as agesignal from './src/agesignal.js';
+import { approvalHTML, bindApproval } from './src/ui/approval.js';
 
 /* Every render replaces the whole screen, which would send each scroller
    back to its start: tick a card in the third lane and the board jumps to
@@ -95,6 +97,9 @@ function draw() {
   }
   const focusAddsub = document.activeElement?.classList?.contains('addsub-input');
   const banner = moveBannerHTML();   // '' except on the old address
+  /* a minor whose parent has not approved the app (docs/prd-age-signals.md §04, 4):
+     before onboarding too */
+  if (agesignal.waiting()) { document.querySelectorAll('.overlay').forEach((o) => o.remove()); app.innerHTML = approvalHTML(); bindApproval(); return; }
   if (!S.onboarded) { app.innerHTML = banner + onboardingHTML(); bindOnboarding(); bindMoveBanner(); return; }
   /* a locked app shows the lock screen and nothing else (PRD-accounts AC-07.1) */
   if (lock.locked()) { app.innerHTML = lockHTML(); bindLock(); return; }
@@ -178,6 +183,11 @@ function syncSoon(reason) {
   sync.request(reason);
 }
 account.ready.then(() => syncSoon('boot'));
+/* the store's age signal: at launch and whenever the app comes back
+   (California AB 1043); a change redraws (docs/prd-age-signals.md §04, 1) */
+agesignal.onChange(() => render());
+agesignal.check();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') agesignal.check(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') syncSoon('focus'); });
 window.addEventListener('online', () => syncSoon('online'));
 setInterval(() => { if (document.visibilityState === 'visible') syncSoon('poll'); }, sync.POLL_MS);   // PRD-improvements AC-11.1

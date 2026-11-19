@@ -223,6 +223,29 @@ jobs:
             || { echo "::error::@capacitor/haptics is missing from the Podfile - long-press would not vibrate"; exit 1; }
           grep -q "StackdRecordingService" ios/App/Podfile \
             || { echo "::error::plugins/recording-service is missing from the Podfile - it is a file: dependency, run npm ci"; exit 1; }
+          grep -q "CapawesomeCapacitorAgeSignals" ios/App/Podfile \
+            || { echo "::error::@capawesome/capacitor-age-signals is missing from the Podfile - the store age signal would not be read"; exit 1; }
+
+      # Apple's Declared Age Range needs the com.apple.developer.declared-age-range
+      # entitlement (docs/prd-age-signals.md, D-7). Signing fails if the App ID
+      # does not have the capability, so it is added only once the owner has
+      # turned the capability on in the developer portal and set the
+      # repository variable IOS_DECLARED_AGE_RANGE to true. Without it the app
+      # still builds; on iOS the store simply gives no age, and the birth-year
+      # question stays.
+      - name: Declared Age Range entitlement (when enabled)
+        if: ${{ vars.IOS_DECLARED_AGE_RANGE == 'true' }}
+        run: |
+          E=ios/App/App/App.entitlements
+          P=ios/App/App.xcodeproj/project.pbxproj
+          [ -f "$E" ] || printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' '<plist version="1.0">' '<dict>' '</dict>' '</plist>' > "$E"
+          /usr/libexec/PlistBuddy -c 'Add :com.apple.developer.declared-age-range bool true' "$E" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c 'Set :com.apple.developer.declared-age-range true' "$E"
+          grep -q 'CODE_SIGN_ENTITLEMENTS' "$P" \
+            || perl -0pi -e 's/(\n(\t+)INFOPLIST_FILE = App\/Info\.plist;)/\n$2CODE_SIGN_ENTITLEMENTS = App\/App.entitlements;$1/g' "$P"
+          [ "$(grep -c 'CODE_SIGN_ENTITLEMENTS = App/App.entitlements;' "$P")" -ge 2 ] \
+            || { echo "::error::could not point the App target at App.entitlements"; exit 1; }
+          cat "$E"
 
       # HTTPS only, no custom encryption: without this key every build waits in
       # TestFlight as "Missing Compliance" until it is answered by hand.

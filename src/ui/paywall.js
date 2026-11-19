@@ -13,6 +13,10 @@ import { toast, pinToViewport } from './primitives.js';
 import { allowance, errorFor } from '../ai.js';
 import { available, offerings, buy, restore, manageUrl, PAID_TIERS, platform } from '../purchases.js';
 import { TERMS_URL, PRIVACY_URL } from '../legal.js';
+import * as agesignal from '../agesignal.js';
+
+/* the store says the user is under 18 (docs/prd-age-signals.md §04, 3) */
+const MINOR_LINE = 'Plans need a parent’s approval, given in your store account.';
 
 const BLURB = {
   plus: 'A 30-minute call most working days',
@@ -46,6 +50,7 @@ function cardHTML(tier, current) {
   const isCurrent = current === tier;
   const action = !available() ? ''
     : isCurrent ? '<span class="tag tag-done">Current plan</span>'
+    : agesignal.isMinor() ? `<span class="hint">${esc(MINOR_LINE)}</span>`
     : `<button type="button" class="btn ${current === 'free' || current === 'tester' ? 'btn-primary' : 'btn-secondary'} btn-sm" data-buy="${tier}">${current === 'free' || current === 'tester' ? 'Subscribe' : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current) ? 'Upgrade' : 'Switch'}</button>`;
   return `
   <div class="plan-card ${isCurrent ? 'is-current' : ''}">
@@ -135,6 +140,8 @@ export function bindPlanSection(root) {
 /** The native purchase (AC-12.3), then the proxy's view wins (AC-09.2). */
 async function purchase(tier, btn) {
   if (btn) btn.disabled = true;
+  /* the store may not have answered yet: ask now (it may prompt once) */
+  if ((await agesignal.ask())?.age === 'minor') { toast(MINOR_LINE, { ms: 6000 }); rerender(); return; }
   try {
     const r = await buy(tier);
     if (r.cancelled) { if (btn) btn.disabled = false; return; }
