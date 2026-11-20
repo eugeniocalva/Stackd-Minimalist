@@ -877,7 +877,9 @@ Changed after the test (architecture §48; the PRD marks each with the date):
   Build 15 should replace it.
 - **Fix:** the selection resolves each name to the real app (`pwd -P`)
   before leaving out betas and release candidates.
-- **Not verified yet:** the fix on the runner. Windows has no symbolic
-  links to test it here; the next run's log shows the path it picked.
+- **Verified on build 15** (run 44689614793, commit d9dc63b, uploaded): with
+  the same image (27.3 beta linked under plain names), the selection picked
+  Xcode 27.2, build 27B52, iOS SDK 27.2, and every compile and link step
+  ran from `/Applications/Xcode_27.2.app`.
 - **Also from build 14:** the age-signals plugin compiled and signed with
   Xcode 27; the entitlement step was skipped, as intended.
