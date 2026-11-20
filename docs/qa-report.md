@@ -864,3 +864,20 @@ Changed after the test (architecture §48; the PRD marks each with the date):
   - the fake is reachable only from code, and the plugin's own fake refuses
     release builds;
   - no new request from our code.
+
+### Build 14 (2026-11-20): a beta Xcode behind a plain name
+
+- **Seen:** build 14 (commit 253b317) passed and uploaded, but its log
+  shows `Xcode 27.3`, build 27C5020n, archived from
+  `/Applications/Xcode_27.3_beta.app`. The image links `Xcode_27.3.app`
+  and `Xcode_27.3.0.app` to the beta, and the selection filtered only the
+  names, so it picked the beta.
+- **Effect:** Apple does not accept builds made with a beta Xcode for App
+  Store release; build 14 may also be refused for TestFlight testing.
+  Build 15 should replace it.
+- **Fix:** the selection resolves each name to the real app (`pwd -P`)
+  before leaving out betas and release candidates.
+- **Not verified yet:** the fix on the runner. Windows has no symbolic
+  links to test it here; the next run's log shows the path it picked.
+- **Also from build 14:** the age-signals plugin compiled and signed with
+  Xcode 27; the entitlement step was skipped, as intended.

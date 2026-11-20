@@ -11,6 +11,8 @@
 # - `runs-on` is GitHub's image that ships Xcode 27;
 # - the newest released Xcode on it is selected, never a beta or a release
 #   candidate (Apple refuses uploads built with those);
+#   the selection follows the image's links to the real app (build 14 got a
+#   beta through a plain-named link);
 # - the job fails at once if the iOS SDK is older than MIN_IOS_SDK.
 # Apple raises this floor every spring. When the warning comes back for the
 # next SDK, change `runs-on` to the image that ships that Xcode and raise
@@ -98,7 +100,10 @@ jobs:
       - name: Select the newest released Xcode
         run: |
           ls -d /Applications/Xcode_*.app
-          XCODE="$(ls -d /Applications/Xcode_*.app | grep -Eiv 'beta|rc|preview|candidate' | sort -V | tail -n 1)"
+          # The real app behind each name: the image links plain names to betas
+          # (build 14 got Xcode_27.3.app -> Xcode_27.3_beta.app), so a filter on
+          # the names alone is not enough.
+          XCODE="$(for x in /Applications/Xcode_*.app; do (cd "$x" && pwd -P); done | grep -Eiv 'beta|_rc|release_candidate|preview' | sort -uV | tail -n 1)"
           [ -n "$XCODE" ] || { echo "::error::no released Xcode on this image"; exit 1; }
           sudo xcode-select -s "$XCODE"
           xcodebuild -version
