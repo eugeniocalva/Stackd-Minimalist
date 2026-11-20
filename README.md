@@ -602,8 +602,9 @@ mode does the job. `npx cap sync android` lists it with the other plugins.
   once with `keytool`, see the workflow header) and, for uploads,
   `PLAY_SERVICE_ACCOUNT_JSON`.
 - **First release**: the Play Console app must exist with a first build
-  uploaded by hand before the API accepts uploads; after that, tick
-  **upload**.
+  uploaded by hand before the API accepts uploads. Every run keeps its
+  signed `.aab` for 7 days under **Artifacts** on the run page, which is
+  the file for that first upload; after that, tick **upload**.
 
 To build locally instead, open `android/` in Android Studio after
 `npm run build && npx cap sync android`.
