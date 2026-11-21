@@ -65,7 +65,7 @@ footer{color:var(--ink2);font-size:.85rem;margin-top:40px;border-top:1px solid v
 <nav class="toc"><a href="#update">Update: after the fixes</a><a href="#about">1 About the application</a><a href="#summary">2 Executive summary</a><a href="#coverage">2.2 Coverage by category</a><a href="#criteria">3 Quality criteria</a><a href="#bugs">4 Bugs captured</a><a href="#evidence">5 Visual evidence</a><a href="#recommendation">6 Our recommendation</a></nav>
 
 <section class="update" id="update">
-<h3>Update, 21 November 2026: where it stands after the fixes</h3>
+<h3>Update, 21 November 2026: where it stands after the fixes and build 18</h3>
 <p>The report below is the review as it was carried out on commit 2edef72. Since then 18 of the 19 bugs have been fixed, in three batches, and each fix was checked by running the failing steps again in the same test set-up. Every bug page now starts with its status.</p>
 <div class="stats">
 <div class="stat"><b style="color:var(--pass)">18</b><span>bugs fixed and re-checked</span></div>
@@ -73,9 +73,14 @@ footer{color:var(--ink2);font-size:.85rem;margin-top:40px;border-top:1px solid v
 <div class="stat"><b>11 of 12</b><span>failed criteria fixed since</span></div>
 <div class="stat"><b>3</b><span>criteria still need a device or a server</span></div>
 </div>
-<p><b>What is left before a store release:</b> <a class="buglink" href="#bug-02">BUG-02</a> (the Privacy Policy and Terms: the owner's details, the lawyer's read, the site going live), a check of <a class="buglink" href="#bug-01">BUG-01</a> on an iPhone, and the blocked criteria on real devices. None of the fixes has been tried on a phone or with a screen reader yet.</p>
+<p><b>What is left before a store release:</b> <a class="buglink" href="#bug-02">BUG-02</a> (the Privacy Policy and Terms: the owner's details, the lawyer's read, the site going live), and the blocked criteria on real devices. On an iPhone, the owner has confirmed <a class="buglink" href="#bug-01">BUG-01</a> and the keyboard fix in build 17; the other fixes have not been tried on a phone or with a screen reader yet.</p>
 <h3>Also changed, from notes in the report</h3>
 <ul><li><b>Deleting a subtask had no Undo.</b> It now shows &quot;Subtask deleted · Undo&quot;, and Undo puts the subtask back in its place.</li><li><b>Removing a lane had no Undo.</b> The &quot;Lane removed&quot; message has Undo. It puts the lane back where it was with its cards, including cards that had gone to Deleted.</li><li><b>The Developer field accepted any https address.</b> An address that is neither the Stack'd service nor this computer is asked about first: &quot;Send your meetings to {host}?&quot;. Cancel keeps the old address.</li></ul>
+<h3>Found on the iPhone in build 17</h3>
+<p>The owner's own pass on TestFlight build 17 confirmed two fixes and found three things the browser-based review could not show. All three are changed in build 18.</p>
+<div class="tablewrap"><table><thead><tr><th>Seen on the iPhone</th><th>What changed</th><th>State</th></tr></thead><tbody>
+<tr><td><b>Swiping right sometimes moved the Kanban lanes along with the menu</b></td><td>At the first lane, iOS let the lanes stretch and follow the finger. The lanes no longer stretch there, a swipe from the left edge over the lanes is claimed on its first movement, and the lanes are locked while the menu swipe runs.</td><td>Checked in the test browser. In build 18, to confirm on the iPhone.</td></tr><tr><td><b>In the menu that slides in, the counters sat against the right edge of their card</b></td><td>Not reproduced off the iPhone: in the test browser the sliding menu measures the same as the real one. One style added to that layer after the build where it looked right was removed.</td><td>A best guess. In build 18, to confirm on the iPhone.</td></tr><tr><td><b>Add board showed the keyboard first and the name dialog a moment later</b></td><td>The dialog opened at the bottom, behind the keyboard, until the page had resized. Dialogs with a text field now open in the upper part of the screen.</td><td>Checked in the test browser. In build 18, to confirm on the iPhone.</td></tr>
+</tbody></table></div>
 <p class="meta">The project's own checks pass after all three batches, with new cases for month-end repeats and for undoing a lane removal.</p>
 </section>
 
@@ -238,7 +243,7 @@ The foundations are strong and nothing found loses data. The blocking items are 
 <article class="bug" id="bug-01">
   <header><span class="mono bugid">BUG-01</span> <span class="sev sev-high">▲ High</span> <span class="area">Navigation › Main menu</span> <a class="buglink" href="#c-03">C-03</a></header>
   <h3>Picking a board in the main menu also opens a task</h3>
-  <div class="statusbox is-fixed"><span class="st st-fixed">✓ Fixed · commit 853216d</span> <span>All four boards open from the menu with no task opening; a row tap still opens its task. Not yet checked on an iPhone.</span></div>
+  <div class="statusbox is-fixed"><span class="st st-fixed">✓ Fixed · commit 853216d</span> <span>All four boards open from the menu with no task opening; a row tap still opens its task. Confirmed by the owner on an iPhone in build 17.</span></div>
   <h4>Observation</h4><p>In the main menu, a tap on Personal, Shopping or Family opens the board and, with the same tap, the task whose row sits under the finger on the new screen. Work is spared only because its row lines up with the List / Kanban switch. The menu changes the screen when the finger lifts; the browser then delivers the click to whatever is now at that point, and task rows open on a click.</p>
   <h4>Steps to reproduce</h4><ol><li>Open the app on a phone-sized screen with the sample boards.</li><li>Tap the Boards icon in the bottom bar to open the main menu.</li><li>Tap Personal.</li></ol>
   <div class="ea"><div><h4>Expected</h4><p>The Personal board, in list view.</p></div><div><h4>Actual</h4><p>The detail of &quot;Call the dentist&quot; on the Personal board. Shopping opens &quot;Birthday card for Sam&quot;, Family opens &quot;Call grandma&quot;. 4 out of 4 attempts.</p></div></div>
