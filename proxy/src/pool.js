@@ -10,10 +10,17 @@ const TTL = 45 * 86400;   // a period and a half, then the key may go
 
 export const poolKey = (subscriberId, periodKey) => `pool:${subscriberId}:${periodKey}`;
 
-export async function getUsed(kv, subscriberId, periodKey) {
+async function own(kv, subscriberId, periodKey) {
   const raw = await kv.get(poolKey(subscriberId, periodKey));
   const v = raw ? JSON.parse(raw) : {};
   return { audioSeconds: v.audioSeconds || 0, summaries: v.summaries || 0 };
+}
+
+/** Used so far this period. `others`: the anonymous ids an account linked
+    at sign-in, whose usage this period still counts (PRD-accounts AC-08.2). */
+export async function getUsed(kv, subscriberId, periodKey, others = []) {
+  const all = await Promise.all([subscriberId, ...others].map((id) => own(kv, id, periodKey)));
+  return all.reduce((a, b) => ({ audioSeconds: a.audioSeconds + b.audioSeconds, summaries: a.summaries + b.summaries }), { audioSeconds: 0, summaries: 0 });
 }
 
 async function put(kv, subscriberId, periodKey, used) {
@@ -22,18 +29,20 @@ async function put(kv, subscriberId, periodKey, used) {
 
 /** Add `want` to the counters if the tier's limits allow it.
     Returns { ok, used } where `used` is the state after the call. */
-export async function reserve(kv, subscriberId, periodKey, tier, want) {
+export async function reserve(kv, subscriberId, periodKey, tier, want, others = []) {
   const limits = TIERS[tier] || TIERS.free;
-  const used = await getUsed(kv, subscriberId, periodKey);
-  const next = { audioSeconds: used.audioSeconds + (want.audioSeconds || 0), summaries: used.summaries + (want.summaries || 0) };
+  const mine = await own(kv, subscriberId, periodKey);
+  const used = await getUsed(kv, subscriberId, periodKey, others);
+  const add = (u) => ({ audioSeconds: u.audioSeconds + (want.audioSeconds || 0), summaries: u.summaries + (want.summaries || 0) });
+  const next = add(used);
   if (next.audioSeconds > limits.audioSeconds || next.summaries > limits.summaries) return { ok: false, used };
-  await put(kv, subscriberId, periodKey, next);
+  await put(kv, subscriberId, periodKey, add(mine));   // charged to the account's own pool
   return { ok: true, used: next };
 }
 
 /** Give back a reservation after a failed step (never below zero). */
 export async function release(kv, subscriberId, periodKey, amount) {
-  const used = await getUsed(kv, subscriberId, periodKey);
+  const used = await own(kv, subscriberId, periodKey);
   const next = {
     audioSeconds: Math.max(0, used.audioSeconds - (amount.audioSeconds || 0)),
     summaries: Math.max(0, used.summaries - (amount.summaries || 0)),

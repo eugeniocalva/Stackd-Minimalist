@@ -4,22 +4,44 @@ A minimalist todo PWA, started from turn 2 of the [Claude Design canvas](https:/
 ("Stack'd Minimalist Todo App") and restyled in the Stack'd Finance language:
 Inter + Manrope, soft surfaces, rounded cards, frosted bottom nav, light + dark.
 
-Current version: **1.5.0** — a **Meetings** area: record a meeting (up to
-30 minutes, kept on the device), or paste / attach a transcript (`.txt`,
-`.vtt`, `.srt`, `.docx`), turn it into a transcript with speaker labels,
-then into **minutes** (summary, decisions, open questions) and **action
-cards** you swipe onto a board as tasks. The two AI steps run through a
-small Cloudflare Worker (`proxy/`) and need a plan: **Free** has everything
-but them, **Plus / Pro / Max** are monthly subscriptions bought in the iOS
-and Android apps. Also new: an **Android** app, a local Capacitor plugin
-that keeps a recording alive while the screen is locked, and plan,
-privacy and terms pages. On top of 1.4.x's Notes, search, date format and
-per-board lanes, 1.3.0's Settings, 1.2.0's reminders and 1.1.0's task
-fields, folders, calendar and recurring tasks. Requirements and plan live
-in [`docs/prd.md`](docs/prd.md), [`docs/prd-notes.md`](docs/prd-notes.md),
-[`docs/prd-meetings.md`](docs/prd-meetings.md) and
-[`docs/architecture.md`](docs/architecture.md); the release QA passes are in
-[`docs/qa-report.md`](docs/qa-report.md).
+Version **1.6.0** (built on the `release/1.6.0` branch; `VERSION` in
+`sw.js` moves to it at release):
+
+- **Accounts and sync**, optional: sign in with an email code and a
+  four-digit PIN, and boards, tasks, notes and meetings follow you across
+  devices. Recordings stay on the device that made them. An app lock,
+  a devices list, export and account deletion come with it.
+- **Shared boards**: invite people by email to one board; everyone edits
+  its cards and lanes, the owner manages who is on it.
+- **The plan follows the account**, so a subscription bought on the phone
+  counts on every device you sign in on.
+- **A new address**, `app.stackdplatform.com`, with a strict
+  Content-Security-Policy; the old GitHub Pages address keeps working for
+  one release with a banner to move and Download my data; Settings imports
+  that file on a signed-out device.
+- **Kanban and navigation**: the board keeps its place when you tick a
+  card, Done is always the last lane, hold a card to move it and hold
+  longer to delete it, swipe right for the main menu, one "+" grid
+  everywhere, and boards can be reordered, archived and deleted.
+- New Privacy Policy and Terms for accounts, and a public page on how to
+  delete an account.
+
+Accounts and shared boards need the server set up first (database, email
+provider, secrets; `proxy/README.md`), and sign-in in the phone apps waits
+on a secure-storage plugin; until then the app works signed out, as 1.5.0
+did.
+
+On top of 1.5.0's **Meetings** (record or paste a meeting, transcript,
+AI minutes and action cards, Plus / Pro / Max plans, the Android app),
+1.4.x's Notes, search, date format and per-board lanes, 1.3.0's Settings,
+1.2.0's reminders and 1.1.0's task fields, folders, calendar and recurring
+tasks. Requirements and plan live in [`docs/prd.md`](docs/prd.md),
+[`docs/prd-notes.md`](docs/prd-notes.md),
+[`docs/prd-meetings.md`](docs/prd-meetings.md),
+[`docs/prd-accounts.md`](docs/prd-accounts.md),
+[`docs/prd-improvements.md`](docs/prd-improvements.md) and
+[`docs/architecture.md`](docs/architecture.md); the release QA passes and
+security reviews are in [`docs/qa-report.md`](docs/qa-report.md).
 
 ## Run
 
@@ -40,6 +62,9 @@ as one classic script. From disk, these don't work:
 folder on http://localhost:8123 and opens the app in your default browser.
 Close the window to stop it. It needs [Node.js](https://nodejs.org); if
 port 8123 is taken, run it as `set STACKD_PORT=8124 & start-stackd.cmd`.
+From a local address the AI steps and the account answer only to a
+Worker run locally (`proxy/README.md`); the live one accepts the website
+and the apps, not `localhost` ports.
 
 Anywhere else, any static server works — no build step, no runtime
 dependencies:
@@ -82,16 +107,40 @@ It runs:
   error mapping, the allowance cache, the proxy URL rule.
 - `scripts/check-bundle.mjs` — `app.bundle.js` still matches the modules, so
   a double-clicked `index.html` never runs old code.
+- `scripts/check-backup.mjs` — the export file and its import (1.6.0): a
+  round trip keeps every board, task, note and meeting; damaged, hostile
+  and oversized files are refused or made harmless; the device keeps its
+  subscriber id, AI settings and recordings.
+- `scripts/check-origins.mjs` — no third-party requests (1.6.0): every URL
+  in the app shell is on an allow-list (the app's address, the proxy, the
+  store subscription pages, XML namespaces); `_headers`, the proxy's
+  origin list and the legal page versions agree with `src/legal.js`; the
+  deployed origin list has the apps and no `localhost` port; no string
+  shaped like a provider key anywhere in the tracked code. It lists the
+  `[OWNER: …]` placeholders left in the legal pages and fails on any once
+  `VERSION` reaches 1.6.
+- `scripts/check-sync.mjs` — the sync engine (1.6.0): the shadow diff,
+  the first sign-in plan, then end to end against the real Worker on a
+  local SQLite database: two devices, merge, sign-out, shared boards with
+  a second person, and the safety rules for shared boards.
+- `scripts/check-lock.mjs` — the app lock (1.6.0): when it locks, the
+  waits after wrong PINs, the offline verifier.
 
 The Worker has its own `npm test` in `proxy/` (plans, pools, schema,
 entitlement, the request pipeline with a stubbed model and a stub
-speech-to-text provider).
+speech-to-text provider; from 1.6.0 also accounts, sessions, sync and
+shared boards on a real SQL engine, `node:sqlite` standing in for D1).
 
 ## Live
 
-**https://eugeniocalva.github.io/Stackd-Minimalist/** — deployed by GitHub Pages
-from `main`, so every push to `main` publishes. Bump `VERSION` in `sw.js` when
-app files change, or installed clients keep the old cached shell.
+**https://app.stackdplatform.com** (from 1.6.0) — deployed to Cloudflare by
+`.github/workflows/site.yml` on every push to `main`, with the headers in
+`_headers`. **https://eugeniocalva.github.io/Stackd-Minimalist/** — the old
+address, still published by GitHub Pages from `main`; for one release it
+shows a banner pointing to the new one, with Download my data.
+
+So every push to `main` publishes. Bump `VERSION` in `sw.js` when app files
+change, or installed clients keep the old cached shell.
 
 ## Platforms
 
@@ -123,10 +172,13 @@ is enough; HTTPS is required for install + service worker on real devices.
 
 - **Board** — Work, Personal, Shopping, Family… (the sidebar / Boards menu).
 - **Lane** — the kanban columns of a board: Backlog, In Progress, Done to
-  start with. Each board has its own; add, rename, reorder or delete them
-  from the lane's ⋯ menu on the kanban. Done stays (it is where completed
-  tasks go) and can only be renamed.
-- **Folder** — Archived and Deleted, each with a Tasks ∕ Notes switch.
+  start with. Each board has its own: add one with the "Add lane" column, tap
+  a lane's name to rename it, hold it outside its cards to drag it, hold
+  longer for the **X** that removes it. Done stays (it is where completed
+  tasks go): always the last lane, and it cannot be renamed, moved or
+  removed.
+- **Archive & Bin** — the Archived and Deleted pages, each with a
+  Tasks ∕ Notes ∕ Meetings ∕ Boards switch (called Folders before 1.6.0).
 - **Note** — a title, formatted text, an optional checklist, tags and a
   colour; lives in the Notes area, not on a board.
 - **Composer** — the "Take a note…" box at the top of Notes.
@@ -138,6 +190,11 @@ is enough; HTTPS is required for install + service worker on real devices.
 - **Action** — one card the minutes proposed; it becomes a task when you
   swipe it onto a board.
 - **Plan** — Free, Plus, Pro or Max: what the AI steps may do each month.
+- **Account** — optional (1.6.0): an email and a PIN; what syncs your data
+  between devices and carries your plan.
+- **Shared board** — a board several accounts edit; the one who shared it
+  is its owner, the others are members.
+- **App lock** — the PIN screen a signed-in device shows after a while away.
 
 ## What's implemented
 
@@ -148,13 +205,47 @@ is enough; HTTPS is required for install + service worker on real devices.
   high or low first; the drag handle shows in manual sort only)
 - **Board, kanban** — the board's lanes, sorted the same way inside each
   lane, plus an "Add lane" column; completing a task moves its card to Done
-  (repeating tasks excepted, see below). Deleting a lane moves its tasks to
-  the board's first lane. Hold a card to carry it to another lane: a copy
-  follows the finger and the board scrolls when it nears an edge
+  (repeating tasks excepted, see below) and the board stays scrolled where
+  it was. Reopening a card in the same session returns it to the lane it
+  came from; after a restart it goes to the first lane. Done is always the
+  last lane and cannot be renamed, moved or removed. Hold a card to carry
+  it to another lane: a copy follows the finger, the lane under it is
+  ringed, and the board scrolls when it nears an edge. Keep holding without
+  moving and a round **X** appears on the card; it asks before deleting.
+  Lanes work the same way, held outside their cards: drag one to reorder,
+  or hold for the **X**. Removing a lane asks first and moves its cards to
+  the leftmost other lane, or to Deleted when only Done would be left (the
+  next card added brings a Backlog back)
+- **Boards** — in the main menu and the sidebar, hold a board (or drag it
+  with the mouse) to reorder; keep holding for the buttons that move it one
+  step or remove it. Removing asks **Archive** or **Delete**; the board
+  goes with every card on it and comes back whole with Restore. The last
+  board stays
 - **Navigation** — mobile: sticky frosted header plus a floating bottom pill
-  (Boards · Tasks · Notes · Folders) and a round **+** (a new task on a
-  board, a new note on Notes); desktop: sidebar with Boards, Notes and
-  Folders, each with live counts
+  (Boards · Tasks · Notes · Archive & Bin) and a round **+** that opens the
+  same grid everywhere: Add task, Add note, Add meeting, Add board.
+  The title of every top-level page carries a chevron that opens the main
+  menu, and so does a swipe to the right, which brings the menu in under
+  the finger. On an open card the same swipe takes it back to its board,
+  which shows underneath as the card slides off. A swipe that starts on a
+  row, a card, a lane or a field does nothing; from the left edge it
+  always works. Desktop: sidebar with Boards, Notes and Archive & Bin, each
+  with live counts
+- **Account and sync (1.6.0, not live yet)** — optional. Settings ›
+  Account: create an account (birth year, email, six-digit code, a
+  four-digit PIN) or sign in (email, code, PIN). Boards, tasks, notes and
+  meetings sync on start, focus, reconnect, 2 s after an edit, every 30 s
+  while open and on Sync now; recordings stay on their device. First
+  sign-in uploads, downloads, or asks Merge / Use my account and keeps a
+  30-day copy. Devices list with sign-out, app lock (PIN, offline too),
+  Change PIN, export, delete. Waits on the server setup and, in the
+  phone apps, on the secure-storage plugin (architecture §45)
+- **Shared boards (1.6.0, not live yet)** — New board asks Personal or
+  Shared. A shared board is invited by email; the invited person accepts
+  it in the app (a card in the menu, a dot on Boards). Everyone edits
+  cards and lanes; the owner renames, invites, removes and deletes for
+  everyone; a member can leave. A "Shared" mark on the board opens who is
+  on it; Settings › Shared boards lists them (architecture §46)
 - **Search** — a field at the top of every board (desktop inline, mobile
   behind a search icon) and of Notes: case- and accent-insensitive, every
   word must appear in the title, tags, subtasks, note text or checklist.
@@ -176,8 +267,9 @@ is enough; HTTPS is required for install + service worker on real devices.
   - *Detail:* tap a row; edits save as you type; ticked items sink to the
     bottom; ⋯ gives **Copy**, **Archive**, **Delete**; a note left empty is
     removed
-  - *Folders:* archived and deleted notes sit behind the Tasks ∕ Notes
-    switch, with Restore, Delete, the 30-day purge and Empty folder
+  - *Archive & Bin:* archived and deleted notes sit on the Archived and
+    Deleted pages behind the Tasks ∕ Notes ∕ Meetings ∕ Boards switch, with
+    Restore, Delete, the 30-day purge and Empty Deleted
   - Note text is stored as a small HTML subset (line breaks and the four
     styles); everything else pasted in is stripped
 - **Meetings** — the Meetings area (Boards menu and desktop sidebar), with:
@@ -202,8 +294,8 @@ is enough; HTTPS is required for install + service worker on real devices.
     what a press costs. Failures show a reason and Retry; a step keeps
     going if you leave the screen, and a transcription resumes after a
     reload
-  - *Folders:* archived and deleted meetings sit behind the Tasks ∕ Notes ∕
-    Meetings switch; deleting forever removes the recording
+  - *Archive & Bin:* archived and deleted meetings sit behind the same
+    switch; deleting forever removes the recording
 - **Task detail** — tap the title to rename; rows for **Due date**,
   **Priority**, **Tags** (picker with suggestions from every tag in use),
   **Move** (board + lane) and **Reminder**; subtasks with a progress bar
@@ -260,19 +352,32 @@ is enough; HTTPS is required for install + service worker on real devices.
     reset, and a Developer field for the proxy URL
   - *Automations:* the built-in "completed tasks move to Done" rule; custom
     rules are a placeholder for now (kanban "Edit rules" opens this section)
-- **Gestures** — double-tap / double-click completes, long-press (with a
-  haptic tick on the phone) or swipe left deletes, the circle on a row or
-  kanban card completes, drag rows to reprioritize in manual sort, drag
-  kanban cards between lanes (hold-and-drag on touch)
+  - *Account (1.6.0):* sign in or create an account, sync status and Sync
+    now, devices, app lock, Change PIN, Export my data, sign out, delete
+    the account, and links to the Privacy Policy and Terms
+  - *Shared boards (1.6.0):* the boards you share or are on, with their
+    people
+  - *Your data (1.6.0, signed out only):* Import a Stack'd file made with
+    Download my data on the old address
+- **Gestures** — list rows: double-tap / double-click completes,
+  long-press (with a haptic tick on the phone) or swipe left deletes, drag
+  to reprioritize in manual sort. Kanban cards and board rows: hold to
+  move, hold longer for the **X** (which asks first). The circle on a row
+  or card completes. Every toast fades in and out
 - **Persistence** — localStorage key `stackd-v2` (tasks, notes, meetings,
   settings, the plan cache). Recordings are in IndexedDB (`stackd-media`,
   written five seconds at a time while recording), never in the document.
   A `stackd-v1` store from 1.0 is migrated once on first launch and left in
   place for rollback; the old reminder presets become a due time when the
   task had a due date. The composer draft lives under `stackd-note-draft`,
-  so a half-written note survives a reload. Reminders add two small keys: `stackd-reminders-fired` (which reminders a
-  tab already showed, so other tabs don't repeat them) and
-  `stackd-native-scheduled` (what the iOS app handed to the system)
+  so a half-written note survives a reload. Reminders add two small keys:
+  `stackd-reminders-fired` (which reminders a tab already showed, so other
+  tabs don't repeat them) and `stackd-native-scheduled` (what the iOS app
+  handed to the system). A signed-in device (1.6.0) adds `stackd-account`
+  (who is signed in), `stackd-sync` (what the server last saw, per
+  account and per shared board) and `stackd-verifier` (for the app lock
+  offline). The session itself is an HttpOnly cookie on the web and, in
+  the apps, `stackd-session` in the device's secure storage
 
 ## Files
 
@@ -304,12 +409,32 @@ is enough; HTTPS is required for install + service worker on real devices.
 - `src/notify.js` — reminders on the device: permission, the web clock and
   service-worker notifications, the iOS LocalNotifications sync
 - `src/util.js` — ids, HTML escaping, app root
+- `src/legal.js` — the app's address, the legal page URLs and versions
+- `src/backup.js` — export and import, and the validators every record
+  from outside passes (an imported file, a synced change)
+- `src/net.js` — requests to the proxy with the session
+- `src/account.js` — sign-in state, register, sign in, sign out, delete
+- `src/secure.js` — the session token in the apps' secure storage
+- `src/sync.js` — the sync engine: changes, merge on first sign-in,
+  shared boards
+- `src/share.js` — the shared-board calls: create, invite, remove,
+  leave, delete, answer an invitation
+- `src/lock.js` and `src/webcrypto.js` — the app lock and its offline
+  PIN check
+- `src/pretheme.js`, `src/filefallback.js` — what used to be inline in
+  `index.html` (the theme before first paint; the `file://` loader), so
+  the Content-Security-Policy needs no inline script
 - `src/theme.js` — resolves the theme preference to `data-theme` on `<html>`
 - `src/ui/` — one module per screen or overlay:
-  - `shell.js` — onboarding, Boards menu, bottom nav, desktop sidebar
-  - `board.js` — list, table, kanban, chips, gestures
+  - `shell.js` — onboarding, main menu, bottom nav, desktop sidebar,
+    board rows
+  - `board.js` — list, table, kanban, chips, row gestures, page title
+  - `gestures.js` — hold to lift, hold longer for the delete badge, the
+    swipe that opens the main menu
+  - `addmenu.js` — the "+" grid
   - `detail.js` — task detail, ⋯ menu, read-only archived / deleted view
-  - `folders.js` — Archived / Deleted screens, tasks, notes and meetings
+  - `folders.js` — the Archived and Deleted pages: tasks, notes, meetings
+    and boards
   - `meetings.js` — the Meetings list: header, search, sort, status chips
   - `meeting.js` — meeting detail: title, blocks, ⋯ menu, read-only view
   - `recorder.js` — the Source block, recording (level line, clock, cap),
@@ -329,7 +454,13 @@ is enough; HTTPS is required for install + service worker on real devices.
   - `movecopy.js` — board + lane picker for Move, Copy and Add to board
   - `tagpicker.js` — tag picker
   - `settings.js` — Settings: theme, dates, priorities, labels, plan,
-    Meetings & AI, automations
+    Meetings & AI, automations, account, your data
+  - `account.js` — Settings › Account
+  - `signin.js`, `pinpad.js` — the sign-in and registration sheet, the
+    PIN pad
+  - `lockscreen.js` — the app lock
+  - `sharing.js` — Personal ∕ Shared on New board, inviting, the people
+    sheet, invitation cards, Settings › Shared boards
   - `addsheet.js` — add-task sheet
   - `actions.js` — archive / delete / restore / move / complete, with toasts
   - `primitives.js` — toast, confirm dialog, context menu
@@ -337,17 +468,30 @@ is enough; HTTPS is required for install + service worker on real devices.
 - `styles/` — `variables.css` (Finance tokens, light + dark), `base.css`,
   `components.css`, `screens.css`, `fonts.css`
 - `fonts/` — self-hosted Inter + Manrope (woff2)
-- `scripts/` — `build-www.mjs` (Capacitor copy), `check-dates.mjs`,
-  `check-reminders.mjs`, `check-store.mjs`, `check-text.mjs`,
-  `check-transcript.mjs`, `check-ai.mjs`, `check-shell.mjs`, `bundle.mjs`
-  + `bundle-lib.mjs` (build `app.bundle.js`), `check-bundle.mjs`
-- `proxy/` — the Cloudflare Worker behind the AI steps (its own README)
+- `scripts/` — `build-www.mjs` (Capacitor copy; `--site` for the web host),
+  `check-dates.mjs`, `check-reminders.mjs`, `check-store.mjs`,
+  `check-text.mjs`, `check-transcript.mjs`, `check-ai.mjs`,
+  `check-backup.mjs`, `check-sync.mjs`, `check-lock.mjs`,
+  `check-origins.mjs`, `check-shell.mjs`, `bundle.mjs`
+  + `bundle-lib.mjs` (build `app.bundle.js`), `check-bundle.mjs`,
+  `serve.mjs` (local server that applies `_headers` or plays the old
+  address, for checking the 1.6.0 move by hand)
+- `_headers` — the Content-Security-Policy and security headers of the web
+  host (Cloudflare); `.github/workflows/site.yml` deploys the
+  `npm run build -- --site` tree there on every push to `main`
+- `proxy/` — the Cloudflare Worker behind the AI steps and, from 1.6.0,
+  accounts, sync and shared boards on a D1 database (its own README)
 - `plugins/recording-service/` — the local Capacitor plugin that keeps a
   recording alive on Android (foreground service); a no-op on iOS and web
 - `android/` — the Android project (committed); `ios/` is generated in CI
-- `privacy.html`, `terms.html` — the pages the store listings link to
-- `docs/` — `prd.md`, `prd-notes.md`, `prd-meetings.md`, `architecture.md`,
-  `qa-report.md`, `benchmarks/` (the device spike notes)
+- `privacy.html`, `terms.html` — the pages the store listings link to;
+  `account-deletion.html` — how to delete an account, with or without the
+  app (the page Google Play asks for)
+- `docs/` — `prd.md`, `prd-notes.md`, `prd-meetings.md`,
+  `prd-accounts.md` and `plan-accounts.md` (accounts, sync),
+  `prd-improvements.md` (kanban, navigation, shared boards),
+  `architecture.md`, `qa-report.md`, `benchmarks/` (the device spike
+  notes)
 - `manifest.webmanifest` — PWA install metadata (name, colors, icons)
 - `sw.js` — service worker: precached app shell, stale-while-revalidate,
   opens the task when a reminder notification is tapped
@@ -379,7 +523,7 @@ Layout:
   iOS to TestFlight > Run workflow), so nothing a fork or pull request does
   can reach the signing secrets. It runs `npm run check`, generates the iOS
   project with `npx cap add ios --packagemanager CocoaPods`, adds icons and
-  splash screens, sets the version from `sw.js` (`stackd-v1.5.0` → 1.5.0) and
+  splash screens, sets the version from `sw.js` (`stackd-v1.6.0` → 1.6.0) and
   the build number from the run number, declares
   `ITSAppUsesNonExemptEncryption = false`, archives, signs with Apple's
   cloud-managed certificate and checks the `.ipa`. With **upload** ticked it
@@ -421,6 +565,10 @@ Done once (2026-10-18): Apple Developer Program, the bundle id
    Review), add the build. Install **TestFlight** from the App Store on the
    iPhone, accept the invite, install Stack'd.
 
+A build from the release branch before `VERSION` moves carries the
+previous version number with a higher build number; TestFlight accepts it
+while that version is not yet on the App Store.
+
 Every later release: run `/security-review` in Claude Code over everything
 changed since the previous release, fix what it rates high, and record the
 result under a "Security review" heading in `docs/qa-report.md`; only then
@@ -454,8 +602,9 @@ mode does the job. `npx cap sync android` lists it with the other plugins.
   once with `keytool`, see the workflow header) and, for uploads,
   `PLAY_SERVICE_ACCOUNT_JSON`.
 - **First release**: the Play Console app must exist with a first build
-  uploaded by hand before the API accepts uploads; after that, tick
-  **upload**.
+  uploaded by hand before the API accepts uploads. Every run keeps its
+  signed `.aab` for 7 days under **Artifacts** on the run page, which is
+  the file for that first upload; after that, tick **upload**.
 
 To build locally instead, open `android/` in Android Studio after
 `npm run build && npx cap sync android`.

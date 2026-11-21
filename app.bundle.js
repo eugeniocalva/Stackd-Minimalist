@@ -49,17 +49,25 @@
     monthly: (d) => addMonths(d, 1),
     yearly: (d) => addYears(d, 1)
   };
-  function nextOccurrence(due, recur, today = todayISO()) {
+  function nextOccurrence(due, recur, today = todayISO(), anchorDay = null) {
     const step = STEP[recur];
     if (!step || !due) return due;
-    let next = step(due);
-    while (next <= today) next = step(next);
+    const anchored = (recur === "monthly" || recur === "yearly") && anchorDay >= 1 && anchorDay <= 31;
+    const next1 = (d) => anchored ? onDay(step(d), anchorDay) : step(d);
+    let next = next1(due);
+    while (next <= today) next = next1(next);
     return next;
   }
-  function isOverdue(due, dueTime = null, now = /* @__PURE__ */ new Date()) {
+  function onDay(iso, day) {
+    const [y, m] = iso.split("-").map(Number);
+    const last = new Date(y, m, 0).getDate();
+    return toISO(new Date(y, m - 1, Math.min(day, last)));
+  }
+  var anchorDayOf = (due, recur) => due && (recur === "monthly" || recur === "yearly") ? Number(due.split("-")[2]) : null;
+  function isOverdue(due, dueTime = null, now2 = /* @__PURE__ */ new Date()) {
     if (!due) return false;
     const end = dueTime ? /* @__PURE__ */ new Date(`${due}T${dueTime}:00`) : /* @__PURE__ */ new Date(`${due}T23:59:59`);
-    return now > end;
+    return now2 > end;
   }
   var DEFAULT_REMINDER_TIME = "09:00";
   function reminderInstant(due, dueTime, reminder) {
@@ -72,12 +80,12 @@
     }
     return d.getTime() - reminder * 6e4;
   }
-  function fmtDue(due, { full = false, dueTime = null, now = /* @__PURE__ */ new Date(), format = DEFAULT_FORMAT } = {}) {
+  function fmtDue(due, { full = false, dueTime = null, now: now2 = /* @__PURE__ */ new Date(), format = DEFAULT_FORMAT } = {}) {
     const d = parse(due);
-    const today = new Date(now);
+    const today = new Date(now2);
     today.setHours(0, 0, 0, 0);
     const days = Math.round((d - today) / 864e5);
-    const overdue = days < 0 || days === 0 && isOverdue(due, dueTime, now);
+    const overdue = days < 0 || days === 0 && isOverdue(due, dueTime, now2);
     const cls = overdue ? "tag-overdue" : days <= 3 ? "tag-soon" : "tag-neutral";
     let label;
     if (days < 0) label = "Overdue";
@@ -105,8 +113,8 @@
     const s = Math.max(0, Math.round(ms / 1e3)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
     return h ? `${h}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
   }
-  function fmtRelative(ts, now = Date.now(), format = DEFAULT_FORMAT) {
-    const days = Math.floor((now - ts) / 864e5);
+  function fmtRelative(ts, now2 = Date.now(), format = DEFAULT_FORMAT) {
+    const days = Math.floor((now2 - ts) / 864e5);
     if (days <= 0) return "today";
     if (days === 1) return "yesterday";
     if (days < 7) return `${days} days ago`;
@@ -132,25 +140,25 @@
     if (format === "ymd") return `${y}-${m}-${day}`;
     return `${day}/${m}/${y}`;
   }
-  function fmtDateOrRelative(ts, format = DEFAULT_FORMAT, now = Date.now()) {
+  function fmtDateOrRelative(ts, format = DEFAULT_FORMAT, now2 = Date.now()) {
     const a = new Date(ts);
     a.setHours(0, 0, 0, 0);
-    const b = new Date(now);
+    const b = new Date(now2);
     b.setHours(0, 0, 0, 0);
     const days = Math.round((b - a) / 864e5);
     if (days === 0) return "Today";
     if (days === 1) return "Yesterday";
     return fmtDate(ts, format);
   }
-  function daysLeft(deletedAt, retentionDays, now = Date.now()) {
-    return Math.max(0, Math.ceil((deletedAt + retentionDays * 864e5 - now) / 864e5));
+  function daysLeft(deletedAt, retentionDays, now2 = Date.now()) {
+    return Math.max(0, Math.ceil((deletedAt + retentionDays * 864e5 - now2) / 864e5));
   }
   function monthGrid(year, month) {
     const first = new Date(year, month, 1);
     const lead = (first.getDay() + 6) % 7;
-    const start = new Date(year, month, 1 - lead);
+    const start2 = new Date(year, month, 1 - lead);
     return Array.from({ length: 42 }, (_, i) => {
-      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      const d = new Date(start2.getFullYear(), start2.getMonth(), start2.getDate() + i);
       return { iso: toISO(d), day: d.getDate(), inMonth: d.getMonth() === month };
     });
   }
@@ -180,7 +188,8 @@
   }
   function planReminders(tasks, lists = []) {
     const boards = new Map(lists.map((l) => [l.id, l.name]));
-    return tasks.filter((t) => t.status === "active" && !t.done && t.due && t.reminder !== null && t.reminder !== void 0).map((t) => {
+    const away = new Set(lists.filter((l) => l.status === "archived" || l.status === "deleted").map((l) => l.id));
+    return tasks.filter((t) => t.status === "active" && !away.has(t.listId) && !t.done && t.due && t.reminder !== null && t.reminder !== void 0).map((t) => {
       const fireAt = reminderInstant(t.due, t.dueTime, t.reminder);
       if (fireAt === null) return null;
       const board = boards.get(t.listId) || null;
@@ -198,14 +207,14 @@
       };
     }).filter(Boolean).sort((a, b) => a.fireAt - b.fireAt);
   }
-  var isTimely = (e, now) => now - e.fireAt <= WEB_GRACE_MS || !isOverdue(e.due, e.dueTime, new Date(now));
-  var phraseAt = (e, now) => now - e.fireAt > LATE_TEXT_MS ? now : e.fireAt;
+  var isTimely = (e, now2) => now2 - e.fireAt <= WEB_GRACE_MS || !isOverdue(e.due, e.dueTime, new Date(now2));
+  var phraseAt = (e, now2) => now2 - e.fireAt > LATE_TEXT_MS ? now2 : e.fireAt;
   var ledgerKey = (e) => `${e.taskId}:${e.fireAt}`;
-  function dueForWeb(plan, now, handled = {}) {
+  function dueForWeb(plan, now2, handled = {}) {
     const fire = [], lapse = [];
     for (const e of plan) {
-      if (e.fireAt > now || e.firedAt !== null || handled[ledgerKey(e)]) continue;
-      if (isTimely(e, now)) fire.push({ ...e, ...reminderText(e, e.board, phraseAt(e, now)) });
+      if (e.fireAt > now2 || e.firedAt !== null || handled[ledgerKey(e)]) continue;
+      if (isTimely(e, now2)) fire.push({ ...e, ...reminderText(e, e.board, phraseAt(e, now2)) });
       else lapse.push(e);
     }
     return { fire, lapse };
@@ -218,13 +227,13 @@
       body: names.length > 3 ? `${shown} and ${names.length - 3} more` : shown
     };
   }
-  function pruneLedger(ledger, now, maxAgeMs = 30 * 864e5) {
-    return Object.fromEntries(Object.entries(ledger).filter(([, at]) => now - at < maxAgeMs));
+  function pruneLedger(ledger, now2, maxAgeMs = 30 * 864e5) {
+    return Object.fromEntries(Object.entries(ledger).filter(([, at]) => now2 - at < maxAgeMs));
   }
-  var pastUnfired = (plan, now) => plan.filter((e) => e.firedAt === null && e.fireAt <= now);
-  function deliveredSince(record2, pendingTaskIds, tasks, now) {
+  var pastUnfired = (plan, now2) => plan.filter((e) => e.firedAt === null && e.fireAt <= now2);
+  function deliveredSince(record2, pendingTaskIds, tasks, now2) {
     const byId = new Map(tasks.map((t) => [t.id, t]));
-    return Object.entries(record2).filter(([taskId, r]) => r.fireAt <= now && !pendingTaskIds.has(taskId)).filter(([taskId, r]) => {
+    return Object.entries(record2).filter(([taskId, r]) => r.fireAt <= now2 && !pendingTaskIds.has(taskId)).filter(([taskId, r]) => {
       const t = byId.get(taskId);
       return t && t.reminderFiredAt == null && reminderKey(t) === r.key;
     }).map(([taskId, r]) => ({ taskId, fireAt: r.fireAt }));
@@ -238,9 +247,9 @@
     }
     return held;
   }
-  function nativePlan(plan, now, held = /* @__PURE__ */ new Map()) {
-    const isHeld = (e) => e.fireAt <= now && held.has(e.taskId);
-    const wanted = plan.filter((e) => e.firedAt === null && (e.fireAt > now || held.has(e.taskId) || isTimely(e, now))).slice(0, MAX_NATIVE);
+  function nativePlan(plan, now2, held = /* @__PURE__ */ new Map()) {
+    const isHeld = (e) => e.fireAt <= now2 && held.has(e.taskId);
+    const wanted = plan.filter((e) => e.firedAt === null && (e.fireAt > now2 || held.has(e.taskId) || isTimely(e, now2))).slice(0, MAX_NATIVE);
     const ids = /* @__PURE__ */ new Map();
     const used = /* @__PURE__ */ new Set();
     for (const e of wanted) {
@@ -259,8 +268,8 @@
     }
     return wanted.map((e) => {
       if (isHeld(e)) return { ...e, id: ids.get(e.taskId), sig: held.get(e.taskId).sig, held: true };
-      const text = e.fireAt <= now ? reminderText(e, e.board, phraseAt(e, now)) : {};
-      const out = { ...e, ...text, id: ids.get(e.taskId) };
+      const text2 = e.fireAt <= now2 ? reminderText(e, e.board, phraseAt(e, now2)) : {};
+      const out = { ...e, ...text2, id: ids.get(e.taskId) };
       return { ...out, sig: `${out.fireAt}|${out.title}|${out.body}` };
     });
   }
@@ -271,8 +280,8 @@
     const schedule = allowSchedule ? desired.filter((e) => have.get(e.id) !== e.sig) : [];
     return { cancel, schedule };
   }
-  function nativeNotification(e, now) {
-    const floor = Number.isFinite(now) ? now + NATIVE_LEAD_MS : -Infinity;
+  function nativeNotification(e, now2) {
+    const floor = Number.isFinite(now2) ? now2 + NATIVE_LEAD_MS : -Infinity;
     return {
       id: e.id,
       title: e.title,
@@ -299,13 +308,13 @@
       if (boundary && !atStart) out.push("<br>");
       boundary = false;
     };
-    const pushText = (text) => {
-      if (!text) return;
-      if (text.trim()) {
+    const pushText = (text2) => {
+      if (!text2) return;
+      if (text2.trim()) {
         flushBoundary();
         atStart = false;
       }
-      out.push(escText(text));
+      out.push(escText(text2));
     };
     const closeTo = (name) => {
       const i = open2.lastIndexOf(name);
@@ -340,7 +349,7 @@
     while (open2.length) out.push(`</${open2.pop()}>`);
     return out.join("").replace(/^(?:\s|<br>)+/, "").replace(/(?:<br>|\s)+((?:<\/[bius]>)*)$/, "$1").replace(/(?:<br>){3,}/g, "<br><br>").replace(/<([bius])><\/\1>/g, "");
   }
-  var fromPlain = (text) => sanitize(escText(String(text ?? "")).replace(/\r?\n/g, "<br>"));
+  var fromPlain = (text2) => sanitize(escText(String(text2 ?? "")).replace(/\r?\n/g, "<br>"));
   var ENTITY = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
   var decode = (s) => s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e) => {
     if (e[0] === "#") {
@@ -352,7 +361,7 @@
   function toText(html) {
     const src = String(html ?? "").replace(DROP_CONTENT, "");
     let s = "", last = 0, boundary = false;
-    const text = (t) => {
+    const text2 = (t) => {
       if (!t) return;
       if (t.trim() && boundary) {
         s += "\n";
@@ -361,7 +370,7 @@
       s += t;
     };
     for (const m of src.matchAll(TOKEN)) {
-      text(src.slice(last, m.index));
+      text2(src.slice(last, m.index));
       last = m.index + m[0].length;
       const raw = m[1] ? m[1].toLowerCase() : null;
       if (raw === "br") {
@@ -369,7 +378,7 @@
         boundary = false;
       } else if (raw && BLOCK.has(raw)) boundary = true;
     }
-    text(src.slice(last));
+    text2(src.slice(last));
     return decode(s).replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
   }
   var firstLine = (html) => toText(html).split("\n").find((l) => l.trim()) || "";
@@ -413,6 +422,16 @@
   var lanesOf = (listId) => listById(listId)?.lanes || defaultLanes();
   var laneName = (listId, laneId) => lanesOf(listId).find((l) => l.id === laneId)?.name || laneId;
   var firstLane = (listId) => (lanesOf(listId).find((l) => l.id !== DONE_LANE) || lanesOf(listId)[0]).id;
+  function workLane(listId) {
+    const list3 = listById(listId);
+    if (!list3) return firstLane(listId);
+    const lane = list3.lanes.find((l) => l.id !== DONE_LANE);
+    if (lane) return lane.id;
+    const id = list3.lanes.some((l) => l.id === "backlog") ? uid() : "backlog";
+    list3.lanes.unshift({ id, name: "Backlog" });
+    return id;
+  }
+  var laneOr = (listId, laneId) => lanesOf(listId).some((l) => l.id === laneId) ? laneId : workLane(listId);
   var validLane = (listId, laneId) => lanesOf(listId).some((l) => l.id === laneId) ? laneId : firstLane(listId);
   var laneTaskCount = (listId, laneId) => S.tasks.filter((t) => t.status === "active" && t.listId === listId && t.lane === laneId).length;
   var TASK_SORTS = [
@@ -469,7 +488,9 @@
     folder: "archived",
     // which tab the folders screen shows
     folderKind: "tasks",
-    // 'tasks' | 'notes' | 'meetings' — segment inside a folder
+    // 'tasks' | 'notes' | 'meetings' | 'boards' — segment inside a folder
+    menuSlide: false,
+    // the next render of the main menu slides in from the left (swipe)
     detailId: null,
     // task id on 'detail', note id on 'note', meeting id on 'meeting'
     transcriptAll: false,
@@ -503,8 +524,23 @@
       return null;
     }
   }
+  var saveFailed = () => {
+  };
+  var saveBroken = false;
+  function setSaveFailed(fn) {
+    saveFailed = fn;
+  }
+  var write = () => localStorage.setItem(STORE_KEY, JSON.stringify(S));
   function save() {
-    localStorage.setItem(STORE_KEY, JSON.stringify(S));
+    try {
+      write();
+      saveBroken = false;
+    } catch (e) {
+      if (!saveBroken) {
+        saveBroken = true;
+        saveFailed(e);
+      }
+    }
   }
   var renderer = () => {
   };
@@ -528,26 +564,37 @@
     const v2 = read(STORE_KEY);
     if (v2) return withSettings(v2);
     const v1 = read(LEGACY_KEY);
-    const state = withSettings(v1 ? upgradeV1(v1) : seed());
-    localStorage.setItem(STORE_KEY, JSON.stringify(state));
-    return state;
+    const state3 = withSettings(v1 ? upgradeV1(v1) : seed());
+    localStorage.setItem(STORE_KEY, JSON.stringify(state3));
+    return state3;
   }
-  function withSettings(state) {
-    state.theme ??= "system";
-    state.priorities ??= defaultPriorities();
-    state.labels ??= [];
-    state.notes ??= [];
-    state.notesSort ??= "created-desc";
-    if (state.sort === "due") state.sort = "due-asc";
-    else if (state.sort === "priority") state.sort = "priority-desc";
-    else if (!TASK_SORTS.some(([v]) => v === state.sort)) state.sort = "manual";
-    state.lists.forEach((l) => {
+  function withSettings(state3) {
+    state3.theme ??= "system";
+    state3.priorities ??= defaultPriorities();
+    state3.labels ??= [];
+    state3.notes ??= [];
+    state3.notesSort ??= "created-desc";
+    if (state3.sort === "due") state3.sort = "due-asc";
+    else if (state3.sort === "priority") state3.sort = "priority-desc";
+    else if (!TASK_SORTS.some(([v]) => v === state3.sort)) state3.sort = "manual";
+    state3.lists.forEach((l) => {
       l.lanes ??= defaultLanes();
+      const i = l.lanes.findIndex((x) => x.id === DONE_LANE);
+      if (i !== -1 && i !== l.lanes.length - 1) l.lanes.push(...l.lanes.splice(i, 1));
+      if (l.status !== "archived" && l.status !== "deleted") l.status = "active";
+      l.archivedAt = l.status === "archived" ? l.archivedAt ?? Date.now() : null;
+      l.deletedAt = l.status === "deleted" ? l.deletedAt ?? Date.now() : null;
     });
-    state.meetings ??= [];
-    if (!MEETINGS_SORTS.some(([v]) => v === state.meetingsSort)) state.meetingsSort = "created-desc";
-    state.ai = { proxyUrl: null, disclosed: false, consented: false, ...state.ai || {} };
-    state.plan = {
+    if (state3.lists.length && !state3.lists.some((l) => l.status === "active")) {
+      Object.assign(state3.lists[0], { status: "active", archivedAt: null, deletedAt: null });
+    }
+    if (state3.lists.length && state3.lists.find((l) => l.id === state3.currentList)?.status !== "active") {
+      state3.currentList = state3.lists.find((l) => l.status === "active").id;
+    }
+    state3.meetings ??= [];
+    if (!MEETINGS_SORTS.some(([v]) => v === state3.meetingsSort)) state3.meetingsSort = "created-desc";
+    state3.ai = { proxyUrl: null, disclosed: false, consented: false, ...state3.ai || {} };
+    state3.plan = {
       tier: "free",
       subscriberId: uid() + uid(),
       renewsAt: null,
@@ -556,36 +603,36 @@
       summariesLeft: 0,
       summariesTotal: 0,
       checkedAt: 0,
-      ...state.plan || {}
+      ...state3.plan || {}
     };
-    if (!PLAN_TIERS.includes(state.plan.tier)) state.plan.tier = "free";
-    if (!isDateFormat(state.dateFormat)) state.dateFormat = defaultDateFormat();
-    setDefaultDateFormat(state.dateFormat);
-    return state;
+    if (!PLAN_TIERS.includes(state3.plan.tier)) state3.plan.tier = "free";
+    if (!isDateFormat(state3.dateFormat)) state3.dateFormat = defaultDateFormat();
+    setDefaultDateFormat(state3.dateFormat);
+    return state3;
   }
   function upgradeV1(v1) {
-    const now = Date.now();
+    const now2 = Date.now();
     return {
       ...v1,
       version: 2,
       tasks: (v1.tasks || []).map((t) => {
-        const time = V1_REMINDER_TIME[t.reminder];
-        const hasSchedule = !!(t.due && time);
+        const time2 = V1_REMINDER_TIME[t.reminder];
+        const hasSchedule = !!(t.due && time2);
         const task = {
           ...blankTask(t.listId, t.title),
           ...t,
-          dueTime: hasSchedule ? time : null,
+          dueTime: hasSchedule ? time2 : null,
           reminder: hasSchedule ? 0 : null,
-          createdAt: now,
-          updatedAt: now
+          createdAt: now2,
+          updatedAt: now2
         };
-        armReminder(task, now);
+        armReminder(task, now2);
         return task;
       })
     };
   }
   function blankTask(listId, title, extra = {}) {
-    const now = Date.now();
+    const now2 = Date.now();
     return {
       id: uid(),
       listId,
@@ -602,6 +649,8 @@
       recur: "none",
       reminder: null,
       reminderFiredAt: null,
+      recurDay: null,
+      // day of the month a monthly / yearly series is set for (BUG-06)
       completedCount: 0,
       lastCompletedAt: null,
       status: "active",
@@ -610,13 +659,13 @@
       origin: null,
       from: null,
       // { meetingId, actionId } when made from an action card (1.5.0)
-      createdAt: now,
-      updatedAt: now,
+      createdAt: now2,
+      updatedAt: now2,
       ...extra
     };
   }
   function blankNote(extra = {}) {
-    const now = Date.now();
+    const now2 = Date.now();
     return {
       id: uid(),
       order: 0,
@@ -628,18 +677,18 @@
       status: "active",
       archivedAt: null,
       deletedAt: null,
-      createdAt: now,
-      updatedAt: now,
+      createdAt: now2,
+      updatedAt: now2,
       ...extra
     };
   }
   function blankMeeting(extra = {}) {
-    const now = Date.now();
+    const now2 = Date.now();
     return {
       id: uid(),
       title: "",
-      createdAt: now,
-      updatedAt: now,
+      createdAt: now2,
+      updatedAt: now2,
       recording: null,
       transcript: null,
       minutes: null,
@@ -723,16 +772,28 @@
   }
   var listById = (id) => S.lists.find((l) => l.id === id);
   var taskById = (id) => S.tasks.find((t) => t.id === id);
-  var active = () => S.tasks.filter((t) => t.status === "active");
+  var isLive = (l) => !!l && (l.status ?? "active") === "active";
+  var activeLists = () => S.lists.filter(isLive);
+  var folderBoards = (status2) => {
+    const key = status2 === "archived" ? "archivedAt" : "deletedAt";
+    return S.lists.filter((l) => l.status === status2).sort((a, b) => b[key] - a[key]);
+  };
+  var boardCardCount = (listId) => S.tasks.filter((t) => t.listId === listId && t.status === "active").length;
+  var active = () => {
+    const away = new Set(S.lists.filter((l) => !isLive(l)).map((l) => l.id));
+    return S.tasks.filter((t) => t.status === "active" && !away.has(t.listId));
+  };
   var tasksOf = (listId) => active().filter((t) => t.listId === listId);
   var openCount = (listId) => tasksOf(listId).filter((t) => !t.done).length;
-  function folderTasks(status) {
-    const key = status === "archived" ? "archivedAt" : "deletedAt";
-    return S.tasks.filter((t) => t.status === status).sort((a, b) => b[key] - a[key]);
+  var isGone = (x) => x.status === "deleted" || x.listId !== void 0 && listById(x.listId)?.status === "deleted";
+  function folderTasks(status2) {
+    const key = status2 === "archived" ? "archivedAt" : "deletedAt";
+    return S.tasks.filter((t) => t.status === status2).sort((a, b) => b[key] - a[key]);
   }
-  var tagged = () => [...S.tasks, ...S.notes].filter((x) => x.status !== "deleted");
+  var tagged = () => [...S.tasks, ...S.notes].filter((x) => !isGone(x));
   var allTags = () => normalizeTags([...S.labels, ...tagged().flatMap((x) => x.tags)]);
   var sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
+  var tagUseCount = (name) => tagged().filter((x) => x.tags.some((t) => sameTag(t, name))).length;
   var noteById = (id) => S.notes.find((n) => n.id === id);
   var activeNotes = () => S.notes.filter((n) => n.status === "active");
   function sortedNotes(sort = S.notesSort) {
@@ -751,9 +812,9 @@
   function noteTitle(n) {
     return n.title.trim() || toText(n.body).split("\n").find((l) => l.trim())?.trim() || (n.checklist || []).map((c) => c.text.trim()).find(Boolean) || "Untitled";
   }
-  function folderNotes(status) {
-    const key = status === "archived" ? "archivedAt" : "deletedAt";
-    return S.notes.filter((n) => n.status === status).sort((a, b) => b[key] - a[key]);
+  function folderNotes(status2) {
+    const key = status2 === "archived" ? "archivedAt" : "deletedAt";
+    return S.notes.filter((n) => n.status === status2).sort((a, b) => b[key] - a[key]);
   }
   var meetingById = (id) => S.meetings.find((m) => m.id === id);
   var activeMeetings = () => S.meetings.filter((m) => m.status === "active");
@@ -766,9 +827,9 @@
     }
     return ms;
   }
-  function folderMeetings(status) {
-    const key = status === "archived" ? "archivedAt" : "deletedAt";
-    return S.meetings.filter((m) => m.status === status).sort((a, b) => b[key] - a[key]);
+  function folderMeetings(status2) {
+    const key = status2 === "archived" ? "archivedAt" : "deletedAt";
+    return S.meetings.filter((m) => m.status === status2).sort((a, b) => b[key] - a[key]);
   }
   var actionCounts = (m) => ({
     proposed: m.actions.filter((a) => a.status === "proposed").length,
@@ -776,15 +837,15 @@
   });
   var minutesStale = (m) => !!(m.minutes && m.transcript && m.transcript.updatedAt > m.minutes.transcriptUpdatedAt);
   var meetingIsEmpty = (m) => !m.recording && !m.transcript && !m.title.trim();
-  var folderCount = (status) => folderTasks(status).length + folderNotes(status).length + folderMeetings(status).length;
+  var folderCount = (status2) => folderTasks(status2).length + folderNotes(status2).length + folderMeetings(status2).length + folderBoards(status2).length;
   var tagUseCounts = (name) => ({
-    tasks: S.tasks.filter((t) => t.status !== "deleted" && t.tags.some((x) => sameTag(x, name))).length,
+    tasks: S.tasks.filter((t) => !isGone(t) && t.tags.some((x) => sameTag(x, name))).length,
     notes: S.notes.filter((n) => n.status !== "deleted" && n.tags.some((x) => sameTag(x, name))).length
   });
   var priorityById = (id) => S.priorities.find((p) => p.id === id);
   var priorityIdByName = (name) => S.priorities.find((p) => p.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.id || "none";
   var priorityName = (id) => priorityById(id)?.name || "None";
-  var priorityUseCount = (id) => S.tasks.filter((t) => t.status !== "deleted" && t.priority === id).length;
+  var priorityUseCount = (id) => S.tasks.filter((t) => !isGone(t) && t.priority === id).length;
   function sortedTasks(listId) {
     const n = S.priorities.length;
     const rank = (p) => {
@@ -818,6 +879,15 @@
       UI.screen = "list";
     }
   };
+  var doneOrigin = /* @__PURE__ */ new Map();
+  var rememberOrigin = (t) => {
+    if (t.lane !== DONE_LANE) doneOrigin.set(t.id, { listId: t.listId, lane: t.lane });
+  };
+  function reopenLane(t) {
+    const o = doneOrigin.get(t.id);
+    doneOrigin.delete(t.id);
+    return o && o.listId === t.listId && o.lane !== DONE_LANE && lanesOf(t.listId).some((l) => l.id === o.lane) ? o.lane : workLane(t.listId);
+  }
   function toggleDone(id) {
     const t = taskById(id);
     if (!t) return;
@@ -825,12 +895,14 @@
       rollForward(id);
       return;
     }
-    t.done = !t.done;
-    if (t.done) {
+    if (!t.done) {
+      rememberOrigin(t);
+      t.done = true;
       t.lane = DONE_LANE;
       S.lastAuto = Date.now();
     } else {
-      if (t.lane === DONE_LANE) t.lane = firstLane(t.listId);
+      t.done = false;
+      if (t.lane === DONE_LANE) t.lane = reopenLane(t);
       armReminder(t);
     }
     touch(t);
@@ -848,12 +920,14 @@
   function moveToLane(id, lane) {
     const t = taskById(id);
     if (!t || !lane) return;
-    lane = validLane(t.listId, lane);
+    if (!lanesOf(t.listId).some((l) => l.id === lane)) lane = workLane(t.listId);
     if (lane === DONE_LANE && t.recur !== "none" && t.due) {
       rollForward(id);
       return;
     }
     const wasDone = t.done;
+    if (lane === DONE_LANE) rememberOrigin(t);
+    else doneOrigin.delete(t.id);
     t.lane = lane;
     t.done = lane === "done";
     if (wasDone && !t.done) armReminder(t);
@@ -869,10 +943,11 @@
       dueTime: draft2.dueTime || null,
       recur: draft2.recur || "none",
       reminder: draft2.reminder ?? null,
-      lane: validLane(draft2.listId, draft2.lane || firstLane(draft2.listId)),
+      lane: draft2.lane && lanesOf(draft2.listId).some((l) => l.id === draft2.lane) ? draft2.lane : workLane(draft2.listId),
       order: nextOrder(),
       from: draft2.from || null
     });
+    t.recurDay = anchorDayOf(t.due, t.recur);
     t.done = t.lane === DONE_LANE;
     armReminder(t);
     S.tasks.push(t);
@@ -915,15 +990,15 @@
       UI.screen = "notes";
     }
   };
-  function updateNote(id, patch) {
+  function updateNote(id, patch2) {
     const n = noteById(id);
     if (!n || n.status !== "active") return;
-    if (patch.title !== void 0) n.title = String(patch.title);
-    if (patch.body !== void 0) n.body = sanitize(patch.body);
-    if (patch.color !== void 0) n.color = NOTE_COLORS.includes(patch.color) ? patch.color : null;
-    if (patch.tags !== void 0) n.tags = normalizeTags(patch.tags);
-    if (patch.checklist !== void 0) {
-      n.checklist = patch.checklist === null ? null : patch.checklist.map((c) => ({ id: c.id || uid(), text: String(c.text ?? ""), done: !!c.done }));
+    if (patch2.title !== void 0) n.title = String(patch2.title);
+    if (patch2.body !== void 0) n.body = sanitize(patch2.body);
+    if (patch2.color !== void 0) n.color = NOTE_COLORS.includes(patch2.color) ? patch2.color : null;
+    if (patch2.tags !== void 0) n.tags = normalizeTags(patch2.tags);
+    if (patch2.checklist !== void 0) {
+      n.checklist = patch2.checklist === null ? null : patch2.checklist.map((c) => ({ id: c.id || uid(), text: String(c.text ?? ""), done: !!c.done }));
     }
     touchNote(n);
     persistQuiet();
@@ -1064,10 +1139,10 @@
     commit();
     return m;
   }
-  function updateMeeting(id, patch) {
+  function updateMeeting(id, patch2) {
     const m = meetingById(id);
     if (!m || m.status !== "active") return;
-    if (patch.title !== void 0) m.title = String(patch.title);
+    if (patch2.title !== void 0) m.title = String(patch2.title);
     touchMeeting(m);
     persistQuiet();
   }
@@ -1087,14 +1162,14 @@
   function setTranscript(id, { source, fileName = null, segments, speakers }) {
     const m = meetingById(id);
     if (!m || m.status !== "active") return;
-    const now = Date.now();
+    const now2 = Date.now();
     m.transcript = {
       source,
       fileName,
       segments: segments.map((s) => ({ id: s.id || uid(), speaker: s.speaker, startMs: s.startMs ?? null, text: String(s.text ?? "").trim() })).filter((s) => s.text),
       speakers: { ...speakers },
-      createdAt: now,
-      updatedAt: now
+      createdAt: now2,
+      updatedAt: now2
     };
     m.minutes = null;
     m.actions = m.actions.filter((a) => a.status === "added");
@@ -1115,12 +1190,12 @@
   function setMinutes(id, minutes, actions = []) {
     const m = meetingById(id);
     if (!m || !m.transcript) return;
-    const now = Date.now();
+    const now2 = Date.now();
     m.minutes = {
       summary: String(minutes?.summary ?? "").trim(),
       decisions: (minutes?.decisions || []).map((x) => String(x).trim()).filter(Boolean),
       openQuestions: (minutes?.openQuestions || []).map((x) => String(x).trim()).filter(Boolean),
-      generatedAt: now,
+      generatedAt: now2,
       transcriptUpdatedAt: m.transcript.updatedAt
     };
     m.actions = [
@@ -1139,20 +1214,20 @@
     touchMeeting(m);
     commit();
   }
-  function editMinutes(id, patch) {
+  function editMinutes(id, patch2) {
     const m = meetingById(id);
     if (!m?.minutes || m.status !== "active") return;
-    if (patch.summary !== void 0) m.minutes.summary = String(patch.summary);
-    if (patch.decisions !== void 0) m.minutes.decisions = patch.decisions.map((x) => String(x));
-    if (patch.openQuestions !== void 0) m.minutes.openQuestions = patch.openQuestions.map((x) => String(x));
+    if (patch2.summary !== void 0) m.minutes.summary = String(patch2.summary);
+    if (patch2.decisions !== void 0) m.minutes.decisions = patch2.decisions.map((x) => String(x));
+    if (patch2.openQuestions !== void 0) m.minutes.openQuestions = patch2.openQuestions.map((x) => String(x));
     touchMeeting(m);
     persistQuiet();
   }
-  function setJobState(id, patch) {
+  function setJobState(id, patch2) {
     const m = meetingById(id);
     if (!m) return;
-    if (patch.jobs !== void 0) m.jobs = patch.jobs;
-    if (patch.lastError !== void 0) m.lastError = patch.lastError;
+    if (patch2.jobs !== void 0) m.jobs = patch2.jobs;
+    if (patch2.lastError !== void 0) m.lastError = patch2.lastError;
     commit();
   }
   function setPlanCache(a) {
@@ -1192,13 +1267,13 @@
     commit();
   }
   var actionOf = (m, actionId) => m?.actions.find((a) => a.id === actionId);
-  function editAction(id, actionId, patch) {
+  function editAction(id, actionId, patch2) {
     const m = meetingById(id);
     const a = actionOf(m, actionId);
     if (!a || a.status !== "proposed") return;
-    if (patch.title !== void 0) a.title = String(patch.title);
-    if (patch.due !== void 0) a.due = patch.due || null;
-    if (patch.priority !== void 0) a.priority = priorityById(patch.priority) ? patch.priority : "none";
+    if (patch2.title !== void 0) a.title = String(patch2.title);
+    if (patch2.due !== void 0) a.due = patch2.due || null;
+    if (patch2.priority !== void 0) a.priority = priorityById(patch2.priority) ? patch2.priority : "none";
     touchMeeting(m);
     persistQuiet();
   }
@@ -1212,18 +1287,18 @@
     commit();
     return prev;
   }
-  function restoreAction(id, actionId, status = "proposed") {
+  function restoreAction(id, actionId, status2 = "proposed") {
     const m = meetingById(id);
     const a = actionOf(m, actionId);
     if (!a || a.status !== "dismissed") return;
-    a.status = status === "added" && a.taskId ? "added" : "proposed";
+    a.status = status2 === "added" && a.taskId ? "added" : "proposed";
     touchMeeting(m);
     commit();
   }
   function addActionToBoard(id, actionId, draft2) {
     const m = meetingById(id);
     const a = actionOf(m, actionId);
-    if (!a || a.status !== "proposed" || !listById(draft2.listId)) return null;
+    if (!a || a.status !== "proposed" || !isLive(listById(draft2.listId))) return null;
     a.title = String(draft2.title ?? a.title).trim() || a.title;
     const t = addTask({ ...draft2, title: a.title, from: { meetingId: id, actionId } });
     a.status = "added";
@@ -1234,11 +1309,11 @@
     commit();
     return t;
   }
-  function editSegment(id, segmentId, text) {
+  function editSegment(id, segmentId, text2) {
     const m = meetingById(id);
     const seg = m?.transcript?.segments.find((s) => s.id === segmentId);
     if (!seg || m.status !== "active") return;
-    const t = String(text ?? "").trim();
+    const t = String(text2 ?? "").trim();
     if (!t || t === seg.text) return;
     seg.text = t;
     m.transcript.updatedAt = Date.now();
@@ -1313,31 +1388,33 @@
     touch(t);
     commit();
   }
-  function armReminder(t, now = Date.now()) {
+  function armReminder(t, now2 = Date.now()) {
     const at = reminderInstant(t.due, t.dueTime, t.reminder);
-    t.reminderFiredAt = at !== null && at <= now ? now : null;
+    t.reminderFiredAt = at !== null && at <= now2 ? now2 : null;
   }
   function markReminderFired(id, at = Date.now()) {
     const t = taskById(id);
     if (t) t.reminderFiredAt = at;
     try {
-      const doc = JSON.parse(localStorage.getItem(STORE_KEY));
-      const stored = doc?.tasks?.find((x) => x.id === id);
+      const doc2 = JSON.parse(localStorage.getItem(STORE_KEY));
+      const stored = doc2?.tasks?.find((x) => x.id === id);
       if (stored && stored.reminderFiredAt !== at) {
         stored.reminderFiredAt = at;
-        localStorage.setItem(STORE_KEY, JSON.stringify(doc));
+        localStorage.setItem(STORE_KEY, JSON.stringify(doc2));
       }
     } catch {
     }
   }
-  function setSchedule(id, { start = null, due = null, dueTime = null, recur = "none", reminder = null }) {
+  function setSchedule(id, { start: start2 = null, due = null, dueTime = null, recur = "none", reminder = null }) {
     const t = taskById(id);
     if (!t) return;
     const before = reminderKey(t);
+    const was = { due: t.due, recur: t.recur };
     t.due = due || null;
     t.dueTime = t.due ? dueTime || null : null;
-    t.start = start && (!t.due || start <= t.due) ? start : null;
+    t.start = start2 && (!t.due || start2 <= t.due) ? start2 : null;
     t.recur = t.due ? recur : "none";
+    if (t.due !== was.due || t.recur !== was.recur || !t.recurDay) t.recurDay = anchorDayOf(t.due, t.recur);
     t.reminder = t.due ? reminder : null;
     if (reminderKey(t) !== before) armReminder(t);
     touch(t);
@@ -1355,7 +1432,7 @@
       lastCompletedAt: t.lastCompletedAt,
       reminderFiredAt: t.reminderFiredAt
     };
-    const nextDue = nextOccurrence(t.due, t.recur);
+    const nextDue = nextOccurrence(t.due, t.recur, void 0, t.recurDay);
     if (t.start) t.start = addDays(t.start, daysBetween(t.due, nextDue));
     t.due = nextDue;
     armReminder(t);
@@ -1384,11 +1461,16 @@
   }
   function moveTask(id, listId, lane) {
     const t = taskById(id);
-    if (!t || !listById(listId)) return;
-    lane = validLane(listId, lane);
-    if (lane === DONE_LANE && t.recur !== "none" && t.due) lane = validLane(listId, t.lane);
+    if (!t || !isLive(listById(listId))) return;
+    lane = laneOr(listId, lane);
+    if (lane === DONE_LANE && t.recur !== "none" && t.due) {
+      lane = laneOr(listId, t.lane);
+      if (lane === DONE_LANE) lane = workLane(listId);
+    }
     if (t.listId === listId && t.lane === lane) return;
     const wasDone = t.done;
+    if (lane === DONE_LANE && t.listId === listId) rememberOrigin(t);
+    else doneOrigin.delete(t.id);
     t.listId = listId;
     t.lane = lane;
     t.order = nextOrder();
@@ -1400,8 +1482,8 @@
   }
   function copyTask(id, listId, lane) {
     const t = taskById(id);
-    if (!t || !listById(listId)) return null;
-    lane = validLane(listId, lane);
+    if (!t || !isLive(listById(listId))) return null;
+    lane = laneOr(listId, lane);
     const copy = blankTask(listId, t.title, {
       lane,
       done: lane === DONE_LANE,
@@ -1413,63 +1495,192 @@
       due: t.due,
       dueTime: t.dueTime,
       recur: t.recur,
-      reminder: t.reminder
+      reminder: t.reminder,
+      recurDay: t.recurDay ?? null
     });
     armReminder(copy);
     S.tasks.push(copy);
     commit();
     return copy;
   }
-  function newList() {
-    const name = prompt("New board name");
-    if (!name || !name.trim()) return;
-    const list2 = { id: uid(), name: name.trim(), lanes: defaultLanes() };
-    S.lists.push(list2);
-    S.currentList = list2.id;
+  function nameTaken(kind, name, { listId = null, except = null } = {}) {
+    const n = String(name ?? "").trim().toLowerCase();
+    const pool = kind === "board" ? S.lists.filter((l) => l.status === "active") : kind === "lane" ? listById(listId)?.lanes || [] : S.priorities;
+    return !!n && pool.some((x) => x.id !== except && x.name.trim().toLowerCase() === n);
+  }
+  function addList(name, { id = uid(), share = null } = {}) {
+    const n = String(name ?? "").trim();
+    if (!n) return null;
+    const list3 = { id, name: n, lanes: defaultLanes(), status: "active", archivedAt: null, deletedAt: null, ...share ? { share } : {} };
+    S.lists.push(list3);
+    S.currentList = list3.id;
     UI.screen = "list";
+    commit();
+    return list3;
+  }
+  function reorderList(id, beforeId = null) {
+    const i = S.lists.findIndex((l2) => l2.id === id);
+    if (i === -1 || id === beforeId) return;
+    const [l] = S.lists.splice(i, 1);
+    const j = beforeId ? S.lists.findIndex((x) => x.id === beforeId) : -1;
+    S.lists.splice(j === -1 ? S.lists.length : j, 0, l);
+    commit();
+  }
+  function setShares(shares) {
+    let changed = false;
+    for (const l of S.lists) {
+      const next = shares[l.id];
+      if (l.share && next && JSON.stringify(next) !== JSON.stringify(l.share)) {
+        l.share = next;
+        changed = true;
+      }
+    }
+    if (changed) commit();
+  }
+  function removeSharedBoard(id) {
+    const l = listById(id);
+    if (!l) return false;
+    S.tasks = S.tasks.filter((t) => t.listId !== id);
+    S.lists = S.lists.filter((x) => x.id !== id);
+    if (!S.lists.length) S.lists.push({ id: uid(), name: "Board", lanes: defaultLanes(), status: "active", archivedAt: null, deletedAt: null });
+    if (S.currentList === id) S.currentList = activeLists()[0].id;
+    if (UI.screen === "detail" && !taskById(UI.detailId)) {
+      UI.detailId = null;
+      UI.screen = "list";
+    }
+    commit();
+    return true;
+  }
+  function unshare(id) {
+    const l = listById(id);
+    if (!l?.share) return;
+    delete l.share;
+    commit();
+  }
+  var canRemoveList = (id) => activeLists().some((l) => l.id !== id);
+  function binList(id, status2) {
+    const l = listById(id);
+    if (!l || l.status === status2 || isLive(l) && !canRemoveList(id)) return null;
+    const prev = { status: l.status ?? "active", archivedAt: l.archivedAt ?? null };
+    const now2 = Date.now();
+    l.status = status2;
+    l.archivedAt = status2 === "archived" ? now2 : null;
+    l.deletedAt = status2 === "deleted" ? now2 : null;
+    if (S.currentList === id) S.currentList = activeLists()[0].id;
+    if (UI.screen === "detail" && taskById(UI.detailId)?.listId === id) {
+      UI.detailId = null;
+      UI.screen = "list";
+    }
+    commit();
+    return prev;
+  }
+  var archiveList = (id) => binList(id, "archived");
+  var softDeleteList = (id) => binList(id, "deleted");
+  function restoreList(id, { toArchive = null } = {}) {
+    const l = listById(id);
+    if (!l || isLive(l)) return;
+    if (toArchive !== null && l.status === "deleted") {
+      l.status = "archived";
+      l.archivedAt = toArchive;
+      l.deletedAt = null;
+    } else {
+      l.status = "active";
+      l.archivedAt = null;
+      l.deletedAt = null;
+      S.tasks.forEach((t) => {
+        if (t.listId === id && t.status === "active" && t.reminderFiredAt === null) armReminder(t);
+      });
+    }
+    commit();
+  }
+  function dropList(id) {
+    S.tasks = S.tasks.filter((t) => !(t.listId === id && t.status === "active"));
+    S.lists = S.lists.filter((l) => l.id !== id);
+  }
+  function deleteListForever(id) {
+    const l = listById(id);
+    if (!l || isLive(l)) return;
+    dropList(id);
     commit();
   }
   function addLane(listId, name) {
-    const list2 = listById(listId);
+    const list3 = listById(listId);
     const n = (name || "").trim();
-    if (!list2 || !n) return null;
+    if (!list3 || !n) return null;
     const lane = { id: uid(), name: n };
-    const i = list2.lanes.findIndex((l) => l.id === DONE_LANE);
-    list2.lanes.splice(i === -1 ? list2.lanes.length : i, 0, lane);
+    const i = list3.lanes.findIndex((l) => l.id === DONE_LANE);
+    list3.lanes.splice(i === -1 ? list3.lanes.length : i, 0, lane);
     commit();
     return lane;
   }
   function renameLane(listId, laneId, name) {
     const lane = listById(listId)?.lanes.find((l) => l.id === laneId);
     const n = (name || "").trim();
-    if (!lane || !n || lane.name === n) return;
+    if (!lane || laneId === DONE_LANE || !n || lane.name === n) return;
     lane.name = n;
     commit();
   }
-  function moveLane(listId, laneId, dir) {
-    const lanes = listById(listId)?.lanes;
-    if (!lanes) return;
-    const i = lanes.findIndex((l) => l.id === laneId), j = i + dir;
-    if (i === -1 || j < 0 || j >= lanes.length) return;
-    [lanes[i], lanes[j]] = [lanes[j], lanes[i]];
-    commit();
-  }
-  var canDeleteLane = (listId, laneId) => laneId !== DONE_LANE && lanesOf(listId).filter((l) => l.id !== DONE_LANE && l.id !== laneId).length > 0;
+  var canDeleteLane = (listId, laneId) => laneId !== DONE_LANE && lanesOf(listId).some((l) => l.id === laneId);
+  var laneHeir = (listId, laneId) => lanesOf(listId).find((l) => l.id !== DONE_LANE && l.id !== laneId)?.id || null;
   function deleteLane(listId, laneId) {
-    const list2 = listById(listId);
-    if (!list2 || !canDeleteLane(listId, laneId)) return null;
-    list2.lanes = list2.lanes.filter((l) => l.id !== laneId);
-    const to = firstLane(listId);
-    let moved = 0;
+    const list3 = listById(listId);
+    if (!list3 || !canDeleteLane(listId, laneId)) return null;
+    const to = laneHeir(listId, laneId);
+    const undo = { lane: { ...list3.lanes.find((l) => l.id === laneId) }, index: list3.lanes.findIndex((l) => l.id === laneId), tasks: [] };
+    list3.lanes = list3.lanes.filter((l) => l.id !== laneId);
+    let moved = 0, binned = 0;
+    const now2 = Date.now();
     S.tasks.forEach((t) => {
-      if (t.listId === listId && t.lane === laneId) {
-        t.lane = to;
-        if (t.status === "active") moved += 1;
+      if (t.listId === listId && (t.lane === laneId || t.origin?.listId === listId && t.origin.lane === laneId)) {
+        undo.tasks.push({ id: t.id, lane: t.lane, status: t.status, deletedAt: t.deletedAt, archivedAt: t.archivedAt, origin: t.origin ? { ...t.origin } : null });
       }
-      if (t.origin?.listId === listId && t.origin.lane === laneId) t.origin.lane = to;
+      if (t.listId === listId && t.lane === laneId) {
+        if (to) {
+          t.lane = to;
+          if (t.status === "active") moved += 1;
+        } else if (t.status === "active") {
+          snapshotOrigin(t);
+          t.status = "deleted";
+          t.deletedAt = now2;
+          t.archivedAt = null;
+          leaveDetail(t.id);
+          touch(t);
+          binned += 1;
+        }
+      }
+      if (to && t.origin?.listId === listId && t.origin.lane === laneId) t.origin.lane = to;
     });
     commit();
-    return moved;
+    return { moved, binned, to, undo };
+  }
+  function restoreLane(listId, undo) {
+    const list3 = listById(listId);
+    if (!list3 || !undo?.lane || list3.lanes.some((l) => l.id === undo.lane.id)) return false;
+    const done2 = list3.lanes.findIndex((l) => l.id === DONE_LANE);
+    const at = Math.min(undo.index, done2 === -1 ? list3.lanes.length : done2);
+    list3.lanes.splice(Math.max(0, at), 0, { ...undo.lane });
+    undo.tasks.forEach((u) => {
+      const t = taskById(u.id);
+      if (!t || t.listId !== listId) return;
+      Object.assign(t, { lane: u.lane, status: u.status, deletedAt: u.deletedAt, archivedAt: u.archivedAt, origin: u.origin ? { ...u.origin } : null });
+      touch(t);
+    });
+    commit();
+    return true;
+  }
+  function reorderLane(listId, laneId, index) {
+    const list3 = listById(listId);
+    if (!list3 || laneId === DONE_LANE) return;
+    const lane = list3.lanes.find((l) => l.id === laneId);
+    if (!lane) return;
+    const others = list3.lanes.filter((l) => l.id !== laneId && l.id !== DONE_LANE);
+    const done2 = list3.lanes.find((l) => l.id === DONE_LANE);
+    const i = Math.max(0, Math.min(others.length, index));
+    others.splice(i, 0, lane);
+    const next = done2 ? [...others, done2] : others;
+    if (next.every((l, k) => l === list3.lanes[k])) return;
+    list3.lanes = next;
+    commit();
   }
   function setTheme(theme) {
     if (!THEMES.includes(theme) || S.theme === theme) return;
@@ -1579,9 +1790,9 @@
     const t = taskById(id);
     if (!t || t.status === "active") return null;
     const o = t.origin || { listId: t.listId, lane: t.lane, order: t.order };
-    const fellBack = !listById(o.listId);
-    t.listId = fellBack ? S.lists[0].id : o.listId;
-    t.lane = fellBack ? firstLane(t.listId) : validLane(t.listId, o.lane);
+    const fellBack = !isLive(listById(o.listId));
+    t.listId = fellBack ? activeLists()[0].id : o.listId;
+    t.lane = !fellBack && lanesOf(t.listId).some((l) => l.id === o.lane) ? o.lane : workLane(t.listId);
     t.order = keepPosition ? o.order : nextOrder();
     t.done = t.lane === DONE_LANE;
     t.status = "active";
@@ -1598,22 +1809,132 @@
     commit();
   }
   function emptyDeleted() {
+    folderBoards("deleted").forEach((l) => dropList(l.id));
     S.tasks = S.tasks.filter((t) => t.status !== "deleted");
     S.notes = S.notes.filter((n) => n.status !== "deleted");
     dropMedia(S.meetings.filter((m) => m.status === "deleted"));
     S.meetings = S.meetings.filter((m) => m.status !== "deleted");
     commit();
   }
-  function purgeDeleted(now = Date.now()) {
-    const keep = (x) => x.status !== "deleted" || now - x.deletedAt < RETENTION_MS;
-    const before = S.tasks.length + S.notes.length + S.meetings.length;
-    S.tasks = S.tasks.filter(keep);
-    S.notes = S.notes.filter(keep);
-    dropMedia(S.meetings.filter((m) => !keep(m)));
-    S.meetings = S.meetings.filter(keep);
-    const removed = before - S.tasks.length - S.notes.length - S.meetings.length;
+  function purgeDeleted(now2 = Date.now()) {
+    const keep2 = (x) => x.status !== "deleted" || now2 - x.deletedAt < RETENTION_MS;
+    const before = S.tasks.length + S.notes.length + S.meetings.length + S.lists.length;
+    S.lists.filter((l) => !keep2(l)).forEach((l) => dropList(l.id));
+    S.tasks = S.tasks.filter(keep2);
+    S.notes = S.notes.filter(keep2);
+    dropMedia(S.meetings.filter((m) => !keep2(m)));
+    S.meetings = S.meetings.filter(keep2);
+    const removed = before - S.tasks.length - S.notes.length - S.meetings.length - S.lists.length;
     if (removed) save();
     return removed;
+  }
+  function isUntouchedSeed(state3 = S) {
+    const s = seed();
+    const titles = new Set(s.tasks.map((t) => t.title));
+    const boards = new Set(s.lists.map((l) => l.id));
+    return !state3.notes.length && !state3.meetings.length && !state3.labels.length && state3.lists.length === s.lists.length && state3.lists.every((l) => boards.has(l.id) && (l.status ?? "active") === "active") && state3.tasks.length === s.tasks.length && state3.tasks.every((t) => titles.has(t.title) && t.status === "active" && t.updatedAt === t.createdAt);
+  }
+  var KIND_LIST = { list: "lists", task: "tasks", note: "notes", meeting: "meetings" };
+  function applyRemote({ upserts = [], deletes = [] }) {
+    if (!upserts.length && !deletes.length) return;
+    const now2 = Date.now();
+    for (const { kind, record: record2 } of upserts) {
+      if (kind === "settings") {
+        if (isDateFormat(record2.dateFormat)) {
+          S.dateFormat = record2.dateFormat;
+          setDefaultDateFormat(record2.dateFormat);
+        }
+        if (record2.priorities?.length || !S.priorities.length) S.priorities = record2.priorities;
+        S.labels = record2.labels || [];
+        continue;
+      }
+      const arr = S[KIND_LIST[kind]];
+      if (!arr) continue;
+      const i = arr.findIndex((x) => x.id === record2.id);
+      if (kind === "task") {
+        const old = i === -1 ? null : arr[i];
+        if (!old || reminderKey(old) !== reminderKey(record2)) armReminder(record2, now2);
+        doneOrigin.delete(record2.id);
+      }
+      if (i === -1) arr.push(record2);
+      else arr[i] = record2;
+    }
+    for (const { kind, id } of deletes) {
+      const key = KIND_LIST[kind];
+      if (!key) continue;
+      if (kind === "meeting") dropMedia(S.meetings.filter((m) => m.id === id));
+      S[key] = S[key].filter((x) => x.id !== id);
+    }
+    if (!S.lists.length) S.lists.push({ id: uid(), name: "Board", lanes: defaultLanes() });
+    withSettings(S);
+    const gone = (id) => !taskById(id) && !noteById(id) && !meetingById(id);
+    if (["detail", "note", "meeting"].includes(UI.screen) && gone(UI.detailId)) {
+      UI.screen = UI.screen === "note" ? "notes" : UI.screen === "meeting" ? "meetings" : "list";
+      UI.detailId = null;
+    }
+    save();
+    renderer();
+    afterCommit();
+  }
+  function exportRecords() {
+    return JSON.parse(JSON.stringify({
+      lists: S.lists,
+      tasks: S.tasks,
+      notes: S.notes,
+      meetings: S.meetings,
+      settings: { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels }
+    }));
+  }
+  function replaceRecords({ lists, tasks, notes, meetings, settings: settings2 }) {
+    const before = {
+      lists: S.lists,
+      tasks: S.tasks,
+      notes: S.notes,
+      meetings: S.meetings,
+      dateFormat: S.dateFormat,
+      priorities: S.priorities,
+      labels: S.labels,
+      currentList: S.currentList
+    };
+    const mine = new Map(S.meetings.map((m) => [m.id, m]));
+    const now2 = Date.now();
+    S.lists = lists;
+    S.tasks = tasks;
+    S.tasks.forEach((t) => {
+      if (t.reminderFiredAt === null) armReminder(t, now2);
+    });
+    S.notes = notes;
+    S.meetings = meetings.map((m) => {
+      const local = mine.get(m.id);
+      return {
+        ...m,
+        recording: local?.recording ?? null,
+        jobs: local?.jobs ?? { transcribe: null, summarise: null },
+        lastError: local?.lastError ?? null
+      };
+    });
+    if (isDateFormat(settings2.dateFormat)) S.dateFormat = settings2.dateFormat;
+    S.priorities = settings2.priorities;
+    S.labels = settings2.labels;
+    withSettings(S);
+    if (!isLive(listById(S.currentList))) S.currentList = activeLists()[0].id;
+    doneOrigin.clear();
+    try {
+      write();
+    } catch (e) {
+      Object.assign(S, before);
+      withSettings(S);
+      throw e;
+    }
+    const kept = new Set(S.meetings.map((m) => m.id));
+    dropMedia(before.meetings.filter((m) => !kept.has(m.id)));
+    if (["detail", "note", "meeting"].includes(UI.screen)) UI.screen = "list";
+    UI.detailId = null;
+    UI.query = "";
+    UI.queryKey = null;
+    UI.tagFilter = null;
+    renderer();
+    afterCommit();
   }
 
   // src/notify.js
@@ -1656,9 +1977,9 @@
       } catch {
         done2();
       }
-    }).then((state) => {
-      if (state === "granted") checkNow();
-      return state;
+    }).then((state3) => {
+      if (state3 === "granted") checkNow();
+      return state3;
     });
   }
   var openTaskFn = () => {
@@ -1682,21 +2003,21 @@
     if (isNative() || checking || reminderPermission() !== "granted") return;
     checking = true;
     try {
-      const doc = readJSON(STORE_KEY) || S;
-      const now = Date.now();
-      const ledger = pruneLedger(readJSON(LEDGER_KEY) || {}, now);
+      const doc2 = readJSON(STORE_KEY) || S;
+      const now2 = Date.now();
+      const ledger = pruneLedger(readJSON(LEDGER_KEY) || {}, now2);
       const handled = { ...ledger };
-      for (const k of handledHere) handled[k] = now;
-      const { fire, lapse } = dueForWeb(planReminders(doc.tasks || [], doc.lists || []), now, handled);
+      for (const k of handledHere) handled[k] = now2;
+      const { fire, lapse } = dueForWeb(planReminders(doc2.tasks || [], doc2.lists || []), now2, handled);
       if (!fire.length && !lapse.length) return;
       for (const e of [...fire, ...lapse]) {
         handledHere.add(ledgerKey(e));
-        ledger[ledgerKey(e)] = now;
-        markReminderFired(e.taskId, now);
+        ledger[ledgerKey(e)] = now2;
+        markReminderFired(e.taskId, now2);
       }
       writeJSON(LEDGER_KEY, ledger);
       if (fire.length >= SUMMARY_AT) {
-        await show({ ...summaryText(fire), tag: `reminders:${now}`, taskId: fire[0].taskId });
+        await show({ ...summaryText(fire), tag: `reminders:${now2}`, taskId: fire[0].taskId });
       } else {
         for (const e of fire) await show({ title: e.title, body: e.body, tag: `reminder:${ledgerKey(e)}`, taskId: e.taskId });
       }
@@ -1726,7 +2047,7 @@
   }
   function startWebClock() {
     if (typeof Notification === "undefined" || reminderPermission() === "file") return;
-    const run = () => {
+    const run2 = () => {
       checkNow();
       setInterval(checkNow, CHECK_MS);
       document.addEventListener("visibilitychange", () => {
@@ -1736,8 +2057,8 @@
       addEventListener("pageshow", checkNow);
     };
     if (navigator.locks?.request) {
-      navigator.locks.request("stackd-reminder-clock", () => new Promise(() => run())).catch(run);
-    } else run();
+      navigator.locks.request("stackd-reminder-clock", () => new Promise(() => run2())).catch(run2);
+    } else run2();
   }
   var syncing = null;
   var dirty = false;
@@ -1767,16 +2088,16 @@
     const pending = (await ln.getPending())?.notifications || [];
     const record2 = readJSON(SCHEDULED_KEY) || {};
     const pendingByTask = new Map(pending.filter((p) => p.extra?.taskId).map((p) => [p.extra.taskId, p]));
-    let now = Date.now();
-    for (const d of deliveredSince(record2, new Set(pendingByTask.keys()), S.tasks, now)) markReminderFired(d.taskId, d.fireAt);
+    let now2 = Date.now();
+    for (const d of deliveredSince(record2, new Set(pendingByTask.keys()), S.tasks, now2)) markReminderFired(d.taskId, d.fireAt);
     let plan = planReminders(S.tasks, S.lists);
     const held = heldRequests(plan, pendingByTask, record2);
-    for (const e of pastUnfired(plan, now)) {
-      if (!held.has(e.taskId) && !isTimely(e, now)) markReminderFired(e.taskId, now);
+    for (const e of pastUnfired(plan, now2)) {
+      if (!held.has(e.taskId) && !isTimely(e, now2)) markReminderFired(e.taskId, now2);
     }
-    now = Date.now();
+    now2 = Date.now();
     plan = planReminders(S.tasks, S.lists);
-    const desired = nativePlan(plan, now, held);
+    const desired = nativePlan(plan, now2, held);
     const { cancel, schedule } = diffNative(desired, pending, { allowSchedule: granted });
     if (cancel.length) await ln.cancel({ notifications: cancel.map((id) => ({ id })) });
     if (schedule.length) await ln.schedule({ notifications: schedule.map((e) => nativeNotification(e, Date.now())) });
@@ -1812,13 +2133,37 @@
   // src/theme.js
   var systemDark = window.matchMedia("(prefers-color-scheme: dark)");
   var resolvedTheme = () => S.theme === "light" || S.theme === "dark" ? S.theme : systemDark.matches ? "dark" : "light";
+  var toldNative = "";
   function applyTheme() {
     const theme = resolvedTheme();
-    if (document.documentElement.dataset.theme === theme) return;
-    document.documentElement.dataset.theme = theme;
-    document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
-      m.content = theme === "dark" ? "#0b0f19" : "#f4f7f9";
+    if (document.documentElement.dataset.theme !== theme) {
+      document.documentElement.dataset.theme = theme;
+      document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+        m.content = theme === "dark" ? "#0b0f19" : "#f4f7f9";
+      });
+    }
+    const setting = S.theme === "light" || S.theme === "dark" ? S.theme : "system";
+    if (toldNative === `${setting}/${theme}`) return;
+    toldNative = `${setting}/${theme}`;
+    document.documentElement.dataset.themeSetting = setting;
+    globalThis.webkit?.messageHandlers?.stackdTheme?.postMessage(setting);
+    globalThis.Capacitor?.Plugins?.Keyboard?.setStyle?.({ style: theme === "dark" ? "DARK" : "LIGHT" })?.catch?.(() => {
     });
+  }
+
+  // src/haptics.js
+  var plugin2 = () => globalThis.Capacitor?.Plugins?.Haptics;
+  function buzz(style = "MEDIUM") {
+    const h = plugin2();
+    if (typeof h?.impact === "function") {
+      Promise.resolve(h.impact({ style })).catch(() => {
+      });
+      return;
+    }
+    try {
+      navigator.vibrate?.(style === "HEAVY" ? 40 : style === "LIGHT" ? 10 : 20);
+    } catch {
+    }
   }
 
   // src/ui/icons.js
@@ -1865,6 +2210,8 @@
     stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>',
     play: '<path d="m6 3 14 9-14 9V3z" fill="currentColor"/>',
     pause: '<rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
     document: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
     sparkle: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',
     attach: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
@@ -1875,39 +2222,337 @@
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${PATHS[name]}</svg>`;
   }
 
+  // src/ui/gestures.js
+  var HOLD_MS = 350;
+  var ARM_MS = 1200;
+  var SLOP = 8;
+  var TOUCH_SLOP = 10;
+  var EDGE = 56;
+  var armed = null;
+  function disarm() {
+    if (!armed) return;
+    armed.el.classList.remove("is-armed");
+    armed.bar.remove();
+    armed = null;
+  }
+  document.addEventListener("pointerdown", (e) => {
+    if (armed && !armed.el.contains(e.target)) disarm();
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") disarm();
+  });
+  function arm(el, buttons) {
+    disarm();
+    if (!buttons.length) return;
+    const bar2 = document.createElement("span");
+    bar2.className = "hold-bar";
+    buttons.forEach((b) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "hold-del";
+      btn.setAttribute("aria-label", b.label);
+      btn.innerHTML = icon(b.icon, 14);
+      btn.addEventListener("pointerdown", (e) => e.stopPropagation());
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        disarm();
+        b.onClick();
+      });
+      btn.addEventListener("keydown", (e) => e.stopPropagation());
+      bar2.appendChild(btn);
+    });
+    el.classList.add("is-armed");
+    el.appendChild(bar2);
+    armed = { el, bar: bar2 };
+    buzz("MEDIUM");
+  }
+  function bindHold(el, {
+    ignore = "",
+    ghostClass = "",
+    canDrag = () => true,
+    scroller = () => null,
+    axis = "x",
+    onTap = null,
+    onDragMove = null,
+    onDragEnd = null,
+    onDrop = null,
+    armButtons = null
+  } = {}) {
+    let lastTouch = false;
+    el.addEventListener("contextmenu", (e) => {
+      if (lastTouch) e.preventDefault();
+    });
+    el.addEventListener("pointerdown", (e) => {
+      if (e.button > 0 || e.target.closest(".hold-bar") || ignore && e.target.closest(ignore)) return;
+      const wasArmed = armed?.el === el;
+      if (wasArmed) disarm();
+      const isTouch = e.pointerType === "touch";
+      lastTouch = isTouch;
+      const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
+      const draggable = canDrag();
+      const sc = scroller();
+      let dragging = false, held = false, ghost = null, raf = 0, scrollV = 0, lastMove = null;
+      const startDrag = () => {
+        dragging = true;
+        try {
+          el.setPointerCapture(pid);
+        } catch {
+        }
+        el.classList.add("dragging");
+        sc?.classList.add("is-dragging");
+        const r = el.getBoundingClientRect();
+        ghost = el.cloneNode(true);
+        ghost.className = `${ghostClass} drag-ghost`;
+        ghost.removeAttribute("tabindex");
+        ghost.style.width = `${r.width}px`;
+        ghost.style.height = `${r.height}px`;
+        ghost.style.left = `${r.left}px`;
+        ghost.style.top = `${r.top}px`;
+        document.body.appendChild(ghost);
+        buzz("LIGHT");
+      };
+      const endDrag = () => {
+        if (!dragging) return;
+        dragging = false;
+        cancelAnimationFrame(raf);
+        raf = 0;
+        scrollV = 0;
+        try {
+          el.releasePointerCapture(pid);
+        } catch {
+        }
+        el.classList.remove("dragging");
+        sc?.classList.remove("is-dragging");
+        ghost?.remove();
+        ghost = null;
+        onDragEnd?.();
+      };
+      const holdTimer = isTouch && draggable ? setTimeout(() => {
+        held = true;
+        startDrag();
+      }, HOLD_MS) : null;
+      let armTimer = armButtons ? setTimeout(() => {
+        armTimer = null;
+        endDrag();
+        held = true;
+        arm(el, armButtons());
+      }, ARM_MS) : null;
+      const autoScroll = () => {
+        if (!dragging || !sc) {
+          raf = 0;
+          return;
+        }
+        if (scrollV) {
+          if (axis === "x") sc.scrollLeft += scrollV;
+          else sc.scrollTop += scrollV;
+          if (lastMove) onDragMove?.(lastMove);
+        }
+        raf = requestAnimationFrame(autoScroll);
+      };
+      const blockScroll = (ev) => {
+        if (dragging) ev.preventDefault();
+      };
+      const move = (ev) => {
+        const dist = Math.hypot(ev.clientX - sx, ev.clientY - sy);
+        if (dist > (isTouch ? TOUCH_SLOP : SLOP)) {
+          if (armTimer) {
+            clearTimeout(armTimer);
+            armTimer = null;
+          }
+          if (!dragging && isTouch) clearTimeout(holdTimer);
+          if (!dragging && !isTouch && draggable && !held) startDrag();
+        }
+        if (!dragging) return;
+        ghost.style.transform = `translate(${ev.clientX - sx}px, ${ev.clientY - sy}px)`;
+        lastMove = ev;
+        onDragMove?.(ev);
+        if (sc) {
+          const r = sc.getBoundingClientRect();
+          const [p, lo, hi] = axis === "x" ? [ev.clientX, r.left, r.right] : [ev.clientY, r.top, r.bottom];
+          scrollV = p > hi - EDGE ? Math.ceil((p - (hi - EDGE)) / 4) : p < lo + EDGE ? -Math.ceil((lo + EDGE - p) / 4) : 0;
+          if (scrollV && !raf) raf = requestAnimationFrame(autoScroll);
+        }
+      };
+      const finish3 = () => {
+        clearTimeout(holdTimer);
+        clearTimeout(armTimer);
+        el.removeEventListener("pointermove", move);
+        el.removeEventListener("pointerup", up);
+        el.removeEventListener("pointercancel", cancel);
+        el.removeEventListener("touchmove", blockScroll);
+      };
+      const swallowClick = () => {
+        const stop = (ev) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+        };
+        el.addEventListener("click", stop, { capture: true, once: true });
+        setTimeout(() => el.removeEventListener("click", stop, { capture: true }), 400);
+      };
+      const up = (ev) => {
+        const wasDragging = dragging;
+        finish3();
+        endDrag();
+        if (wasDragging || held) swallowClick();
+        if (wasDragging) onDrop?.(ev);
+        else if (!held && !wasArmed && Math.hypot(ev.clientX - sx, ev.clientY - sy) < SLOP && onTap) {
+          swallowNextClick();
+          onTap(ev);
+        }
+      };
+      const cancel = () => {
+        finish3();
+        endDrag();
+      };
+      el.addEventListener("touchmove", blockScroll, { passive: false });
+      el.addEventListener("pointermove", move);
+      el.addEventListener("pointerup", up);
+      el.addEventListener("pointercancel", cancel);
+    });
+  }
+  function swallowNextClick() {
+    const stop = (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+    };
+    document.addEventListener("click", stop, { capture: true, once: true });
+    setTimeout(() => document.removeEventListener("click", stop, { capture: true }), 400);
+  }
+  var EDGE_PX = 24;
+  var START_PX = 8;
+  function bindSwipeRight(root, { canStart, start: start2, prepare = null, discard = null }) {
+    let s = null;
+    const sideways = (target) => {
+      for (let n = target; n && n !== root; n = n.parentElement) {
+        if (n.scrollWidth > n.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(n).overflowX)) return true;
+      }
+      return false;
+    };
+    root.addEventListener("touchstart", (e) => {
+      if (s?.live) return;
+      drop();
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const edge = t.clientX <= EDGE_PX;
+      if (!canStart(e.target, t.clientX, edge) || !edge && sideways(e.target)) return;
+      const touch3 = s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0 };
+      if (prepare) setTimeout(() => {
+        if (s === touch3 && !touch3.live) prepare();
+      }, 0);
+    }, { passive: true });
+    const drop = () => {
+      if (s && !s.live) discard?.();
+      s = null;
+    };
+    root.addEventListener("touchmove", (e) => {
+      if (!s) return;
+      const t = e.touches[0];
+      const dx = t.clientX - s.x, dy = t.clientY - s.y;
+      if (!s.live) {
+        if (!e.cancelable) {
+          drop();
+          return;
+        }
+        if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) {
+          drop();
+          return;
+        }
+        if (dx < -10) {
+          drop();
+          return;
+        }
+        if (dx < START_PX || dx <= Math.abs(dy)) return;
+        s.live = start2();
+        if (!s.live) {
+          drop();
+          return;
+        }
+        s.x = t.clientX - 1;
+      }
+      e.preventDefault();
+      const now2 = performance.now();
+      s.v = (t.clientX - s.last[0]) / Math.max(1, now2 - s.last[1]);
+      s.last = [t.clientX, now2];
+      s.live.move(Math.max(0, Math.min(1, (t.clientX - s.x) / window.innerWidth)));
+    }, { passive: false });
+    const end = (cancelled2) => {
+      if (!s) return;
+      if (!s.live) {
+        drop();
+        return;
+      }
+      const live = s.live, p = (s.last[0] - s.x) / window.innerWidth, v = s.v;
+      s = null;
+      live?.settle(!cancelled2 && (p > 1 / 3 || v > 0.5 && p > 0.08));
+    };
+    root.addEventListener("touchend", () => end(false), { passive: true });
+    root.addEventListener("touchcancel", () => end(true), { passive: true });
+  }
+  function slideTo(el, to, done2) {
+    const reduce2 = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce2) {
+      el.style.transform = to;
+      done2();
+      return;
+    }
+    el.style.transition = "transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+    requestAnimationFrame(() => {
+      el.style.transform = to;
+    });
+    let finished = false;
+    const fin = () => {
+      if (finished) return;
+      finished = true;
+      el.style.transition = "";
+      done2();
+    };
+    el.addEventListener("transitionend", fin, { once: true });
+    setTimeout(fin, 320);
+  }
+
   // src/ui/primitives.js
   var toastEl = null;
   var toastTimer = null;
-  function dismissToast() {
+  var TOAST_FADE_MS = 250;
+  function dismissToast({ now: now2 = false } = {}) {
     clearTimeout(toastTimer);
-    toastEl?.remove();
+    const el = toastEl;
     toastEl = null;
+    if (!el) return;
+    if (now2) {
+      el.remove();
+      return;
+    }
+    el.classList.add("leaving");
+    setTimeout(() => el.remove(), TOAST_FADE_MS);
   }
   function toast(message, { action = null, ms = 5e3 } = {}) {
-    dismissToast();
+    dismissToast({ now: true });
+    document.querySelectorAll(".toast.leaving").forEach((el2) => el2.remove());
     const el = document.createElement("div");
     el.className = "toast";
     el.setAttribute("role", "status");
     el.innerHTML = `<span class="toast-msg">${esc(message)}</span>${action ? `<button class="toast-action">${esc(action.label)}</button>` : ""}`;
     document.body.appendChild(el);
     toastEl = el;
-    let remaining = ms, started = Date.now();
-    const start = () => {
-      started = Date.now();
-      toastTimer = setTimeout(dismissToast, remaining);
+    let remaining = ms, started2 = Date.now();
+    const start2 = () => {
+      started2 = Date.now();
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => dismissToast(), remaining);
     };
     const pause = () => {
       clearTimeout(toastTimer);
-      remaining = Math.max(1500, remaining - (Date.now() - started));
+      remaining = Math.max(1500, remaining - (Date.now() - started2));
     };
     el.addEventListener("pointerdown", pause);
-    el.addEventListener("pointerup", start);
-    el.addEventListener("pointercancel", start);
+    el.addEventListener("pointerup", start2);
+    el.addEventListener("pointercancel", start2);
     if (action) el.querySelector(".toast-action").addEventListener("click", () => {
       dismissToast();
       action.onClick();
     });
-    start();
+    start2();
   }
   function pinToViewport(ov) {
     const vv = window.visualViewport;
@@ -1928,6 +2573,7 @@
     };
   }
   function overlay(innerHTML, { onClose } = {}) {
+    if (toastEl && !toastEl.querySelector(".toast-action")) dismissToast({ now: true });
     const ov = document.createElement("div");
     ov.className = "overlay";
     ov.innerHTML = innerHTML;
@@ -1955,13 +2601,29 @@
         <h2 id="dlg-title">${esc(title)}</h2>
         <p>${esc(body)}</p>
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-cancel>Cancel</button>
-          <button class="btn ${danger ? "btn-danger" : "btn-primary"}" data-ok>${esc(confirmLabel)}</button>
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          <button class="btn ${danger ? "btn-danger" : "btn-primary"}" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
       </div>`, { onClose: (r) => resolve(r === true) });
       ov.querySelector("[data-cancel]").addEventListener("click", () => close(false));
       ov.querySelector("[data-ok]").addEventListener("click", () => close(true));
       ov.querySelector("[data-ok]").focus();
+    });
+  }
+  function choiceDialog(title, body, choices) {
+    return new Promise((resolve) => {
+      const { ov, close } = overlay(`
+      <div class="sheet dialog" role="alertdialog" aria-labelledby="dlg-title" aria-describedby="dlg-body">
+        <h2 id="dlg-title">${esc(title)}</h2>
+        <p id="dlg-body">${esc(body)}</p>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          ${choices.map((c) => `<button class="btn ${c.danger ? "btn-danger" : "btn-primary"}" data-choice="${esc(c.id)}"><span class="btn-label">${esc(c.label)}</span></button>`).join("")}
+        </div>
+      </div>`, { onClose: (r) => resolve(typeof r === "string" ? r : null) });
+      ov.querySelector("[data-cancel]").addEventListener("click", () => close(null));
+      ov.querySelectorAll("[data-choice]").forEach((b) => b.addEventListener("click", () => close(b.dataset.choice)));
+      ov.querySelector("[data-cancel]").focus();
     });
   }
   function promptDialog(title, { value = "", placeholder = "", confirmLabel = "Save", allowEmpty = false } = {}) {
@@ -1971,12 +2633,20 @@
         <h2 id="dlg-title">${esc(title)}</h2>
         <input class="input" data-field value="${esc(value)}" placeholder="${esc(placeholder)}" aria-label="${esc(title)}" autocomplete="off">
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-cancel>Cancel</button>
-          <button class="btn btn-primary" data-ok>${esc(confirmLabel)}</button>
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          <button class="btn btn-primary" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
       </div>`, { onClose: (r) => resolve(typeof r === "string" && (r.trim() || allowEmpty) ? r.trim() : null) });
       const input = ov.querySelector("[data-field]");
-      const ok = () => close(input.value);
+      const okBtn = ov.querySelector("[data-ok]");
+      const sync = () => {
+        okBtn.disabled = !allowEmpty && !input.value.trim();
+      };
+      input.addEventListener("input", sync);
+      sync();
+      const ok = () => {
+        if (!okBtn.disabled) close(input.value);
+      };
       ov.querySelector("[data-cancel]").addEventListener("click", () => close(null));
       ov.querySelector("[data-ok]").addEventListener("click", ok);
       input.addEventListener("keydown", (e) => {
@@ -1986,7 +2656,7 @@
       input.select();
     });
   }
-  var itemHTML = (it, i) => it.divider ? '<div class="menu-divider"></div>' : `<button class="menu-item ${it.danger ? "danger" : ""}" data-i="${i}" role="menuitemradio" aria-checked="${!!it.checked}">${it.icon ? icon(it.icon) : ""}${it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ""}${it.swatch === "none" ? '<span class="swatch swatch-none"></span>' : ""}<span>${esc(it.label)}</span>${it.checked ? `<span class="menu-check">${icon("check")}</span>` : ""}</button>`;
+  var itemHTML = (it, i) => it.divider ? '<div class="menu-divider"></div>' : `<button class="menu-item ${it.danger ? "danger" : ""}" data-i="${i}" ${it.checked === void 0 ? 'role="menuitem"' : `role="menuitemradio" aria-checked="${!!it.checked}"`}>${it.icon ? icon(it.icon) : ""}${it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ""}${it.swatch === "none" ? '<span class="swatch swatch-none"></span>' : ""}<span>${esc(it.label)}</span>${it.checked ? `<span class="menu-check">${icon("check")}</span>` : ""}</button>`;
   function openMenu(anchorEl, items) {
     const bind = (root, close2) => {
       root.querySelectorAll(".menu-item").forEach((b) => b.addEventListener("click", () => {
@@ -2025,6 +2695,17 @@
     back.addEventListener("click", close);
     document.addEventListener("keydown", onKey);
     bind(pop, close);
+  }
+  function downloadFile(blob2, name) {
+    const url = URL.createObjectURL(blob2);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.hidden = true;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1e4);
   }
 
   // src/ui/schedule.js
@@ -2069,7 +2750,7 @@
     };
     const today = todayISO();
     let cursor = d.due || d.start || today;
-    let armed = "due";
+    let armed2 = "due";
     const opener = document.activeElement;
     const ov = document.createElement("div");
     ov.className = "overlay";
@@ -2146,21 +2827,21 @@
       }).join("");
     }
     function syncFields() {
-      const set = (sel, prop, val) => {
+      const set3 = (sel, prop, val) => {
         const el = q(sel);
         if (prop === "value" && el === document.activeElement) return;
         if (el[prop] !== val) el[prop] = val;
       };
-      set('[data-on="start"]', "checked", !!d.start);
-      set('[data-on="due"]', "checked", !!d.due);
-      set('[data-f="start"]', "value", d.start || "");
-      set('[data-f="due"]', "value", d.due || "");
-      set('[data-f="dueTime"]', "value", d.dueTime || "");
-      set('[data-f="recur"]', "value", d.recur);
-      set('[data-f="reminder"]', "value", d.reminder === null ? "" : String(d.reminder));
-      set('[data-f="start"]', "disabled", !d.start);
-      for (const f of ["due", "dueTime", "recur", "reminder"]) set(`[data-f="${f}"]`, "disabled", !d.due);
-      sheet2.querySelectorAll("[data-row]").forEach((r) => r.classList.toggle("armed", r.dataset.row === armed));
+      set3('[data-on="start"]', "checked", !!d.start);
+      set3('[data-on="due"]', "checked", !!d.due);
+      set3('[data-f="start"]', "value", d.start || "");
+      set3('[data-f="due"]', "value", d.due || "");
+      set3('[data-f="dueTime"]', "value", d.dueTime || "");
+      set3('[data-f="recur"]', "value", d.recur);
+      set3('[data-f="reminder"]', "value", d.reminder === null ? "" : String(d.reminder));
+      set3('[data-f="start"]', "disabled", !d.start);
+      for (const f of ["due", "dueTime", "recur", "reminder"]) set3(`[data-f="${f}"]`, "disabled", !d.due);
+      sheet2.querySelectorAll("[data-row]").forEach((r) => r.classList.toggle("armed", r.dataset.row === armed2));
       if (invalid()) q("[data-hint]").innerHTML = '<span class="error">Start must be on or before the due date</span>';
       else q("[data-hint]").textContent = reminderHint(d, done2);
       q("[data-sched-save]").disabled = invalid();
@@ -2213,8 +2894,8 @@
       }
       if (el.dataset.day) {
         cursor = el.dataset.day;
-        d[armed] = cursor;
-        if (armed === "start" && !d.due) armed = "due";
+        d[armed2] = cursor;
+        if (armed2 === "start" && !d.due) armed2 = "due";
         paint();
         focusDay();
         return;
@@ -2228,8 +2909,8 @@
         const at = d.due ? reminderInstant(d.due, d.dueTime, d.reminder) : null;
         const willFire = at !== null && at > Date.now() && !done2;
         if (willFire && reminderPermission() === "default") {
-          requestReminderPermission().then((state) => {
-            if (state === "denied") toast("Notifications are blocked, so this reminder will not show");
+          requestReminderPermission().then((state3) => {
+            if (state3 === "denied") toast("Notifications are blocked, so this reminder will not show");
           });
         }
         close();
@@ -2256,12 +2937,12 @@
         const key = el.dataset.on;
         if (el.checked) {
           d[key] = d[key] || (key === "start" ? d.due && d.due < today ? d.due : today : d.start && d.start > today ? d.start : today);
-          armed = key;
+          armed2 = key;
           cursor = d[key];
         } else {
           d[key] = null;
           if (key === "due") Object.assign(d, { dueTime: null, recur: "none", reminder: null });
-          if (armed === key) armed = "due";
+          if (armed2 === key) armed2 = "due";
         }
         paint();
         return;
@@ -2279,8 +2960,8 @@
     });
     sheet2.addEventListener("focusin", (e) => {
       const f = e.target.dataset?.f;
-      if ((f === "start" || f === "due") && armed !== f) {
-        armed = f;
+      if ((f === "start" || f === "due") && armed2 !== f) {
+        armed2 = f;
         syncFields();
       }
     });
@@ -2304,6 +2985,7 @@
       ...initial ? { title: initial.title || "", due: initial.due || null, priority: initial.priority || "none", tags: [...initial.tags || []] } : {}
     };
     if (!S.priorities.some((p) => p.id === draft2.priority)) draft2.priority = "none";
+    if (!fixedList && !activeLists().some((l) => l.id === draft2.listId)) draft2.listId = activeLists()[0]?.id;
     const allTags2 = allTags();
     const dueOpts = [
       { label: "Today", value: daysFrom(0) },
@@ -2320,6 +3002,13 @@
       <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
     </div>
     <input class="input sheet-title" placeholder="What needs doing?" value="${esc(draft2.title)}" autofocus>
+    <!-- first, so the keyboard never hides which board the task goes to (owner's review 2026-11-17, AC-09.2) -->
+    <div class="chip-group">
+      <span class="microlabel">Board</span>
+      <div class="chip-row" data-list>
+        ${(fixedList ? S.lists.filter((l) => l.id === fixedList) : activeLists()).map((l) => `<button class="chip ${l.id === draft2.listId ? "on" : ""}" data-val="${l.id}" ${fixedList ? 'disabled aria-disabled="true"' : ""}>${esc(l.name)}${fixedList && lane ? ` · ${esc(laneName(l.id, lane))}` : ""}</button>`).join("")}
+      </div>
+    </div>
     <div class="chip-group">
       <span class="microlabel">Due</span>
       <div class="chip-row" data-due>
@@ -2346,13 +3035,7 @@
         <button class="chip" data-addtag>+ Add tag</button>
       </div>
     </div>
-    <div class="chip-group">
-      <span class="microlabel">Board</span>
-      <div class="chip-row" data-list>
-        ${(fixedList ? S.lists.filter((l) => l.id === fixedList) : S.lists).map((l) => `<button class="chip ${l.id === draft2.listId ? "on" : ""}" data-val="${l.id}" ${fixedList ? 'disabled aria-disabled="true"' : ""}>${esc(l.name)}${fixedList && lane ? ` · ${esc(laneName(l.id, lane))}` : ""}</button>`).join("")}
-      </div>
-    </div>
-    <button class="btn btn-primary btn-block" data-submit>${esc(submitLabel)}</button>
+    <button class="btn btn-primary btn-block" data-submit ${draft2.title.trim() ? "" : "disabled"}>${esc(submitLabel)}</button>
   </div>`;
     document.body.appendChild(ov);
     const unpin = pinToViewport(ov);
@@ -2366,6 +3049,7 @@
     });
     q("[data-close]").addEventListener("click", close);
     q(".sheet-title").focus();
+    q("[data-list] .chip.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
     const selectOne = (rowSel, chip) => {
       ov.querySelectorAll(`${rowSel} .chip`).forEach((c) => c.classList.remove("on"));
       chip?.classList.add("on");
@@ -2464,12 +3148,1710 @@
       addTask(draft2);
     };
     q("[data-submit]").addEventListener("click", submit);
+    q(".sheet-title").addEventListener("input", () => {
+      q("[data-submit]").disabled = !q(".sheet-title").value.trim();
+    });
     q(".sheet-title").addEventListener("keydown", (e) => {
       if (e.key === "Enter") submit();
     });
     ov.addEventListener("keydown", (e) => {
       if (e.key === "Escape") close();
     });
+  }
+
+  // src/ui/pinpad.js
+  var PIN_LENGTH = 4;
+  function pinpadHTML({ label = "Enter your PIN", error = "", disabled = false } = {}) {
+    const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
+    return `
+  <div class="pinpad ${disabled ? "is-disabled" : ""}" data-pinpad>
+    <p class="pin-label" data-pin-label>${esc(label)}</p>
+    <div class="pin-dots" role="status" aria-live="polite" aria-label="0 of ${PIN_LENGTH} digits entered" data-pin-dots>
+      ${Array.from({ length: PIN_LENGTH }, () => '<span class="pin-dot"></span>').join("")}
+    </div>
+    <p class="pin-error" role="alert" data-pin-error>${esc(error)}</p>
+    <div class="pin-keys">
+      ${keys.map((k) => k === "" ? "<span></span>" : k === "del" ? `<button type="button" class="pin-key pin-del" data-key="del" aria-label="Delete last digit" ${disabled ? "disabled" : ""}>${icon("chevronLeft", 22)}</button>` : `<button type="button" class="pin-key" data-key="${k}" aria-label="${k}" ${disabled ? "disabled" : ""}>${k}</button>`).join("")}
+    </div>
+  </div>`;
+  }
+  function bindPinpad(root, { onComplete, onChange: onChange3 = null } = {}) {
+    const pad3 = root.querySelector("[data-pinpad]");
+    const dots = pad3.querySelectorAll(".pin-dot");
+    const live = pad3.querySelector("[data-pin-dots]");
+    let pin = "";
+    let busy = false;
+    const show2 = () => {
+      dots.forEach((d, i) => d.classList.toggle("on", i < pin.length));
+      live.setAttribute("aria-label", `${pin.length} of ${PIN_LENGTH} digits entered`);
+      onChange3?.(pin.length);
+    };
+    const press = (k) => {
+      if (busy || pad3.classList.contains("is-disabled")) return;
+      if (k === "del") pin = pin.slice(0, -1);
+      else if (/^\d$/.test(k) && pin.length < PIN_LENGTH) pin += k;
+      show2();
+      if (pin.length === PIN_LENGTH) {
+        const done2 = pin;
+        busy = true;
+        Promise.resolve(onComplete(done2)).finally(() => {
+          busy = false;
+        });
+      }
+    };
+    pad3.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-key]");
+      if (b) press(b.dataset.key);
+    });
+    const onKey = (e) => {
+      if (!pad3.isConnected) {
+        document.removeEventListener("keydown", onKey);
+        return;
+      }
+      if (e.target.closest?.("input, textarea, select")) return;
+      if (/^\d$/.test(e.key)) {
+        e.preventDefault();
+        press(e.key);
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        press("del");
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return {
+      clear() {
+        pin = "";
+        show2();
+      },
+      error(msg) {
+        pad3.querySelector("[data-pin-error]").textContent = msg || "";
+        if (msg) {
+          pad3.classList.remove("shake");
+          void pad3.offsetWidth;
+          pad3.classList.add("shake");
+        }
+        pin = "";
+        show2();
+      },
+      label(text2) {
+        pad3.querySelector("[data-pin-label]").textContent = text2;
+      },
+      disable(on) {
+        pad3.classList.toggle("is-disabled", on);
+        pad3.querySelectorAll(".pin-key").forEach((b) => {
+          b.disabled = on;
+        });
+      },
+      focus() {
+        pad3.querySelector(".pin-key")?.focus();
+      },
+      destroy() {
+        document.removeEventListener("keydown", onKey);
+      }
+    };
+  }
+
+  // src/net.js
+  var TIMEOUT_MS = 2e4;
+  var client = () => {
+    const p = globalThis.Capacitor?.isNativePlatform?.() ? globalThis.Capacitor.getPlatform?.() : "web";
+    return p === "ios" || p === "android" ? p : "web";
+  };
+  var bearer = null;
+  function setBearer(t) {
+    bearer = t || null;
+  }
+  function authHeaders() {
+    const h = { "X-Stackd-Client": client() };
+    if (bearer) h.Authorization = `Bearer ${bearer}`;
+    return h;
+  }
+  var fetchImpl = (...args) => globalThis.fetch(...args);
+  var signedOutHandlers = /* @__PURE__ */ new Set();
+  function onSignedOut(fn) {
+    signedOutHandlers.add(fn);
+  }
+  function signedOut() {
+    signedOutHandlers.forEach((fn) => fn());
+  }
+  async function request(path, { method = "GET", body, signal, timeout = TIMEOUT_MS, raw = false } = {}) {
+    const ctl = new AbortController();
+    const timer2 = setTimeout(() => ctl.abort(), timeout);
+    signal?.addEventListener("abort", () => ctl.abort());
+    let res;
+    try {
+      res = await fetchImpl(proxyUrl() + path, {
+        method,
+        headers: { "X-Stackd-App": APP_TOKEN, ...authHeaders(), ...body === void 0 ? {} : { "Content-Type": "application/json" } },
+        body: body === void 0 ? void 0 : JSON.stringify(body),
+        credentials: "include",
+        signal: ctl.signal
+      });
+    } catch (e) {
+      clearTimeout(timer2);
+      const err = new Error(e?.name === "AbortError" ? "That took too long. Try again." : "No connection. Try again when you are back online.");
+      err.code = e?.name === "AbortError" ? "timeout" : "offline";
+      throw err;
+    }
+    clearTimeout(timer2);
+    if (res.status === 204) return { ok: true };
+    if (raw && res.ok) return res;
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+    }
+    if (!res.ok || data?.ok === false) {
+      const { ok, message, code, ...extra } = data || {};
+      const err = Object.assign(new Error(message || `The service answered ${res.status}.`), extra);
+      err.code = code || "provider_unavailable";
+      err.status = res.status;
+      if (err.code === "signed_out") signedOut();
+      throw err;
+    }
+    return data;
+  }
+
+  // src/secure.js
+  var plugin3 = () => globalThis.Capacitor?.Plugins?.SecureStorage;
+  var native = () => !!globalThis.Capacitor?.isNativePlatform?.();
+  var needed = () => native();
+  var available = () => native() && ["get", "set", "remove"].every((f) => typeof plugin3()?.[f] === "function");
+  async function get(key) {
+    if (!available()) return null;
+    try {
+      return (await plugin3().get({ key }))?.value ?? null;
+    } catch {
+      return null;
+    }
+  }
+  async function set(key, value) {
+    if (!available()) return false;
+    await plugin3().set({ key, value: String(value) });
+    return true;
+  }
+  async function remove(key) {
+    if (!available()) return;
+    try {
+      await plugin3().remove({ key });
+    } catch {
+    }
+  }
+
+  // src/legal.js
+  var APP_ORIGIN = "https://app.stackdplatform.com";
+  var APP_HOST = new URL(APP_ORIGIN).host;
+  var TERMS_URL = `${APP_ORIGIN}/terms.html`;
+  var PRIVACY_URL = `${APP_ORIGIN}/privacy.html`;
+  var DELETION_URL = `${APP_ORIGIN}/account-deletion.html`;
+  var TERMS_VERSION = "2026-11-16";
+  var PRIVACY_VERSION = "2026-11-16";
+  function isLegacyOrigin(host = globalThis.location?.hostname || "") {
+    return /(^|\.)github\.io$/i.test(host);
+  }
+
+  // src/account.js
+  var ACCOUNT_KEY = "stackd-account";
+  var AGE_KEY = "stackd-age-refused";
+  var AGE_REFUSAL_MS = 24 * 36e5;
+  var TOKEN_KEY = "stackd-session";
+  var state = null;
+  var listeners = /* @__PURE__ */ new Set();
+  function read2() {
+    try {
+      const v = JSON.parse(localStorage.getItem(ACCOUNT_KEY));
+      return v && typeof v === "object" && v.userId ? v : null;
+    } catch {
+      return null;
+    }
+  }
+  function write2(next, { quiet = false } = {}) {
+    state = next;
+    if (next) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(next));
+    else localStorage.removeItem(ACCOUNT_KEY);
+    if (!quiet) listeners.forEach((fn) => fn(state));
+  }
+  function patch(fields, { quiet = false } = {}) {
+    if (state) write2({ ...state, ...fields }, { quiet });
+  }
+  var signedIn = () => !!state;
+  var current = () => state;
+  function onChange(fn) {
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  }
+  var ready = Promise.resolve();
+  function init() {
+    state = read2();
+    onSignedOut(() => {
+      if (state) forget({ keepData: true, reason: "signed_out" });
+    });
+    if (state && client() !== "web") ready = get(TOKEN_KEY).then((t) => {
+      setBearer(t);
+      if (!t) forget({ keepData: true });
+    });
+  }
+  function availability() {
+    if (isLegacyOrigin()) return { ok: false, reason: "legacy" };
+    if (globalThis.location?.protocol === "file:") return { ok: false, reason: "file" };
+    if (needed() && !available()) return { ok: false, reason: "secure" };
+    return { ok: true };
+  }
+  function ageRefusedUntil(now2 = Date.now()) {
+    const at = Number(localStorage.getItem(AGE_KEY)) || 0;
+    return at && now2 - at < AGE_REFUSAL_MS ? at + AGE_REFUSAL_MS : 0;
+  }
+  function checkAge(year, now2 = /* @__PURE__ */ new Date()) {
+    const y = Number(year);
+    const ok = Number.isInteger(y) && y >= 1900 && y <= now2.getFullYear() - 19;
+    if (!ok) localStorage.setItem(AGE_KEY, String(now2.getTime()));
+    return ok;
+  }
+  function deviceLabel(ua = globalThis.navigator?.userAgent || "", platform3 = client()) {
+    if (platform3 === "ios") return /iPad/.test(ua) ? "iPad" : "iPhone";
+    if (platform3 === "android") return "Android";
+    const os = /Windows/.test(ua) ? "Windows" : /Mac OS X|Macintosh/.test(ua) ? "macOS" : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Linux/.test(ua) ? "Linux" : "another system";
+    return `Browser on ${os}`;
+  }
+  var start = (email) => request("/v1/auth/start", { method: "POST", body: { email } });
+  var verify = (email, code) => request("/v1/auth/verify", { method: "POST", body: { email, code } });
+  async function established(answer3, pin) {
+    const a = answer3.account;
+    if (answer3.token) {
+      if (!await set(TOKEN_KEY, answer3.token)) throw Object.assign(new Error("This device cannot keep a session safely."), { code: "misconfigured" });
+      setBearer(answer3.token);
+    }
+    write2({
+      userId: a.id,
+      email: a.email,
+      sessionId: answer3.sessionId,
+      platform: client(),
+      pinVersion: a.pinVersion,
+      accepted: a.accepted,
+      needsAccept: !!a.needsAccept,
+      lock: state?.userId === a.id ? state.lock : { after: "5m", biometrics: false },
+      lastActiveAt: Date.now(),
+      offlineFails: 0,
+      offlineWaitUntil: 0
+    });
+    pinProved.forEach((fn) => fn(pin));
+    return a;
+  }
+  var pinProved = /* @__PURE__ */ new Set();
+  function onPinProved(fn) {
+    pinProved.add(fn);
+  }
+  var common = () => ({ label: deviceLabel(), legacyId: S.plan.subscriberId });
+  async function register(email, ticket, pin) {
+    const a = await request("/v1/auth/register", {
+      method: "POST",
+      body: { email, ticket, pin, adult: true, termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION, ...common() }
+    });
+    return established(a, pin);
+  }
+  async function signIn(email, ticket, pin) {
+    return established(await request("/v1/auth/signin", { method: "POST", body: { email, ticket, pin, ...common() } }), pin);
+  }
+  async function resetPin(email, ticket, pin) {
+    return established(await request("/v1/auth/pin/reset", { method: "POST", body: { email, ticket, pin, label: deviceLabel() } }), pin);
+  }
+  async function checkPin(pin) {
+    const r = await request("/v1/auth/pin/check", { method: "POST", body: { pin }, timeout: 3e3 });
+    patch({ pinVersion: r.pinVersion });
+    pinProved.forEach((fn) => fn(pin));
+    return r;
+  }
+  async function changePin(pin, newPin) {
+    const r = await request("/v1/auth/pin/change", { method: "POST", body: { pin, newPin } });
+    patch({ pinVersion: r.pinVersion });
+    pinProved.forEach((fn) => fn(newPin));
+    return r;
+  }
+  async function accept() {
+    await request("/v1/account/accept", { method: "POST", body: { termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION } });
+    patch({ accepted: { terms: TERMS_VERSION, privacy: PRIVACY_VERSION }, needsAccept: false });
+  }
+  async function refresh() {
+    const { account: a } = await request("/v1/account");
+    patch({ email: a.email, pinVersion: a.pinVersion, accepted: a.accepted, needsAccept: !!a.needsAccept });
+    return a;
+  }
+  var signOutDevice = (sessionId) => request("/v1/account/signout", { method: "POST", body: { sessionId } });
+  async function signOut({ everywhere = false, keepData = true } = {}) {
+    try {
+      await request("/v1/account/signout", { method: "POST", body: everywhere ? { all: true } : {} });
+    } catch (e) {
+      if (e.code !== "signed_out") {
+      }
+    }
+    forget({ keepData });
+  }
+  async function exportData() {
+    const res = await request("/v1/account/export", { raw: true, timeout: 6e4 });
+    return res.blob();
+  }
+  async function deleteAccount({ pin, ticket, keepData }) {
+    await request("/v1/account/delete", { method: "POST", body: ticket ? { ticket } : { pin } });
+    forget({ keepData });
+  }
+  var forgetHooks = /* @__PURE__ */ new Set();
+  function onForget(fn) {
+    forgetHooks.add(fn);
+  }
+  function forget({ keepData = true, reason: reason2 = "user" } = {}) {
+    if (!state) return;
+    const was = state;
+    setBearer(null);
+    remove(TOKEN_KEY);
+    write2(null);
+    forgetHooks.forEach((fn) => fn({ keepData, reason: reason2, was }));
+  }
+
+  // src/agesignal.js
+  var ADULT = 18;
+  var plugin4 = () => {
+    const cap = globalThis.Capacitor;
+    return cap?.isNativePlatform?.() ? cap.Plugins?.AgeSignals || null : null;
+  };
+  var platform = () => globalThis.Capacitor?.getPlatform?.() || "web";
+  function read3(r) {
+    if (!r || r.status && r.status !== "SHARED" || !r.ageRange) return null;
+    const { lowerBound: lo, upperBound: hi } = r.ageRange;
+    const age = Number.isFinite(lo) && lo >= ADULT ? "adult" : Number.isFinite(hi) && hi < ADULT ? "minor" : null;
+    if (!age) return null;
+    const sc = r.significantChange?.status;
+    return { age, waiting: age === "minor" && (sc === "PENDING" || sc === "DECLINED") };
+  }
+  var answer;
+  var fake;
+  var listeners2 = /* @__PURE__ */ new Set();
+  var set2 = (next) => {
+    const was = JSON.stringify(answer ?? null);
+    answer = next;
+    if (JSON.stringify(next) !== was) listeners2.forEach((fn) => fn(next));
+    return next;
+  };
+  var current2 = () => answer ?? null;
+  function onChange2(fn) {
+    listeners2.add(fn);
+    return () => listeners2.delete(fn);
+  }
+  async function check() {
+    if (fake !== void 0) return set2(fake);
+    const p = plugin4();
+    if (!p) return set2(null);
+    try {
+      if (platform() === "android") return set2(read3(await p.getAgeRange()));
+      const req = await p.getRegulatoryRequirements().catch(() => null);
+      if (!req?.ageAssuranceRequired) return set2(answer ?? null);
+      return set2(read3(await p.requestAgeRange({ ageGates: [ADULT] })));
+    } catch {
+      return set2(answer ?? null);
+    }
+  }
+  async function ask() {
+    if (fake !== void 0) return set2(fake);
+    if (answer) return answer;
+    const p = plugin4();
+    if (!p) return set2(null);
+    try {
+      return set2(read3(await p.requestAgeRange({ ageGates: [ADULT] })));
+    } catch {
+      return set2(null);
+    }
+  }
+  var isMinor = () => current2()?.age === "minor";
+  var waiting = () => current2()?.waiting === true;
+
+  // src/backup.js
+  var FILE_APP = "stackd";
+  var FILE_FORMAT = 1;
+  var MAX_FILE_BYTES = 12 * 1024 * 1024;
+  var MAX_RECORDS = 2e4;
+  var ACCOUNT_KEY2 = "stackd-account";
+  var ImportError = class extends Error {
+    constructor(code, message) {
+      super(message);
+      this.name = "ImportError";
+      this.code = code;
+    }
+  };
+  function canImport() {
+    try {
+      return localStorage.getItem(ACCOUNT_KEY2) === null;
+    } catch {
+      return true;
+    }
+  }
+  var countsOf = (r) => ({ boards: r.lists.length, tasks: r.tasks.length, notes: r.notes.length, meetings: r.meetings.length });
+  function exportDocument(now2 = Date.now()) {
+    const records = exportRecords();
+    records.meetings = records.meetings.map(({ recording, jobs, lastError, ...m }) => m);
+    return { app: FILE_APP, format: FILE_FORMAT, exportedAt: now2, records };
+  }
+  var exportFileName = (now2 = Date.now()) => `stackd-export-${toISO(new Date(now2))}.json`;
+  function exportFile(now2 = Date.now()) {
+    return new Blob([JSON.stringify(exportDocument(now2))], { type: "application/json" });
+  }
+  var ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+  var SPEAKER = /^[A-Za-z0-9][\w .-]{0,39}$/;
+  var ISO_DATE = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/;
+  var HHMM = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+  var STATUSES = ["active", "archived", "deleted"];
+  var RECURS = RECUR_OPTIONS.map(([v]) => v);
+  var REMINDERS = REMINDER_OPTIONS.map(([v]) => v);
+  var SOURCES = ["recording", "pasted", "file"];
+  var ACTION_STATUSES = ["proposed", "added", "dismissed"];
+  var LONG = 2e6;
+  var bad = (what) => {
+    throw new ImportError("bad_file", `This file is damaged (${what}).`);
+  };
+  var isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  var obj = (v, what) => isObj(v) ? v : bad(what);
+  var list = (v, what) => v === void 0 || v === null ? [] : Array.isArray(v) ? v : bad(what);
+  var idOf = (v, what) => typeof v === "string" && ID.test(v) ? v : bad(`${what} without a valid id`);
+  var text = (v, max = 2e3) => typeof v === "string" ? v.slice(0, max) : "";
+  var flag = (v) => v === true;
+  var time = (v) => Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
+  var num = (v, fallback) => Number.isFinite(v) ? v : fallback;
+  var count = (v) => Number.isInteger(v) && v >= 0 ? v : 0;
+  var date = (v) => typeof v === "string" && ISO_DATE.test(v) ? v : null;
+  var pick = (v, allowed, fallback) => allowed.includes(v) ? v : fallback;
+  var tagsOf = (v) => normalizeTags(list(v, "labels that are not a list").filter((x) => typeof x === "string").map((x) => x.slice(0, 64)));
+  function unique(items, what) {
+    const seen = /* @__PURE__ */ new Set();
+    items.forEach((x) => {
+      if (seen.has(x.id)) bad(`two ${what} with the same id`);
+      seen.add(x.id);
+    });
+    return items;
+  }
+  function lifecycle(r, now2) {
+    const status2 = pick(r.status, STATUSES, "active");
+    return {
+      status: status2,
+      archivedAt: status2 === "archived" ? time(r.archivedAt) ?? now2 : null,
+      deletedAt: status2 === "deleted" ? time(r.deletedAt) ?? now2 : null
+      // never null: purgeDeleted() would drop it at once
+    };
+  }
+  function stamps(r, now2) {
+    const createdAt = time(r.createdAt) ?? now2;
+    return { createdAt, updatedAt: Math.max(createdAt, time(r.updatedAt) ?? createdAt) };
+  }
+  var checkItems = (v, field, what) => list(v, what).map((c) => {
+    obj(c, what);
+    return { id: idOf(c.id, what), [field]: text(c[field]), done: flag(c.done) };
+  });
+  function cleanBoard(r, now2) {
+    obj(r, "a board that is not a record");
+    let lanes = unique(list(r.lanes, "lanes that are not a list").map((l) => {
+      obj(l, "a lane that is not a record");
+      return { id: idOf(l.id, "a lane"), name: text(l.name, 80).trim() || "Lane" };
+    }), "lanes");
+    if (!lanes.length) lanes = defaultLanes();
+    if (!lanes.some((l) => l.id === DONE_LANE)) lanes.push({ id: DONE_LANE, name: "Done" });
+    if (lanes.length === 1) lanes.unshift({ id: "backlog", name: "Backlog" });
+    lanes = [...lanes.filter((l) => l.id !== DONE_LANE), lanes.find((l) => l.id === DONE_LANE)];
+    return { id: idOf(r.id, "a board"), name: text(r.name, 80).trim() || "Board", lanes, ...lifecycle(r, now2) };
+  }
+  function cleanPriority(r) {
+    obj(r, "a priority that is not a record");
+    const id = idOf(r.id, "a priority");
+    if (id === "none") bad("a priority called none");
+    return { id, name: text(r.name, 24).trim() || "Priority", color: pick(r.color, PRIORITY_COLORS, "gray") };
+  }
+  function cleanTask(r, i, ctx) {
+    obj(r, "a task that is not a record");
+    const board = ctx.boards.get(r.listId) || ctx.firstBoard;
+    const lane = board.lanes.some((l) => l.id === r.lane) ? r.lane : (board.lanes.find((l) => l.id !== DONE_LANE) || board.lanes[0]).id;
+    const due = date(r.due);
+    const start2 = date(r.start);
+    const o = r.origin;
+    const origin = isObj(o) && typeof o.listId === "string" && ID.test(o.listId) ? { listId: o.listId, lane: typeof o.lane === "string" && ID.test(o.lane) ? o.lane : lane, order: num(o.order, 0) } : null;
+    const f = r.from;
+    const from = isObj(f) && typeof f.meetingId === "string" && ID.test(f.meetingId) && typeof f.actionId === "string" && ID.test(f.actionId) ? { meetingId: f.meetingId, actionId: f.actionId } : null;
+    const life = lifecycle(r, ctx.now);
+    return {
+      id: idOf(r.id, "a task"),
+      listId: board.id,
+      lane,
+      title: text(r.title).trim() || "Untitled",
+      done: flag(r.done),
+      order: num(r.order, i),
+      priority: ctx.priorities.has(r.priority) ? r.priority : "none",
+      tags: tagsOf(r.tags),
+      subtasks: checkItems(r.subtasks, "title", "a subtask"),
+      start: start2 && (!due || start2 <= due) ? start2 : null,
+      due,
+      dueTime: due && typeof r.dueTime === "string" && HHMM.test(r.dueTime) ? r.dueTime : null,
+      recur: due ? pick(r.recur, RECURS, "none") : "none",
+      reminder: due ? pick(r.reminder, REMINDERS, null) : null,
+      reminderFiredAt: time(r.reminderFiredAt),
+      recurDay: due && Number.isInteger(r.recurDay) && r.recurDay >= 1 && r.recurDay <= 31 ? r.recurDay : null,
+      completedCount: count(r.completedCount),
+      lastCompletedAt: time(r.lastCompletedAt),
+      ...life,
+      origin: life.status === "active" ? null : origin,
+      from,
+      ...stamps(r, ctx.now)
+    };
+  }
+  function cleanNote(r, i, ctx) {
+    obj(r, "a note that is not a record");
+    return {
+      id: idOf(r.id, "a note"),
+      order: num(r.order, i),
+      title: text(r.title),
+      body: sanitize(text(r.body, LONG)),
+      color: pick(r.color, NOTE_COLORS, null),
+      tags: tagsOf(r.tags),
+      checklist: r.checklist === null || r.checklist === void 0 ? null : checkItems(r.checklist, "text", "a checklist item"),
+      ...lifecycle(r, ctx.now),
+      ...stamps(r, ctx.now)
+    };
+  }
+  function cleanTranscript(r, now2) {
+    const speakers = {};
+    Object.entries(isObj(r.speakers) ? r.speakers : {}).forEach(([label, name]) => {
+      if (!SPEAKER.test(label)) bad("a speaker label");
+      speakers[label] = typeof name === "string" && name.trim() ? name.trim().slice(0, 80) : null;
+    });
+    const segments = list(r.segments, "a transcript that is not a list").map((s) => {
+      obj(s, "a transcript line that is not a record");
+      if (typeof s.speaker !== "string" || !SPEAKER.test(s.speaker)) bad("a speaker label");
+      if (!Object.hasOwn(speakers, s.speaker)) speakers[s.speaker] = null;
+      return { id: idOf(s.id, "a transcript line"), speaker: s.speaker, startMs: Number.isFinite(s.startMs) && s.startMs >= 0 ? s.startMs : null, text: text(s.text, LONG).trim() };
+    }).filter((s) => s.text);
+    return {
+      source: pick(r.source, SOURCES, "pasted"),
+      fileName: typeof r.fileName === "string" && r.fileName ? r.fileName.slice(0, 200) : null,
+      segments,
+      speakers,
+      ...stamps(r, now2)
+    };
+  }
+  var lines = (v) => list(v, "minutes that are not a list").filter((x) => typeof x === "string").map((x) => x.slice(0, 4e3));
+  function cleanMeeting(r, i, ctx) {
+    obj(r, "a meeting that is not a record");
+    const transcript = isObj(r.transcript) ? cleanTranscript(r.transcript, ctx.now) : null;
+    const m = r.minutes;
+    const minutes = transcript && isObj(m) ? {
+      summary: text(m.summary, 2e4),
+      decisions: lines(m.decisions),
+      openQuestions: lines(m.openQuestions),
+      generatedAt: time(m.generatedAt) ?? ctx.now,
+      transcriptUpdatedAt: time(m.transcriptUpdatedAt) ?? 0
+      // unknown ⇒ shown as out of date
+    } : null;
+    const actions = unique(list(r.actions, "actions that are not a list").map((a) => {
+      obj(a, "an action that is not a record");
+      return {
+        id: idOf(a.id, "an action"),
+        title: text(a.title).trim(),
+        due: date(a.due),
+        priority: ctx.priorities.has(a.priority) ? a.priority : "none",
+        excerpt: text(a.excerpt, 4e3),
+        status: pick(a.status, ACTION_STATUSES, "proposed"),
+        taskId: typeof a.taskId === "string" && ID.test(a.taskId) ? a.taskId : null
+      };
+    }).filter((a) => a.title), "actions");
+    return {
+      id: idOf(r.id, "a meeting"),
+      title: text(r.title),
+      ...stamps(r, ctx.now),
+      recording: null,
+      transcript,
+      minutes,
+      actions,
+      jobs: { transcribe: null, summarise: null },
+      lastError: null,
+      ...lifecycle(r, ctx.now)
+    };
+  }
+  function cleanRecords(raw, now2 = Date.now()) {
+    obj(raw, "no records");
+    const settings2 = obj(raw.settings, "no settings");
+    const lists = unique(list(raw.lists, "boards that are not a list").map((r) => cleanBoard(r, now2)), "boards");
+    if (!lists.some((l) => l.status === "active")) bad("no boards");
+    const rawTasks = list(raw.tasks, "tasks that are not a list");
+    const rawNotes = list(raw.notes, "notes that are not a list");
+    const rawMeetings = list(raw.meetings, "meetings that are not a list");
+    if (rawTasks.length + rawNotes.length + rawMeetings.length > MAX_RECORDS) bad("too many records");
+    const priorities = unique(list(settings2.priorities, "priorities that are not a list").map(cleanPriority), "priorities");
+    const ctx = {
+      now: now2,
+      firstBoard: lists.find((l) => l.status === "active"),
+      boards: new Map(lists.map((l) => [l.id, l])),
+      priorities: new Set(priorities.map((p) => p.id))
+    };
+    return {
+      lists,
+      tasks: unique(rawTasks.map((r, i) => cleanTask(r, i, ctx)), "tasks"),
+      notes: unique(rawNotes.map((r, i) => cleanNote(r, i, ctx)), "notes"),
+      meetings: unique(rawMeetings.map((r, i) => cleanMeeting(r, i, ctx)), "meetings"),
+      settings: {
+        dateFormat: isDateFormat(settings2.dateFormat) ? settings2.dateFormat : null,
+        // null: keep this device's
+        priorities,
+        labels: tagsOf(settings2.labels)
+      }
+    };
+  }
+  function cleanRemote(kind, data, { lists, priorities, now: now2 = Date.now() }) {
+    obj(data, "a record that is not a record");
+    const ctx = {
+      now: now2,
+      firstBoard: lists.find((l) => (l.status ?? "active") === "active") || lists[0],
+      boards: new Map(lists.map((l) => [l.id, l])),
+      priorities: new Set(priorities.map((p) => p.id))
+    };
+    if (kind === "list") return cleanBoard(data, now2);
+    if (kind === "task") {
+      if (!ctx.firstBoard) bad("a task with no board");
+      return cleanTask(data, 0, ctx);
+    }
+    if (kind === "note") return cleanNote(data, 0, ctx);
+    if (kind === "meeting") return cleanMeeting(data, 0, ctx);
+    if (kind === "settings") {
+      return {
+        dateFormat: isDateFormat(data.dateFormat) ? data.dateFormat : null,
+        priorities: unique(list(data.priorities, "priorities that are not a list").map(cleanPriority), "priorities"),
+        labels: tagsOf(data.labels)
+      };
+    }
+    return bad("an unknown kind");
+  }
+  var BACKUP_KEY = "stackd-v2-backup";
+  var BACKUP_DAYS = 30;
+  function keep(reason2, now2 = Date.now()) {
+    localStorage.setItem(BACKUP_KEY, JSON.stringify({ savedAt: now2, reason: reason2, doc: exportDocument(now2) }));
+  }
+  function slot() {
+    try {
+      const v = JSON.parse(localStorage.getItem(BACKUP_KEY));
+      return isObj(v) && isObj(v.doc) ? v : null;
+    } catch {
+      return null;
+    }
+  }
+  function info(now2 = Date.now()) {
+    const v = slot();
+    if (!v || now2 - v.savedAt > BACKUP_DAYS * 864e5) return null;
+    return { savedAt: v.savedAt, reason: v.reason, counts: countsOf(v.doc.records) };
+  }
+  function purgeOld(now2 = Date.now()) {
+    if (slot() && !info(now2)) localStorage.removeItem(BACKUP_KEY);
+  }
+  function backupRecords(now2 = Date.now()) {
+    const v = slot();
+    return v ? readDocument(v.doc, now2) : null;
+  }
+  var dropBackup = () => localStorage.removeItem(BACKUP_KEY);
+  function readDocument(doc2, now2 = Date.now()) {
+    if (!isObj(doc2) || doc2.app !== FILE_APP || !Number.isInteger(doc2.format)) {
+      throw new ImportError("not_stackd", "This is not a Stack'd file.");
+    }
+    if (doc2.format > FILE_FORMAT) {
+      throw new ImportError("newer", "This file comes from a newer version of Stack'd. Update the app, then import it.");
+    }
+    return cleanRecords(doc2.records, now2);
+  }
+  async function importFile(file, { confirm } = {}) {
+    if (!canImport()) throw new ImportError("signed_in", "Sign out on this device before importing a file.");
+    if (file.size > MAX_FILE_BYTES) throw new ImportError("too_large", "This file is too large to import.");
+    let doc2;
+    try {
+      doc2 = JSON.parse(await file.text());
+    } catch {
+      throw new ImportError("not_stackd", "This is not a Stack'd file.");
+    }
+    const records = readDocument(doc2);
+    const counts = countsOf(records);
+    if (confirm) {
+      const incoming = new Set(records.meetings.map((m) => m.id));
+      const ok = await confirm({
+        counts,
+        current: countsOf(S),
+        recordingsLost: S.meetings.filter((m) => m.recording && !incoming.has(m.id)).length,
+        exportedAt: time(doc2.exportedAt)
+      });
+      if (!ok) return null;
+    }
+    try {
+      replaceRecords(records);
+    } catch {
+      throw new ImportError("storage", "There is not enough room on this device for the file. Nothing was changed.");
+    }
+    return { counts };
+  }
+
+  // src/sync.js
+  var SYNC_KEY = "stackd-sync";
+  var BATCH = 200;
+  var DEBOUNCE_MS = 2e3;
+  var POLL_MS = 3e4;
+  function canonical(v) {
+    if (v === null || typeof v !== "object") return JSON.stringify(v ?? null);
+    if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
+    return `{${Object.keys(v).filter((k) => v[k] !== void 0).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}`;
+  }
+  function hash(text2) {
+    let h1 = 3735928559, h2 = 1103547991;
+    for (let i = 0; i < text2.length; i++) {
+      const c = text2.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 2654435761);
+      h2 = Math.imul(h2 ^ c, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ h1 >>> 16, 2246822507) ^ Math.imul(h2 ^ h2 >>> 13, 3266489909);
+    h2 = Math.imul(h2 ^ h2 >>> 16, 2246822507) ^ Math.imul(h1 ^ h1 >>> 13, 3266489909);
+    return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+  }
+  function toWire(kind, x) {
+    if (kind === "task") {
+      const { reminderFiredAt, ...t } = x;
+      return t;
+    }
+    if (kind === "meeting") {
+      const { recording, jobs, lastError, ...m } = x;
+      return m;
+    }
+    if (kind === "settings") return { dateFormat: x.dateFormat, priorities: x.priorities, labels: x.labels };
+    if (kind === "list") {
+      const { share, ...l } = x;
+      return l;
+    }
+    return { ...x };
+  }
+  function fromWire(kind, data, local) {
+    if (kind === "task") return { ...data, reminderFiredAt: local?.reminderFiredAt ?? null };
+    if (kind === "meeting") {
+      return { ...data, recording: local?.recording ?? null, jobs: local?.jobs ?? { transcribe: null, summarise: null }, lastError: local?.lastError ?? null };
+    }
+    return data;
+  }
+  var plural = { list: "lists", task: "tasks", note: "notes", meeting: "meetings" };
+  function collect(state3, { space = null } = {}) {
+    const out = /* @__PURE__ */ new Map();
+    const shared2 = new Set((state3.lists || []).filter((l) => l.share).map((l) => l.id));
+    const inScope = (kind, x) => {
+      const board = kind === "list" ? x.id : kind === "task" ? x.listId : null;
+      return space ? board === space && shared2.has(space) : !shared2.has(board);
+    };
+    for (const kind of space ? ["list", "task"] : ["list", "task", "note", "meeting"]) {
+      for (const x of state3[plural[kind]] || []) if (inScope(kind, x)) out.set(`${kind}:${x.id}`, { kind, id: x.id, data: toWire(kind, x) });
+    }
+    if (!space) out.set("settings:settings", { kind: "settings", id: "settings", data: toWire("settings", state3) });
+    return out;
+  }
+  var nextChangedAt = (now2, offset, previous = 0) => Math.max(Math.round(now2 + offset), previous + 1);
+  function diff(collected, shadow, now2, offset = 0) {
+    const changes = [];
+    for (const [key, r] of collected) {
+      const h = hash(canonical(r.data));
+      const s = shadow[key];
+      if (!s || s[0] !== h) changes.push({ key, hash: h, kind: r.kind, id: r.id, changedAt: nextChangedAt(now2, offset, s?.[1]), deleted: false, data: r.data });
+    }
+    for (const key of Object.keys(shadow)) {
+      if (collected.has(key) || shadow[key][0] === null) continue;
+      const [kind, id] = key.split(":");
+      changes.push({ key, hash: null, kind, id, changedAt: nextChangedAt(now2, offset, shadow[key][1]), deleted: true, data: null });
+    }
+    return changes;
+  }
+  var countsOf2 = (s) => ({ list: s.lists?.length || 0, task: s.tasks?.length || 0, note: s.notes?.length || 0, meeting: s.meetings?.length || 0 });
+  var empty = (c) => !c.task && !c.note && !c.meeting;
+  function mergePlan(local, remote) {
+    if (empty(remote.counts) && !remote.counts.list) return "upload";
+    if (local.untouched || empty(local.counts)) return "download";
+    return "ask";
+  }
+  function load() {
+    try {
+      const v = JSON.parse(localStorage.getItem(SYNC_KEY));
+      return v && v.userId === current()?.userId ? v : null;
+    } catch {
+      return null;
+    }
+  }
+  var doc = null;
+  var saveDoc = () => {
+    if (doc) localStorage.setItem(SYNC_KEY, JSON.stringify(doc));
+  };
+  var started = () => !!(signedIn() && (doc || load()));
+  var status = { state: "synced", pending: 0, lastSyncAt: null, paused: null };
+  var listeners3 = /* @__PURE__ */ new Set();
+  var state2 = () => status;
+  function onState(fn) {
+    listeners3.add(fn);
+  }
+  function setStatus(patchObj) {
+    status = { ...status, ...patchObj };
+    listeners3.forEach((fn) => fn(status));
+  }
+  var timer = null;
+  var running = null;
+  var again = false;
+  var blocked = () => false;
+  function setBlocked(fn) {
+    blocked = fn;
+  }
+  function request2(reason2 = "edit") {
+    if (!signedIn() || !(doc || (doc = load()))) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      run();
+    }, reason2 === "edit" ? DEBOUNCE_MS : 0);
+  }
+  async function now() {
+    if (!signedIn() || !(doc || (doc = load()))) return status;
+    clearTimeout(timer);
+    timer = null;
+    await run();
+    return status;
+  }
+  var editing = () => {
+    const a = globalThis.document?.activeElement;
+    return !!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable);
+  };
+  async function run() {
+    if (running) {
+      again = true;
+      return running;
+    }
+    running = (async () => {
+      try {
+        do {
+          again = false;
+          await once();
+        } while (again);
+      } finally {
+        running = null;
+      }
+    })();
+    return running;
+  }
+  var spacesOf = () => doc.spaces ||= {};
+  var spaceDiff = (id) => diff(collect(S, { space: id }), spacesOf()[id].shadow, Date.now(), doc.serverOffset);
+  function pendingNow() {
+    if (!doc) return 0;
+    return diff(collect(S), doc.shadow, Date.now(), doc.serverOffset).length + Object.keys(spacesOf()).reduce((n, id) => n + spaceDiff(id).length, 0);
+  }
+  var sharedListeners = /* @__PURE__ */ new Set();
+  var shared = () => doc?.shared || { spaces: [], invites: [] };
+  function onShared(fn) {
+    sharedListeners.add(fn);
+  }
+  var goneListeners = /* @__PURE__ */ new Set();
+  function onGone(fn) {
+    goneListeners.add(fn);
+  }
+  function addSpace(id) {
+    if (!doc) return;
+    spacesOf()[id] ||= { cursor: 0, shadow: {} };
+    saveDoc();
+  }
+  function applyShared(sh) {
+    if (!doc || !sh) return;
+    doc.shared = { spaces: sh.spaces || [], invites: sh.invites || [] };
+    for (const s of doc.shared.spaces) spacesOf()[s.id] ||= { cursor: 0, shadow: {} };
+    setShares(Object.fromEntries(doc.shared.spaces.map((s) => [s.id, { role: s.role, ownerEmail: s.ownerEmail, members: s.members }])));
+    saveDoc();
+    sharedListeners.forEach((fn) => fn(doc.shared));
+  }
+  function spaceGone(id) {
+    const name = S.lists.find((l) => l.id === id)?.name;
+    delete spacesOf()[id];
+    if (doc.shared) doc.shared.spaces = doc.shared.spaces.filter((s) => s.id !== id);
+    if (name !== void 0 && removeSharedBoard(id)) goneListeners.forEach((fn) => fn(name));
+  }
+  function dropSpace(id) {
+    if (!doc) return;
+    delete spacesOf()[id];
+    if (doc.shared) doc.shared.spaces = doc.shared.spaces.filter((s) => s.id !== id);
+    saveDoc();
+  }
+  var leaveSpace = (id) => {
+    if (doc) {
+      spaceGone(id);
+      saveDoc();
+    }
+  };
+  async function once() {
+    if (!signedIn() || !doc || blocked()) return;
+    if (globalThis.navigator?.onLine === false) {
+      setStatus({ state: "offline", pending: pendingNow() });
+      return;
+    }
+    if (editing()) {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        run();
+      }, DEBOUNCE_MS);
+      return;
+    }
+    setStatus({ state: "syncing" });
+    try {
+      let more = true;
+      const wire = (cs) => cs.map(({ key, hash: _h, ...c }) => c);
+      while (more) {
+        const changes = diff(collect(S), doc.shadow, Date.now(), doc.serverOffset).slice(0, BATCH);
+        const spaceChanges = Object.fromEntries(Object.keys(spacesOf()).map((id) => [id, spaceDiff(id).slice(0, BATCH)]));
+        const spaces = Object.fromEntries(Object.entries(spaceChanges).map(([id, cs]) => [id, { cursor: spacesOf()[id].cursor, changes: wire(cs) }]));
+        const sent = performance.now?.() ?? 0;
+        const r = await request("/v1/sync", { method: "POST", body: { cursor: doc.cursor, changes: wire(changes), spaces }, timeout: 6e4 });
+        const rtt = (performance.now?.() ?? 0) - sent;
+        doc.serverOffset = Math.round(r.serverTime + rtt / 2 - Date.now());
+        const refused = new Set((r.rejected || []).map((x) => `${x.kind}:${x.id}`));
+        for (const c of changes) if (!refused.has(c.key)) doc.shadow[c.key] = [c.hash, c.changedAt];
+        const gone = (r.rejected || []).filter((x) => x.reason === "deleted").map((x) => ({ kind: x.kind, id: x.id, changedAt: 0, deleted: true, data: null }));
+        applyInbound([...r.changes || [], ...gone]);
+        doc.cursor = r.cursor;
+        more = r.more || changes.length === BATCH;
+        for (const [id, res] of Object.entries(r.spaces || {})) {
+          if (!spacesOf()[id]) continue;
+          if (res.gone) {
+            spaceGone(id);
+            continue;
+          }
+          const sp = spacesOf()[id];
+          const no = new Set((res.rejected || []).map((x) => `${x.kind}:${x.id}`));
+          for (const c of spaceChanges[id] || []) if (!no.has(c.key)) sp.shadow[c.key] = [c.hash, c.changedAt];
+          const dead = (res.rejected || []).filter((x) => x.reason === "deleted").map((x) => ({ kind: x.kind, id: x.id, changedAt: 0, deleted: true, data: null }));
+          if ((res.rejected || []).some((x) => x.reason === "not_allowed")) sp.cursor = 0;
+          else sp.cursor = res.cursor;
+          applyInbound([...res.changes || [], ...dead], { space: id });
+          if (res.more || (spaceChanges[id] || []).length === BATCH) more = true;
+        }
+        applyShared(r.shared);
+      }
+      doc.lastSyncAt = Date.now();
+      doc.paused = null;
+      saveDoc();
+      setStatus({ state: "synced", pending: 0, lastSyncAt: doc.lastSyncAt, paused: null });
+    } catch (e) {
+      saveDoc();
+      const pending = pendingNow();
+      if (e.code === "offline" || e.code === "timeout") setStatus({ state: "offline", pending });
+      else setStatus({ state: "paused", pending, paused: { code: e.code, message: e.message, at: Date.now() } });
+      if (e.code === "pin_required") pinRequired.forEach((fn) => fn());
+      if (e.code === "accept_required") patch({ needsAccept: true });
+    }
+  }
+  var pinRequired = /* @__PURE__ */ new Set();
+  function onPinRequired(fn) {
+    pinRequired.add(fn);
+  }
+  function latestByKey(changes) {
+    const out = /* @__PURE__ */ new Map();
+    for (const c of changes) {
+      const key = `${c.kind}:${c.id}`;
+      if (!out.has(key) || (c.changedAt || 0) >= (out.get(key).changedAt || 0)) out.set(key, c);
+    }
+    return [...out.values()];
+  }
+  function applyInbound(changes, { space = null } = {}) {
+    const sp = space ? spacesOf()[space] : null;
+    if (sp?.held) changes = latestByKey([...Object.values(sp.held), ...changes]);
+    if (!changes.length) return;
+    if (space && S.lists.some((l) => l.id === space && !l.share)) return;
+    const shadow = space ? sp.shadow : doc.shadow;
+    const upserts = [], deletes = [];
+    const incomingLists = changes.filter((c) => c.kind === "list" && !c.deleted).map((c) => c.data);
+    const lists = [...S.lists.filter((l) => !incomingLists.some((x) => x?.id === l.id)), ...incomingLists];
+    const boardHere = !space || lists.some((l) => l?.id === space);
+    const held = {};
+    const settings2 = changes.find((c) => c.kind === "settings" && !c.deleted)?.data;
+    const priorities = Array.isArray(settings2?.priorities) ? settings2.priorities : S.priorities;
+    const order = { settings: 0, list: 1, task: 2, note: 3, meeting: 4 };
+    const share = space ? S.lists.find((l) => l.id === space)?.share || shared().spaces.find((s) => s.id === space) || { role: "member" } : null;
+    for (const c of [...changes].sort((a, b) => order[a.kind] - order[b.kind])) {
+      const key = `${c.kind}:${c.id}`;
+      if (space && !(c.kind === "list" ? c.id === space : c.kind === "task" && (c.deleted || c.data?.listId === space))) continue;
+      const mine = space && c.kind !== "settings" ? (S[plural[c.kind]] || []).find((x) => x.id === c.id) : null;
+      const foreign = !!mine && (c.kind === "list" ? !mine.share : mine.listId !== space);
+      if (c.deleted) {
+        shadow[key] = [null, c.changedAt];
+        if (!foreign) deletes.push({ kind: c.kind, id: c.id });
+        continue;
+      }
+      if (foreign) continue;
+      if (!boardHere) {
+        held[key] = c;
+        continue;
+      }
+      const prios = space && c.kind === "task" && typeof c.data?.priority === "string" && !priorities.some((p) => p.id === c.data.priority) ? [...priorities, { id: c.data.priority }] : priorities;
+      let clean;
+      try {
+        clean = cleanRemote(c.kind, c.data, { lists, priorities: prios });
+      } catch {
+        continue;
+      }
+      if (space && c.kind === "task" && clean.listId !== space) continue;
+      const local = c.kind === "settings" ? null : (S[plural[c.kind]] || []).find((x) => x.id === c.id);
+      const record2 = c.kind === "settings" ? clean : fromWire(c.kind, clean, local);
+      if (space && c.kind === "list") record2.share = { role: share.role, ownerEmail: share.ownerEmail, members: share.members || [] };
+      upserts.push({ kind: c.kind, record: record2, key, changedAt: c.changedAt });
+    }
+    if (sp) {
+      if (Object.keys(held).length) sp.held = held;
+      else delete sp.held;
+    }
+    applyRemote({ upserts, deletes });
+    const now2 = collect(S, { space });
+    for (const u of upserts) {
+      const r = now2.get(u.key);
+      if (r) shadow[u.key] = [hash(canonical(r.data)), u.changedAt];
+    }
+  }
+  async function firstPlan() {
+    const r = await request("/v1/sync/summary");
+    const local = { untouched: isUntouchedSeed(), counts: countsOf2(S) };
+    return { plan: mergePlan(local, { counts: r.counts }), local: local.counts, remote: r.counts, serverTime: r.serverTime };
+  }
+  async function firstSync(choice) {
+    const a = current();
+    if (!a) return;
+    doc = { userId: a.userId, cursor: 0, serverOffset: 0, shadow: {}, lastSyncAt: null, paused: null, spaces: {}, shared: null };
+    if (choice === "merge" || choice === "replace") keep(choice);
+    if (choice === "download" || choice === "replace") {
+      const all = [];
+      let cursor = 0, more = true;
+      while (more) {
+        const r = await request("/v1/sync", { method: "POST", body: { cursor, changes: [] }, timeout: 6e4 });
+        all.push(...r.changes);
+        cursor = r.cursor;
+        more = r.more;
+      }
+      const live = all.filter((c) => !c.deleted);
+      const lists = live.filter((c) => c.kind === "list").map((c) => cleanRemote("list", c.data, { lists: [], priorities: [] }));
+      const set3 = live.find((c) => c.kind === "settings");
+      const settings2 = set3 ? cleanRemote("settings", set3.data, { lists, priorities: [] }) : { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels };
+      const read4 = (kind) => live.filter((c) => c.kind === kind).flatMap((c) => {
+        try {
+          return [cleanRemote(kind, c.data, { lists, priorities: settings2.priorities })];
+        } catch {
+          return [];
+        }
+      });
+      if (lists.some((l) => l.status === "active")) {
+        replaceRecords({ lists, tasks: read4("task"), notes: read4("note"), meetings: read4("meeting"), settings: settings2 });
+      }
+      doc.cursor = cursor;
+      for (const [key, r] of collect(S)) {
+        const c = all.find((x) => `${x.kind}:${x.id}` === key);
+        doc.shadow[key] = [hash(canonical(r.data)), c?.changedAt || 0];
+      }
+      all.filter((c) => c.deleted).forEach((c) => {
+        doc.shadow[`${c.kind}:${c.id}`] = [null, c.changedAt];
+      });
+    }
+    saveDoc();
+    await run();
+  }
+  function reset() {
+    clearTimeout(timer);
+    timer = null;
+    doc = null;
+    localStorage.removeItem(SYNC_KEY);
+    setStatus({ state: "synced", pending: 0, lastSyncAt: null, paused: null });
+  }
+  onForget(reset);
+  var pendingCount = () => pendingNow();
+
+  // src/ui/signin.js
+  var RESEND_S = 60;
+  var plural2 = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  var countsLine = (c) => [plural2(c.list, "board"), plural2(c.task, "task"), plural2(c.note, "note"), plural2(c.meeting, "meeting")].join(", ");
+  function openSignIn({ mode = null } = {}) {
+    const avail = availability();
+    if (!avail.ok) {
+      toast(avail.reason === "file" ? "Open Stack'd from its website to sign in." : avail.reason === "legacy" ? "Sign in at the new address." : "Sign-in arrives in the next update of the app.", { ms: 5e3 });
+      return;
+    }
+    const st = { mode, step: mode ? mode === "create" ? "age" : "email" : "choose", email: "", ticket: null, known: null, first: null, error: "", sentAt: 0 };
+    const history2 = [];
+    const { ov, close } = overlay('<div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="step-title"></div>');
+    const sheet2 = ov.querySelector(".sheet");
+    let pad3 = null;
+    let resendTimer = null;
+    const go = (step, { back: back2 = false } = {}) => {
+      if (!back2) history2.push(st.step);
+      st.step = step;
+      st.error = "";
+      draw3();
+    };
+    const back = () => {
+      const prev = history2.pop();
+      if (prev) go(prev, { back: true });
+      else close();
+    };
+    const busy = (on) => sheet2.querySelectorAll("button, input, select").forEach((b) => {
+      if (!b.dataset.keep) b.disabled = on;
+    });
+    const stepCount = () => {
+      const storeAdult = current2()?.age === "adult";
+      const order = (st.mode === "create" || st.known === false) && !storeAdult ? ["age", "email", "code", "pin"] : ["email", "code", "pin"];
+      const i = order.indexOf(st.step.startsWith("pin") ? "pin" : st.step);
+      return i === -1 ? "" : `Step ${i + 1} of ${order.length}`;
+    };
+    function head(title) {
+      return `
+      <div class="steps-head">
+        <button type="button" class="icon-btn" data-back data-keep aria-label="Back">${icon("chevronLeft")}</button>
+        <span class="hint">${stepCount()}</span>
+        <button type="button" class="icon-btn" data-close data-keep aria-label="Close">${icon("x")}</button>
+      </div>
+      <h2 id="step-title" tabindex="-1">${esc(title)}</h2>`;
+    }
+    function draw3() {
+      pad3?.destroy();
+      pad3 = null;
+      clearInterval(resendTimer);
+      if (st.step === "age") {
+        const store2 = current2()?.age;
+        if (store2 === "adult") {
+          st.step = st.known === false ? "pin-new" : "email";
+        } else if (store2 === "minor") {
+          st.step = "age-minor";
+        }
+      }
+      const s = st.step;
+      let html = "";
+      if (s === "choose") {
+        html = `${head("Sync across your devices")}
+        <p class="step-text">An account keeps your boards, tasks, notes and meetings the same on your phone and your computer. Recordings stay on the device that made them.</p>
+        <button type="button" class="btn btn-primary btn-block" data-mode="create">Create an account</button>
+        <button type="button" class="btn btn-secondary btn-block" data-mode="signin">I have an account</button>`;
+      } else if (s === "age-minor") {
+        html = `${head("Accounts are for adults")}
+        <p class="step-text">Your store account says you are under 18. You can keep using Stack'd on this device without an account.</p>
+        <button type="button" class="btn btn-secondary btn-block" data-close>Close</button>`;
+      } else if (s === "age") {
+        const until = ageRefusedUntil();
+        const year = (/* @__PURE__ */ new Date()).getFullYear();
+        html = until ? `${head("No account yet")}
+           <p class="step-text">Accounts open from the year after your 18th birthday. You can keep using Stack'd on this device without one.</p>
+           <button type="button" class="btn btn-secondary btn-block" data-close>Close</button>` : `${head("What year were you born?")}
+           <label class="sr-only" for="birth-year">Year of birth</label>
+           <select class="input" id="birth-year" data-year>
+             <option value="" selected disabled>Year</option>
+             ${Array.from({ length: 101 }, (_, i) => year - i).map((y) => `<option value="${y}">${y}</option>`).join("")}
+           </select>
+           <button type="button" class="btn btn-primary btn-block" data-next disabled>Continue</button>`;
+      } else if (s === "email") {
+        html = `${head(st.mode === "create" ? "Your email" : "Sign in with your email")}
+        <label class="sr-only" for="acct-email">Email</label>
+        <input class="input" id="acct-email" type="email" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="you@example.com" value="${esc(st.email)}" data-email>
+        <p class="hint">By continuing you accept the <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> and the <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy Policy</a>.</p>
+        <p class="step-error" role="alert">${esc(st.error)}</p>
+        <button type="button" class="btn btn-primary btn-block" data-next>Send a code</button>`;
+      } else if (s === "code") {
+        html = `${head("Enter the code")}
+        <p class="step-text">We sent a six-digit code to <strong>${esc(st.email)}</strong>. It is valid for 10 minutes.</p>
+        <label class="sr-only" for="acct-code">Code</label>
+        <input class="input code-input" id="acct-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" placeholder="000000" data-code>
+        <p class="step-error" role="alert">${esc(st.error)}</p>
+        <button type="button" class="btn btn-primary btn-block" data-next>Continue</button>
+        <button type="button" class="btn btn-ghost btn-block" data-resend>Send a new code</button>`;
+      } else if (s === "pin-new" || s === "pin-confirm" || s === "pin-enter" || s === "pin-reset" || s === "pin-reset-confirm") {
+        const titles = {
+          "pin-new": ["Choose a PIN", "Four digits. The same PIN works on all your devices."],
+          "pin-confirm": ["Enter it again", ""],
+          "pin-enter": ["Enter your PIN", ""],
+          "pin-reset": ["Choose a new PIN", "Your other devices will be signed out."],
+          "pin-reset-confirm": ["Enter it again", ""]
+        };
+        const [title, text2] = titles[s];
+        html = `${head(title)}
+        ${text2 ? `<p class="step-text">${esc(text2)}</p>` : ""}
+        ${pinpadHTML({ label: title, error: st.error })}
+        ${s === "pin-enter" ? '<button type="button" class="btn btn-ghost btn-block" data-forgot>Forgot your PIN? Reset it</button>' : ""}`;
+      } else if (s === "locked") {
+        html = `${head("Your PIN is locked")}
+        <p class="step-text">Five wrong PINs in a row lock it on every device. Choose a new one; your other devices will be signed out.</p>
+        <button type="button" class="btn btn-primary btn-block" data-reset>Choose a new PIN</button>`;
+      }
+      sheet2.innerHTML = html;
+      bind();
+    }
+    function bind() {
+      const q = (sel) => sheet2.querySelector(sel);
+      q("[data-back]")?.addEventListener("click", back);
+      sheet2.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => close()));
+      sheet2.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", async () => {
+        st.mode = b.dataset.mode;
+        if (st.mode === "create") {
+          busy(true);
+          await ask();
+        }
+        go(st.mode === "create" ? "age" : "email");
+      }));
+      const s = st.step;
+      if (s === "age") {
+        const sel = q("[data-year]"), next = q("[data-next]");
+        sel?.addEventListener("change", () => {
+          next.disabled = !sel.value;
+        });
+        next?.addEventListener("click", () => {
+          if (!checkAge(sel.value)) {
+            draw3();
+            return;
+          }
+          if (st.known === false) go("pin-new");
+          else go("email");
+        });
+        q("#step-title")?.focus();
+      }
+      if (s === "email") {
+        const input = q("[data-email]");
+        const send = async () => {
+          st.email = input.value.trim();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(st.email)) {
+            st.error = "Enter a valid email address.";
+            draw3();
+            return;
+          }
+          busy(true);
+          try {
+            await start(st.email);
+            st.sentAt = Date.now();
+            go("code");
+          } catch (e) {
+            st.error = e.message;
+            busy(false);
+            draw3();
+          }
+        };
+        q("[data-next]").addEventListener("click", send);
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") send();
+        });
+        input.focus();
+      }
+      if (s === "code") {
+        const input = q("[data-code]"), resend = q("[data-resend]");
+        const tickResend = () => {
+          const left = Math.ceil((st.sentAt + RESEND_S * 1e3 - Date.now()) / 1e3);
+          resend.disabled = left > 0;
+          resend.textContent = left > 0 ? `Send a new code in ${left} s` : "Send a new code";
+        };
+        tickResend();
+        resendTimer = setInterval(tickResend, 1e3);
+        const submit = async () => {
+          const code = input.value.replace(/\D/g, "");
+          if (code.length !== 6) {
+            st.error = "The code is six digits.";
+            draw3();
+            return;
+          }
+          busy(true);
+          try {
+            const r = await verify(st.email, code);
+            st.ticket = r.ticket;
+            st.known = r.account === "existing";
+            if (!st.known) {
+              if (st.mode !== "create") await ask();
+              go(ageRefusedUntil() || st.mode !== "create" ? "age" : "pin-new");
+            } else go(r.pinLocked ? "locked" : "pin-enter");
+          } catch (e) {
+            st.error = e.message;
+            draw3();
+          }
+        };
+        input.addEventListener("input", () => {
+          input.value = input.value.replace(/\D/g, "").slice(0, 6);
+          if (input.value.length === 6) submit();
+        });
+        q("[data-next]").addEventListener("click", submit);
+        resend.addEventListener("click", async () => {
+          busy(true);
+          try {
+            await start(st.email);
+            st.sentAt = Date.now();
+            toast("A new code is on its way");
+            draw3();
+          } catch (e) {
+            st.error = e.message;
+            draw3();
+          }
+        });
+        input.focus();
+      }
+      if (s.startsWith("pin-")) {
+        pad3 = bindPinpad(sheet2, { onComplete: (pin) => onPin(pin) });
+        pad3.focus();
+        q("[data-forgot]")?.addEventListener("click", () => go("pin-reset"));
+      }
+      q("[data-reset]")?.addEventListener("click", () => go("pin-reset"));
+    }
+    let firstPin = null;
+    async function onPin(pin) {
+      const s = st.step;
+      if (s === "pin-new" || s === "pin-reset") {
+        if (/^(\d)\1{3}$/.test(pin) || "0123456789".includes(pin) || "9876543210".includes(pin)) {
+          pad3.error("Choose a PIN that is not four of the same digit or a straight run.");
+          return;
+        }
+        firstPin = pin;
+        go(s === "pin-new" ? "pin-confirm" : "pin-reset-confirm");
+        return;
+      }
+      if ((s === "pin-confirm" || s === "pin-reset-confirm") && pin !== firstPin) {
+        firstPin = null;
+        st.error = "The two PINs were different. Choose one again.";
+        history2.pop();
+        st.step = s === "pin-confirm" ? "pin-new" : "pin-reset";
+        draw3();
+        return;
+      }
+      pad3.disable(true);
+      try {
+        if (s === "pin-confirm") await register(st.email, st.ticket, pin);
+        else if (s === "pin-reset-confirm") await resetPin(st.email, st.ticket, pin);
+        else await signIn(st.email, st.ticket, pin);
+      } catch (e) {
+        if (e.code === "pin_locked") {
+          go("locked");
+          return;
+        }
+        if (e.code === "ticket_expired") {
+          st.error = e.message;
+          history2.length = 0;
+          go("email");
+          return;
+        }
+        if (e.code === "conflict") {
+          st.known = !st.known;
+          go(st.known ? "pin-enter" : "age");
+          return;
+        }
+        pad3.disable(false);
+        pad3.error(e.message);
+        return;
+      }
+      close();
+      toast(s === "pin-confirm" ? "Account created" : s === "pin-reset-confirm" ? "PIN reset · other devices were signed out" : "Signed in");
+      await startSync();
+    }
+    draw3();
+  }
+  var starting = null;
+  function startSync() {
+    if (!starting) starting = firstSyncFlow().finally(() => {
+      starting = null;
+    });
+    return starting;
+  }
+  async function firstSyncFlow() {
+    let p;
+    try {
+      p = await firstPlan();
+    } catch (e) {
+      toast(`Signed in. Sync will start when the service answers (${e.message})`, { ms: 8e3 });
+      return;
+    }
+    let choice = p.plan;
+    if (choice === "ask") choice = await openMergeDialog(p.local, p.remote);
+    if (!choice) choice = "merge";
+    try {
+      await firstSync(choice);
+    } catch (e) {
+      toast(e.message, { ms: 8e3 });
+    }
+    rerender();
+  }
+  async function openMergeDialog(local, remote) {
+    const r = await choiceDialog(
+      "This device and your account both have data",
+      `This device: ${countsLine(local)}. Your account: ${countsLine(remote)}. Merge keeps everything from both. Use my account replaces what is on this device. Either way, a copy of this device's data is kept here for 30 days.`,
+      [{ id: "replace", label: "Use my account" }, { id: "merge", label: "Merge" }]
+    );
+    return r;
+  }
+  async function openSignOutDialog({ pending = 0, onlyHere = 0, web = true } = {}) {
+    const lost = pending ? ` ${plural2(pending, "change")} on this device ${pending === 1 ? "has" : "have"} not synced yet and would be lost if removed.` : "";
+    const choices = web ? [{ id: "keep", label: "Keep a copy" }, { id: "remove", label: "Remove from this device", danger: true }] : [{ id: "remove", label: "Remove from this device", danger: true }, { id: "keep", label: "Keep a copy" }];
+    const r = await choiceDialog(
+      "Sign out of this device?",
+      `Keep a copy leaves everything here, signed out. Remove deletes the boards, tasks, notes and meetings from this device; your account keeps them.${lost}`,
+      choices
+    );
+    if (!r) return null;
+    if (r === "remove" && onlyHere) {
+      const ok = await confirmDialog(
+        `Delete ${plural2(onlyHere, "recording")}?`,
+        `${onlyHere === 1 ? "A recording exists" : "These recordings exist"} only on this device. Removing this device's data deletes ${onlyHere === 1 ? "it" : "them"} for good.`,
+        { confirmLabel: "Delete and sign out", danger: true }
+      );
+      if (!ok) return null;
+    }
+    return { keepData: r === "keep" };
+  }
+
+  // src/share.js
+  var shareFrom = (shared2, id) => {
+    const s = shared2?.spaces?.find((x) => x.id === id);
+    return s ? { role: s.role, ownerEmail: s.ownerEmail, members: s.members } : null;
+  };
+  var canShare = () => started();
+  async function createShared(name, emails) {
+    const r = await request("/v1/spaces", { method: "POST", body: { boardName: name, emails } });
+    const id = r?.id;
+    if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(id) || listById(id)) throw Object.assign(new Error("The board could not be shared. Try again."), { code: "provider_unavailable" });
+    addSpace(id);
+    addList(name, { id, share: shareFrom(r.shared, id) || { role: "owner", ownerEmail: "", members: [] } });
+    applyShared(r.shared);
+    request2("share");
+    return listById(id);
+  }
+  async function invite(id, emails) {
+    const r = await request(`/v1/spaces/${encodeURIComponent(id)}/invite`, { method: "POST", body: { emails, boardName: listById(id)?.name } });
+    applyShared(r.shared);
+  }
+  async function removePerson(id, email) {
+    const r = await request(`/v1/spaces/${encodeURIComponent(id)}/remove`, { method: "POST", body: { email } });
+    applyShared(r.shared);
+  }
+  async function leave(id) {
+    await request(`/v1/spaces/${encodeURIComponent(id)}/leave`, { method: "POST", body: {} });
+    leaveSpace(id);
+  }
+  async function deleteForEveryone(id) {
+    await request(`/v1/spaces/${encodeURIComponent(id)}`, { method: "DELETE" });
+    dropSpace(id);
+    unshare(id);
+    if (canRemoveList(id)) softDeleteList(id);
+    request2("share");
+  }
+  async function answer2(inviteId, accept2) {
+    const r = await request(`/v1/invites/${encodeURIComponent(inviteId)}/${accept2 ? "accept" : "decline"}`, { method: "POST", body: {} });
+    applyShared(r.shared);
+    if (accept2) await now();
+  }
+  function parseEmails(text2, own = "") {
+    const parts = String(text2 ?? "").split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (!parts.length) return { error: "Add at least one email address." };
+    if (parts.length > 9) return { error: "A shared board has at most 10 people." };
+    const bad2 = parts.find((p) => !/^[^\s@<>()]+@[^\s@<>()]+\.[^\s@<>()]+$/.test(p));
+    if (bad2) return { error: `“${bad2}” is not an email address.` };
+    if (own && parts.some((p) => p.toLowerCase() === own.toLowerCase())) return { error: "You are already on this board." };
+    return { emails: [...new Set(parts.map((p) => p.toLowerCase()))] };
+  }
+  var sharedBoards = () => S.lists.filter((l) => l.share && (l.status ?? "active") === "active");
+
+  // src/ui/sharing.js
+  async function newBoardFlow() {
+    const kind = !availability().ok ? "personal" : await choiceDialog(
+      "New board",
+      "Only for you, or shared with other people? People on a shared board see and change its cards.",
+      [{ id: "personal", label: "Personal" }, { id: "shared", label: "Shared" }]
+    );
+    if (!kind) return;
+    if (kind === "personal") {
+      const name2 = await promptDialog("New board", { placeholder: "Board name", confirmLabel: "Create" });
+      if (name2 && nameTaken("board", name2)) {
+        toast(`There is already a board called ${name2}`);
+        return;
+      }
+      if (name2) addList(name2);
+      return;
+    }
+    if (!signedIn() || !canShare()) {
+      const ok = await confirmDialog(
+        "Sharing needs an account",
+        signedIn() ? "Wait for the first sync to finish, then try again." : "Sign in, or create an account, to share a board. Personal boards work without one.",
+        { confirmLabel: signedIn() ? "OK" : "Sign in" }
+      );
+      if (ok && !signedIn()) openSignIn();
+      return;
+    }
+    const name = await promptDialog("New shared board", { placeholder: "Board name", confirmLabel: "Next" });
+    if (!name) return;
+    await emailsSheet({
+      title: `Share “${name}” with`,
+      action: "Share",
+      submit: async (emails) => {
+        await createShared(name, emails);
+        toast(`“${name}” is shared. They see it once they accept.`, { ms: 6e3 });
+      }
+    });
+  }
+  function emailsSheet({ title, action, submit }) {
+    return new Promise((resolve) => {
+      const { ov, close } = overlay(`
+      <div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="share-title">
+        <div class="steps-head"><span></span><span></span><button type="button" class="icon-btn" data-close aria-label="Close">${icon("x")}</button></div>
+        <h2 id="share-title">${esc(title)}</h2>
+        <label class="sr-only" for="share-emails">Email addresses</label>
+        <textarea class="input share-emails" id="share-emails" rows="3" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="name@example.com, another@example.com"></textarea>
+        <p class="hint">They get an invitation in Stack'd when they sign in with that email. Nothing is sent by email.</p>
+        <p class="step-error" role="alert" data-err></p>
+        <button type="button" class="btn btn-primary btn-block" data-go>${esc(action)}</button>
+      </div>`, { onClose: (r) => resolve(r === true) });
+      const input = ov.querySelector("textarea"), err = ov.querySelector("[data-err]"), go = ov.querySelector("[data-go]");
+      ov.querySelector("[data-close]").addEventListener("click", () => close(false));
+      go.addEventListener("click", async () => {
+        const p = parseEmails(input.value, current()?.email);
+        if (p.error) {
+          err.textContent = p.error;
+          input.focus();
+          return;
+        }
+        go.disabled = true;
+        err.textContent = "";
+        try {
+          await submit(p.emails);
+          close(true);
+        } catch (e) {
+          err.textContent = e.message;
+          go.disabled = false;
+        }
+      });
+      input.focus();
+    });
+  }
+  function sharedChipHTML(list3) {
+    if (!list3?.share) return "";
+    const n = (list3.share.members || []).filter((m) => m.state === "active").length;
+    return `<button type="button" class="tag shared-chip" data-people="${esc(list3.id)}" aria-label="Shared with ${n} ${n === 1 ? "person" : "people"}. Show who">${icon("meeting", 12)}Shared${n > 1 ? ` · ${n}` : ""}</button>`;
+  }
+  function bindSharedChip(root = app) {
+    root.querySelector("[data-people]")?.addEventListener("click", (e) => openPeople(e.currentTarget.dataset.people));
+  }
+  function openPeople(id) {
+    const l = listById(id);
+    if (!l?.share) return;
+    const owner = l.share.role === "owner";
+    const people = l.share.members || [];
+    const { ov, close } = overlay(`
+    <div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="people-title">
+      <div class="steps-head"><span></span><span></span><button type="button" class="icon-btn" data-close aria-label="Close">${icon("x")}</button></div>
+      <h2 id="people-title">${esc(l.name)}</h2>
+      <p class="step-text">${owner ? "You share this board. Everyone here can add, move and complete cards and change lanes; only you rename or delete it." : `Shared with you by ${esc(l.share.ownerEmail)}.`}</p>
+      <div class="card list-card people-list">
+        ${people.map((p) => `
+        <div class="set-row">
+          <span class="lrow-icon">${icon("meeting", 18)}</span>
+          <div class="set-text"><span class="set-title">${esc(p.email)}</span><span class="set-sub">${p.role === "owner" ? "Owner" : p.state === "pending" ? "Invited, not accepted yet" : "Member"}</span></div>
+          ${owner && p.role !== "owner" ? `<button class="btn btn-sm btn-ghost danger" data-remove="${esc(p.email)}">${p.state === "pending" ? "Withdraw" : "Remove"}</button>` : ""}
+        </div>`).join("")}
+      </div>
+      ${owner ? '<button type="button" class="btn btn-secondary btn-block" data-invite>Invite people</button>' : '<button type="button" class="btn btn-ghost btn-block danger" data-leave>Leave this board</button>'}
+    </div>`);
+    ov.querySelector("[data-close]").addEventListener("click", () => close());
+    ov.querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", async () => {
+      const email = b.dataset.remove;
+      if (!await confirmDialog(`Remove ${email}?`, "The board leaves their devices at their next sync.", { confirmLabel: "Remove", danger: true })) return;
+      try {
+        await removePerson(id, email);
+        close();
+        openPeople(id);
+      } catch (e) {
+        toast(e.message);
+      }
+    }));
+    ov.querySelector("[data-invite]")?.addEventListener("click", async () => {
+      close();
+      await emailsSheet({ title: `Invite to “${l.name}”`, action: "Invite", submit: async (emails) => {
+        await invite(id, emails);
+        toast("Invited");
+      } });
+      rerender();
+    });
+    ov.querySelector("[data-leave]")?.addEventListener("click", async () => {
+      close();
+      await askLeave(id);
+    });
+  }
+  async function askLeave(id) {
+    const l = listById(id);
+    if (!l) return;
+    if (!await confirmDialog(`Leave “${l.name}”?`, "The board and its cards leave this device. The others keep them, and the owner can invite you again.", { confirmLabel: "Leave", danger: true })) return;
+    try {
+      await leave(id);
+      toast(`You left “${l.name}”`);
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+  async function askRemoveShared(id) {
+    const l = listById(id);
+    if (!l?.share) return;
+    if (l.share.role !== "owner") {
+      await askLeave(id);
+      return;
+    }
+    const ok = await confirmDialog(
+      `Delete “${l.name}” for everyone?`,
+      "It leaves every member's devices at their next sync. Here it goes to Deleted with its cards, for 30 days, as a personal board.",
+      { confirmLabel: "Delete for everyone", danger: true }
+    );
+    if (!ok) return;
+    try {
+      await deleteForEveryone(id);
+      toast(`“${l.name}” was deleted for everyone. It stays in Deleted here for 30 days.`, { ms: 6e3 });
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+  var invitations = () => signedIn() ? shared().invites : [];
+  function invitesHTML() {
+    const list3 = invitations();
+    if (!list3.length) return "";
+    return list3.map((i) => `
+    <div class="notice notice-neutral invite-card" role="region" aria-label="Invitation">
+      ${icon("meeting", 18)}
+      <span><strong>${esc(i.ownerEmail)}</strong> shared “${esc(i.boardName)}” with you.</span>
+      <span class="invite-actions">
+        <button class="btn btn-sm btn-primary" data-accept-invite="${esc(i.id)}">Accept</button>
+        <button class="btn btn-sm btn-ghost" data-decline-invite="${esc(i.id)}">Decline</button>
+      </span>
+    </div>`).join("");
+  }
+  function bindInvites(root = app) {
+    root.querySelectorAll("[data-accept-invite]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await answer2(b.dataset.acceptInvite, true);
+        toast("Joined. The board is in your list.");
+      } catch (e) {
+        toast(e.message);
+        b.disabled = false;
+      }
+      rerender();
+    }));
+    root.querySelectorAll("[data-decline-invite]").forEach((b) => b.addEventListener("click", async () => {
+      try {
+        await answer2(b.dataset.declineInvite, false);
+      } catch (e) {
+        toast(e.message);
+      }
+      rerender();
+    }));
+  }
+  function sharedSectionHTML() {
+    const boards = sharedBoards();
+    if (!signedIn() || !boards.length) return "";
+    return `
+      <span class="section-title list-label" id="settings-shared">Shared boards</span>
+      <div class="card list-card">
+        ${boards.map((l) => {
+      const me = current()?.email;
+      const ppl = (l.share.members || []).filter((m) => m.email !== me && m.role !== "owner").map((m) => `${m.email}${m.state === "pending" ? " (invited)" : ""}`).join(", ") || "nobody yet";
+      return `
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon("board", 18)}</span>
+          <div class="set-text"><span class="set-title">${esc(l.name)}</span><span class="set-sub set-long">${l.share.role === "owner" ? "You share it with" : `Shared by ${esc(l.share.ownerEmail)} ·`} ${esc(ppl)}</span></div>
+          <button class="btn btn-sm btn-secondary" data-people="${esc(l.id)}">People</button>
+        </div>`;
+    }).join("")}
+      </div>`;
+  }
+  function bindSharedSection(root = app) {
+    root.querySelectorAll("#settings-shared + .card [data-people]").forEach((b) => b.addEventListener("click", () => openPeople(b.dataset.people)));
   }
 
   // src/ui/actions.js
@@ -2529,6 +4911,37 @@
     restoreMeeting(id);
     toast("Restored to Meetings");
   }
+  function removeBoardWithUndo(id, how) {
+    const prev = how === "archive" ? archiveList(id) : softDeleteList(id);
+    if (!prev) return;
+    const onClick = prev.status === "archived" ? () => restoreList(id, { toArchive: prev.archivedAt }) : () => restoreList(id);
+    toast(how === "archive" ? "Board archived" : "Board deleted", { action: { label: "Undo", onClick } });
+  }
+  function restoreBoardWithToast(id) {
+    const name = listById(id)?.name;
+    restoreList(id);
+    toast(`${name} is back in Boards`);
+  }
+  async function askRemoveBoard(id) {
+    const l = listById(id);
+    if (!l) return;
+    if (l.share) {
+      await askRemoveShared(id);
+      return;
+    }
+    if (!canRemoveList(id)) {
+      toast("This is your only board. Add another one before removing it.");
+      return;
+    }
+    const n = boardCardCount(id);
+    const cards = n === 0 ? "It has no cards." : n === 1 ? "Its 1 card goes with it." : `Its ${n} cards go with it.`;
+    const how = await choiceDialog(
+      `Remove “${l.name}”?`,
+      `${cards} Archive keeps the board until you restore it. Delete removes it for good after ${RETENTION_DAYS} days.`,
+      [{ id: "archive", label: "Archive" }, { id: "delete", label: "Delete", danger: true }]
+    );
+    if (how) removeBoardWithUndo(id, how);
+  }
   var rolling = /* @__PURE__ */ new Set();
   function completeTask(id, el = null) {
     const t = taskById(id);
@@ -2539,8 +4952,8 @@
     }
     rolling.add(id);
     el?.classList.add("done");
-    const check = el?.querySelector(".check");
-    if (check) check.checked = true;
+    const check2 = el?.querySelector(".check");
+    if (check2) check2.checked = true;
     setTimeout(() => {
       rolling.delete(id);
       const r = rollForward(id);
@@ -2549,31 +4962,16 @@
     }, 400);
   }
 
-  // src/haptics.js
-  var plugin2 = () => globalThis.Capacitor?.Plugins?.Haptics;
-  function buzz(style = "MEDIUM") {
-    const h = plugin2();
-    if (typeof h?.impact === "function") {
-      Promise.resolve(h.impact({ style })).catch(() => {
-      });
-      return;
-    }
-    try {
-      navigator.vibrate?.(style === "HEAVY" ? 40 : style === "LIGHT" ? 10 : 20);
-    } catch {
-    }
-  }
-
   // src/media.js
   var DB = "stackd-media";
   var VERSION = 1;
   var RECS = "recordings";
   var CHUNKS = "chunks";
-  var available = () => typeof indexedDB !== "undefined";
+  var available2 = () => typeof indexedDB !== "undefined";
   var keyFor = (meetingId) => `rec-${meetingId}`;
   var dbPromise = null;
   function open() {
-    if (!available()) return Promise.reject(new Error("IndexedDB is not available"));
+    if (!available2()) return Promise.reject(new Error("IndexedDB is not available"));
     if (dbPromise) return dbPromise;
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB, VERSION);
@@ -2618,36 +5016,36 @@
     const db = await open();
     const tx = db.transaction([RECS, CHUNKS], "readwrite");
     const recs = tx.objectStore(RECS);
-    const row = await result(recs.get(key));
-    if (!row) throw new Error("recording row missing");
-    tx.objectStore(CHUNKS).put({ key, i: row.chunks, blob: chunk });
-    recs.put({ ...row, chunks: row.chunks + 1, sizeBytes: row.sizeBytes + chunk.size, durationMs, updatedAt: Date.now() });
+    const row2 = await result(recs.get(key));
+    if (!row2) throw new Error("recording row missing");
+    tx.objectStore(CHUNKS).put({ key, i: row2.chunks, blob: chunk });
+    recs.put({ ...row2, chunks: row2.chunks + 1, sizeBytes: row2.sizeBytes + chunk.size, durationMs, updatedAt: Date.now() });
     await done(tx);
-    return { chunks: row.chunks + 1, sizeBytes: row.sizeBytes + chunk.size };
+    return { chunks: row2.chunks + 1, sizeBytes: row2.sizeBytes + chunk.size };
   }
   async function finish(key, durationMs) {
     const db = await open();
     const tx = db.transaction(RECS, "readwrite");
-    const row = await result(tx.objectStore(RECS).get(key));
-    if (row) tx.objectStore(RECS).put({ ...row, durationMs, updatedAt: Date.now() });
+    const row2 = await result(tx.objectStore(RECS).get(key));
+    if (row2) tx.objectStore(RECS).put({ ...row2, durationMs, updatedAt: Date.now() });
     await done(tx);
-    return row ? { ...row, durationMs } : null;
+    return row2 ? { ...row2, durationMs } : null;
   }
-  async function list() {
+  async function list2() {
     const db = await open();
     return result(db.transaction(RECS).objectStore(RECS).getAll()) || [];
   }
   async function blob(key) {
     const db = await open();
     const tx = db.transaction([RECS, CHUNKS]);
-    const row = await result(tx.objectStore(RECS).get(key));
-    if (!row) return null;
+    const row2 = await result(tx.objectStore(RECS).get(key));
+    if (!row2) return null;
     const rows = await result(tx.objectStore(CHUNKS).getAll(range(key)));
     rows.sort((a, b) => a.i - b.i);
-    return new Blob(rows.map((r) => r.blob), { type: row.mimeType });
+    return new Blob(rows.map((r) => r.blob), { type: row2.mimeType });
   }
-  async function remove(key) {
-    if (!available()) return;
+  async function remove2(key) {
+    if (!available2()) return;
     const db = await open();
     const tx = db.transaction([RECS, CHUNKS], "readwrite");
     tx.objectStore(RECS).delete(key);
@@ -2655,8 +5053,8 @@
     await done(tx);
   }
   async function orphans(referenced) {
-    const keep = new Set(referenced);
-    return (await list()).filter((r) => !keep.has(r.key));
+    const keep2 = new Set(referenced);
+    return (await list2()).filter((r) => !keep2.has(r.key));
   }
   var persisted = null;
   async function persist() {
@@ -2683,7 +5081,7 @@
   var STEPS = ["transcribe", "summarise"];
   var REQUEST_TIMEOUT_MS = 15e4;
   var ALLOWANCE_TTL_MS = 10 * 60 * 1e3;
-  var POLL_MS = 4e3;
+  var POLL_MS2 = 4e3;
   var JOB_TTL_MS = 2 * 3600 * 1e3;
   var MESSAGES = {
     offline: "No connection. Try again when you are back online.",
@@ -2714,10 +5112,11 @@
     if (!isOnline()) return { code: "offline", message: MESSAGES.offline };
     return { code: "provider_unavailable", message: MESSAGES.provider_unavailable };
   }
-  var fetchImpl = (...args) => globalThis.fetch(...args);
+  var fetchImpl2 = (...args) => globalThis.fetch(...args);
   var uploadImpl = (url, formData, { headers, onProgress, signal }) => new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
+    xhr.withCredentials = true;
     Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
     xhr.responseType = "text";
     xhr.upload.onprogress = (e) => {
@@ -2730,12 +5129,13 @@
     xhr.send(formData);
   });
   var blobImpl = (key) => blob(key);
-  var headersFor = () => ({ "X-Stackd-App": APP_TOKEN, "X-Stackd-Subscriber": S.plan.subscriberId });
+  var headersFor = () => ({ "X-Stackd-App": APP_TOKEN, "X-Stackd-Subscriber": S.plan.subscriberId, ...authHeaders() });
   async function call(path, { method = "GET", body, signal } = {}) {
-    const res = await fetchImpl(proxyUrl() + path, {
+    const res = await fetchImpl2(proxyUrl() + path, {
       method,
-      headers: { "Content-Type": "application/json", "X-Stackd-App": APP_TOKEN, "X-Stackd-Subscriber": S.plan.subscriberId },
+      headers: { "Content-Type": "application/json", ...headersFor() },
       body: body === void 0 ? void 0 : JSON.stringify(body),
+      credentials: "include",
       signal
     });
     let data = null;
@@ -2748,6 +5148,7 @@
       const err = new Error(data?.message || `The service answered ${res.status}.`);
       err.code = data?.code || (res.status === 401 ? "unauthorized" : "provider_unavailable");
       err.resetsAt = data?.resetsAt ?? null;
+      if (err.code === "signed_out") signedOut();
       throw err;
     }
     return data;
@@ -2785,22 +5186,22 @@
     onPlanError = fn;
   }
   var isRunning = (meetingId, step) => inflight.has(`${meetingId}:${step}`);
-  function apply(meetingId, patch) {
-    if (patch) setJobState(meetingId, patch);
+  function apply(meetingId, patch2) {
+    if (patch2) setJobState(meetingId, patch2);
   }
   async function summarise(meetingId) {
     const m = meetingById(meetingId);
     const key = `${meetingId}:summarise`;
     if (!m || m.status !== "active" || !m.transcript || inflight.has(key)) return;
-    const now = Date.now();
+    const now2 = Date.now();
     if (!isOnline()) {
-      apply(meetingId, reduce(m, { type: "error", step: "summarise", code: "offline", message: MESSAGES.offline, at: now }));
+      apply(meetingId, reduce(m, { type: "error", step: "summarise", code: "offline", message: MESSAGES.offline, at: now2 }));
       return;
     }
     const ac = new AbortController();
     inflight.set(key, ac);
-    const timer = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
-    apply(meetingId, reduce(m, { type: "start", step: "summarise", id: uid(), at: now }));
+    const timer2 = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
+    apply(meetingId, reduce(m, { type: "start", step: "summarise", id: uid(), at: now2 }));
     try {
       const t = m.transcript;
       const data = await call("/v1/summarise", {
@@ -2829,7 +5230,7 @@
       settle();
     }
     function settle() {
-      clearTimeout(timer);
+      clearTimeout(timer2);
       inflight.delete(key);
     }
   }
@@ -2839,15 +5240,15 @@
     const m = meetingById(meetingId);
     const key = `${meetingId}:transcribe`;
     if (!m || m.status !== "active" || !m.recording || inflight.has(key)) return;
-    const now = Date.now();
+    const now2 = Date.now();
     if (!isOnline()) {
-      apply(meetingId, reduce(m, { type: "error", step: "transcribe", code: "offline", message: MESSAGES.offline, at: now }));
+      apply(meetingId, reduce(m, { type: "error", step: "transcribe", code: "offline", message: MESSAGES.offline, at: now2 }));
       return;
     }
     const ac = new AbortController();
     inflight.set(key, ac);
     progress.set(meetingId, { pct: 0, onProgress });
-    apply(meetingId, reduce(m, { type: "start", step: "transcribe", id: uid(), at: now, phase: "upload" }));
+    apply(meetingId, reduce(m, { type: "start", step: "transcribe", id: uid(), at: now2, phase: "upload" }));
     try {
       const blob2 = await blobImpl(m.recording.key);
       if (!blob2 || !blob2.size) throw Object.assign(new Error("The recording is missing from this device."), { code: "invalid_audio" });
@@ -2931,7 +5332,7 @@
             onPlanError?.(code, { step: "transcribe", resetsAt });
             return;
           }
-          await sleep(POLL_MS * 2);
+          await sleep(POLL_MS2 * 2);
           continue;
         }
         if (data.state === "done") {
@@ -2942,7 +5343,7 @@
           onTranscribed?.(meetingId);
           return;
         }
-        await sleep(POLL_MS);
+        await sleep(POLL_MS2);
       }
     } finally {
       inflight.delete(key);
@@ -2957,12 +5358,12 @@
     await call("/v1/allowance");
     return S.plan;
   }
-  function resumeJobs(now = Date.now()) {
+  function resumeJobs(now2 = Date.now()) {
     S.meetings.forEach((m) => {
-      const running = STEPS.filter((s) => inflight.has(`${m.id}:${s}`) || inflight.has(`${m.id}:${s}:poll`));
-      apply(m.id, reduce(m, { type: "resume", inflight: running, at: now }));
+      const running2 = STEPS.filter((s) => inflight.has(`${m.id}:${s}`) || inflight.has(`${m.id}:${s}:poll`));
+      apply(m.id, reduce(m, { type: "resume", inflight: running2, at: now2 }));
       const t = m.jobs?.transcribe;
-      if (t && t.phase === "wait" && /^job_/.test(t.id || "") && !running.includes("transcribe") && isOnline()) pollTranscription(m.id, t.id);
+      if (t && t.phase === "wait" && /^job_/.test(t.id || "") && !running2.includes("transcribe") && isOnline()) pollTranscription(m.id, t.id);
     });
   }
 
@@ -2970,26 +5371,45 @@
   var RC_KEYS = { ios: "appl_REPLACE_ME", android: "goog_REPLACE_ME" };
   var PAID_TIERS = ["plus", "pro", "max"];
   var PRODUCT_IDS = { plus: "plus_monthly", pro: "pro_monthly", max: "max_monthly" };
-  var plugin3 = () => globalThis.Capacitor?.Plugins?.Purchases;
-  var platform = () => globalThis.Capacitor?.getPlatform?.() || "web";
-  var available2 = () => !!(globalThis.Capacitor?.isNativePlatform?.() && typeof plugin3()?.configure === "function" && RC_KEYS[platform()] && !RC_KEYS[platform()].includes("REPLACE_ME"));
+  var plugin5 = () => globalThis.Capacitor?.Plugins?.Purchases;
+  var platform2 = () => globalThis.Capacitor?.getPlatform?.() || "web";
+  var available3 = () => !!(globalThis.Capacitor?.isNativePlatform?.() && typeof plugin5()?.configure === "function" && RC_KEYS[platform2()] && !RC_KEYS[platform2()].includes("REPLACE_ME"));
   var configured = false;
   var offeringsCache = null;
   async function configure(subscriberId) {
-    if (!available2() || configured) return false;
+    if (!available3() || configured) return false;
     try {
-      await plugin3().configure({ apiKey: RC_KEYS[platform()], appUserID: subscriberId });
+      await plugin5().configure({ apiKey: RC_KEYS[platform2()], appUserID: subscriberId });
       configured = true;
     } catch (e) {
       console.warn("purchases: configure failed", e?.message || e);
     }
     return configured;
   }
+  async function identify(userId) {
+    if (!configured) return;
+    try {
+      await plugin5().logIn({ appUserID: userId });
+      await plugin5().syncPurchases();
+      offeringsCache = null;
+    } catch (e) {
+      console.warn("purchases: identify failed", e?.message || e);
+    }
+  }
+  async function anonymous(subscriberId) {
+    if (!configured) return;
+    try {
+      await plugin5().logIn({ appUserID: subscriberId });
+      offeringsCache = null;
+    } catch (e) {
+      console.warn("purchases: anonymous failed", e?.message || e);
+    }
+  }
   async function offerings({ force = false } = {}) {
     if (!configured) return {};
     if (offeringsCache && !force) return offeringsCache;
     try {
-      const res = await plugin3().getOfferings();
+      const res = await plugin5().getOfferings();
       const packages = res?.current?.availablePackages || [];
       const out = {};
       PAID_TIERS.forEach((tier) => {
@@ -3014,7 +5434,7 @@
     const offer = (await offerings())[tier];
     if (!offer) throw new Error("This plan is not available in the store right now.");
     try {
-      const res = await plugin3().purchasePackage({ aPackage: offer.package });
+      const res = await plugin5().purchasePackage({ aPackage: offer.package });
       return { tier: tierOf(res?.customerInfo), customerInfo: res?.customerInfo };
     } catch (e) {
       if (cancelled(e)) return { cancelled: true };
@@ -3022,12 +5442,12 @@
     }
   }
   async function restore() {
-    const res = await plugin3().restorePurchases();
+    const res = await plugin5().restorePurchases();
     return { tier: tierOf(res?.customerInfo), customerInfo: res?.customerInfo };
   }
   async function manageUrl() {
     try {
-      const res = await plugin3().getCustomerInfo();
+      const res = await plugin5().getCustomerInfo();
       return res?.customerInfo?.managementURL || null;
     } catch {
       return null;
@@ -3035,8 +5455,7 @@
   }
 
   // src/ui/paywall.js
-  var TERMS_URL = "https://eugeniocalva.github.io/Stackd-Minimalist/terms.html";
-  var PRIVACY_URL = "https://eugeniocalva.github.io/Stackd-Minimalist/privacy.html";
+  var MINOR_LINE = "Plans need a parent’s approval, given in your store account.";
   var BLURB = {
     plus: "A 30-minute call most working days",
     pro: "Two 30-minute calls every working day",
@@ -3050,11 +5469,29 @@
     if (step === "summarise") return { locked: false, hint: `1 of ${p.summariesLeft} summar${p.summariesLeft === 1 ? "y" : "ies"} left` };
     return { locked: false, hint: `${fmtDuration(p.audioSecondsLeft * 1e3)} of audio left` };
   }
+  async function stopForPlan(step) {
+    if (!S.plan.checkedAt) {
+      try {
+        await allowance({ force: true });
+      } catch (e) {
+        toast(errorFor(e).message);
+        return true;
+      }
+    }
+    if (S.plan.tier === "free" && S.plan.checkedAt) {
+      rerender();
+      openPlanRequired({ step });
+      return true;
+    }
+    return false;
+  }
   var prices = {};
-  function cardHTML(tier, current) {
+  var storeName = () => ({ ios: "App Store", android: "Google Play" })[platform2()] || "App Store or Google Play";
+  var renewalLine = (price) => `${price} per month, renews automatically every month. Cancel any time in ${storeName()} settings.`;
+  function cardHTML(tier, current3) {
     const price = prices[tier] || PLAN_PRICES[tier];
-    const isCurrent = current === tier;
-    const action = !available2() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : `<button type="button" class="btn ${current === "free" || current === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current === "free" || current === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current) ? "Upgrade" : "Switch"}</button>`;
+    const isCurrent = current3 === tier;
+    const action = !available3() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : isMinor() ? `<span class="hint">${esc(MINOR_LINE)}</span>` : `<button type="button" class="btn ${current3 === "free" || current3 === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current3 === "free" || current3 === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current3) ? "Upgrade" : "Switch"}</button>`;
     return `
   <div class="plan-card ${isCurrent ? "is-current" : ""}">
     <div class="plan-head">
@@ -3063,43 +5500,44 @@
     </div>
     <span class="plan-pool">${esc(poolLine(tier))}</span>
     <span class="hint">${esc(BLURB[tier])}</span>
+    <span class="plan-renew">${esc(renewalLine(price))}</span>
     ${action}
   </div>`;
   }
-  var bar = (label, left, total, text) => `
+  var bar = (label, left, total, text2) => `
   <div class="plan-bar" role="group" aria-label="${esc(label)}">
-    <div class="plan-bar-line"><span>${esc(label)}</span><span class="num">${esc(text)}</span></div>
+    <div class="plan-bar-line"><span>${esc(label)}</span><span class="num">${esc(text2)}</span></div>
     <div class="plan-track"><div class="plan-fill" style="width:${total ? Math.round(100 * Math.max(0, Math.min(1, left / total))) : 0}%"></div></div>
   </div>`;
   function planSectionHTML() {
     const p = S.plan;
-    const current = p.tier;
-    const paid = PAID_TIERS.includes(current);
-    const status = !p.checkedAt ? "Not checked yet" : current === "free" ? "Free · the AI steps need a plan" : current === "tester" ? "Tester · allowance resets daily" : `Renews ${p.renewsAt ? fmtDate(p.renewsAt, S.dateFormat) : "monthly"}`;
-    const bars = p.checkedAt && current !== "free" ? `
+    const current3 = p.tier;
+    const paid = PAID_TIERS.includes(current3);
+    const status2 = !p.checkedAt ? "Not checked yet" : current3 === "free" ? "Free · the AI steps need a plan" : current3 === "tester" ? "Tester · allowance resets daily" : `Renews ${p.renewsAt ? fmtDate(p.renewsAt, S.dateFormat) : "monthly"}`;
+    const bars = p.checkedAt && current3 !== "free" ? `
     ${bar("Audio", p.audioSecondsLeft, p.audioSecondsTotal, `${fmtDuration(p.audioSecondsLeft * 1e3)} of ${fmtDuration(p.audioSecondsTotal * 1e3)}`)}
     ${bar("Summaries", p.summariesLeft, p.summariesTotal, `${p.summariesLeft} of ${p.summariesTotal}`)}` : "";
     return `
   <span class="section-title list-label" id="settings-plan">Plan</span>
   <div class="card plan-current">
     <div class="plan-head">
-      <span class="plan-name">${planName(current)}</span>
-      <span class="hint">${esc(status)}</span>
+      <span class="plan-name">${planName(current3)}</span>
+      <span class="hint">${esc(status2)}</span>
     </div>
     ${bars}
     <div class="plan-actions">
       <button type="button" class="btn btn-sm btn-secondary" data-plan-check>${icon("undo", 16)}Refresh</button>
-      ${available2() ? '<button type="button" class="btn btn-sm btn-secondary" data-plan-restore>Restore purchases</button>' : ""}
-      ${available2() && paid ? '<button type="button" class="btn btn-sm btn-ghost" data-plan-manage>Manage subscription</button>' : ""}
+      ${available3() ? '<button type="button" class="btn btn-sm btn-secondary" data-plan-restore>Restore purchases</button>' : ""}
+      ${available3() && paid ? '<button type="button" class="btn btn-sm btn-ghost" data-plan-manage>Manage subscription</button>' : ""}
     </div>
   </div>
   <div class="plan-cards">
-    ${PAID_TIERS.map((t) => cardHTML(t, current)).join("")}
+    ${PAID_TIERS.map((t) => cardHTML(t, current3)).join("")}
   </div>
-  <p class="hint set-hint">${available2() ? "Monthly subscriptions renew automatically until cancelled in your store account. The allowance resets on the renewal date; unused minutes and summaries do not carry over." : "Subscribe in the Stack’d app on iPhone or Android; the plan then applies there. Monthly subscriptions renew until cancelled."}
+  <p class="hint set-hint">${available3() ? "Monthly subscriptions renew automatically until cancelled in your store account. The allowance resets on the renewal date; unused minutes and summaries do not carry over." : "Subscribe in the Stack’d app on iPhone or Android; the plan then applies there. Monthly subscriptions renew until cancelled."}
     <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>`;
   }
-  async function refresh(btn) {
+  async function refresh2(btn) {
     if (btn) btn.disabled = true;
     try {
       await allowance({ force: true });
@@ -3110,7 +5548,7 @@
     }
   }
   function bindPlanSection(root) {
-    root.querySelector("[data-plan-check]")?.addEventListener("click", (e) => refresh(e.currentTarget));
+    root.querySelector("[data-plan-check]")?.addEventListener("click", (e) => refresh2(e.currentTarget));
     root.querySelector("[data-plan-restore]")?.addEventListener("click", async (e) => {
       const b = e.currentTarget;
       b.disabled = true;
@@ -3131,7 +5569,7 @@
       else toast("Open your store account to manage the subscription");
     });
     root.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", () => purchase(b.dataset.buy, b)));
-    if (available2() && !Object.keys(prices).length) {
+    if (available3() && !Object.keys(prices).length) {
       offerings().then((o) => {
         const next = Object.fromEntries(Object.entries(o).map(([t, v]) => [t, v.price]).filter(([, v]) => v));
         if (Object.keys(next).length) {
@@ -3143,6 +5581,11 @@
   }
   async function purchase(tier, btn) {
     if (btn) btn.disabled = true;
+    if ((await ask())?.age === "minor") {
+      toast(MINOR_LINE, { ms: 6e3 });
+      rerender();
+      return;
+    }
     try {
       const r = await buy(tier);
       if (r.cancelled) {
@@ -3193,7 +5636,7 @@
     </div>
     <p class="plan-intro">${esc(STEP_TEXT[step] || "")}</p>
     <div class="plan-cards">${PAID_TIERS.map((t) => cardHTML(t, S.plan.tier)).join("")}</div>
-    ${available2() ? "" : '<p class="hint">Subscribe in the Stack’d app on iPhone or Android.</p>'}
+    ${available3() ? "" : '<p class="hint">Subscribe in the Stack’d app on iPhone or Android.</p>'}
     <p class="hint">Renews monthly until cancelled · <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>
   </div>`);
     ov.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", async () => {
@@ -3214,7 +5657,7 @@
       <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
     </div>
     <p class="plan-intro">You've used this ${tier === "tester" ? "day's" : "month's"} ${what}.${when ? ` Resets ${esc(fmtDate(when, S.dateFormat))}.` : ""}</p>
-    ${next && available2() ? `<div class="plan-cards">${cardHTML(next, tier)}</div>` : ""}
+    ${next && available3() ? `<div class="plan-cards">${cardHTML(next, tier)}</div>` : ""}
     <button type="button" class="btn btn-secondary btn-block" data-close>OK</button>
   </div>`);
     ov.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", async () => {
@@ -3227,11 +5670,11 @@
   var DISCLOSURE = "The transcript, with the speaker names you gave, is sent to our server and to an AI model provider to write the minutes and find the actions. Nothing is kept there after the result comes back, and nothing is sent until you press this button.";
   function summariseCtaHTML(m) {
     if (!m.transcript) return "";
-    const running = m.jobs?.summarise || isRunning(m.id, "summarise");
+    const running2 = m.jobs?.summarise || isRunning(m.id, "summarise");
     const err = m.lastError?.step === "summarise" ? m.lastError : null;
     const offline = !isOnline();
     const stale = minutesStale(m);
-    if (running) {
+    if (running2) {
       return `
     <div class="cta cta-running" role="status" aria-live="polite">
       <span class="spin" aria-hidden="true"></span>
@@ -3239,7 +5682,7 @@
       <span class="hint">keeps going if you leave this screen</span>
     </div>`;
     }
-    const state = aiButtonState("summarise");
+    const state3 = aiButtonState("summarise");
     const planErr = err && (err.code === "plan_required" || err.code === "allowance_exhausted");
     const label = err && !planErr ? "Retry" : m.minutes ? "Regenerate" : "Summarise into minutes and actions";
     return `
@@ -3247,10 +5690,10 @@
     ${err && !planErr ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
     ${err?.code === "allowance_exhausted" ? `<div class="notice"><span>${esc(err.message)}</span><button type="button" class="btn btn-sm btn-ghost" data-plan-sheet="allowance_exhausted">Upgrade</button></div>` : ""}
     <span class="cta-row">
-      <button type="button" class="btn ${m.minutes ? "btn-secondary" : "btn-primary"} ${state.locked ? "is-locked" : ""}" data-summarise ${offline ? "disabled" : ""} ${state.locked ? 'data-locked="1"' : ""}>
-        ${icon(state.locked ? "lock" : "sparkle", 18)}${label}
+      <button type="button" class="btn ${m.minutes ? "btn-secondary" : "btn-primary"} ${state3.locked ? "is-locked" : ""}" data-summarise ${offline ? "disabled" : ""} ${state3.locked ? 'data-locked="1"' : ""}>
+        ${icon(state3.locked ? "lock" : "sparkle", 18)}${label}
       </button>
-      ${state.hint ? `<span class="hint cta-hint">${esc(state.hint)}</span>` : ""}
+      ${state3.hint ? `<span class="hint cta-hint">${esc(state3.hint)}</span>` : ""}
     </span>
     ${stale && m.minutes ? '<span class="tag tag-soon">Transcript edited since</span>' : ""}
     ${offline ? '<span class="hint">Needs a connection</span>' : ""}
@@ -3267,37 +5710,38 @@
         if (!await confirmDialog("Before the first summary", DISCLOSURE, { confirmLabel: "Continue" })) return;
         markDisclosed();
       }
+      if (await stopForPlan("summarise")) return;
       if (m.minutes && !await confirmDialog("Regenerate the minutes?", "The minutes and the actions not yet added to a board are replaced.", { confirmLabel: "Regenerate" })) return;
       summarise(m.id);
     });
   }
   function minutesToText(m) {
     const mm = m.minutes;
-    const lines = [meetingTitle(m), `${fmtDate(m.createdAt, S.dateFormat)} ${fmtClock(m.createdAt)}`, ""];
-    lines.push("Summary", mm.summary || "None noted", "");
-    lines.push("Decisions", ...mm.decisions.length ? mm.decisions.map((d) => `- ${d}`) : ["None noted"], "");
-    lines.push("Open questions", ...mm.openQuestions.length ? mm.openQuestions.map((q) => `- ${q}`) : ["None noted"], "");
+    const lines2 = [meetingTitle(m), `${fmtDate(m.createdAt, S.dateFormat)} ${fmtClock(m.createdAt)}`, ""];
+    lines2.push("Summary", mm.summary || "None noted", "");
+    lines2.push("Decisions", ...mm.decisions.length ? mm.decisions.map((d) => `- ${d}`) : ["None noted"], "");
+    lines2.push("Open questions", ...mm.openQuestions.length ? mm.openQuestions.map((q) => `- ${q}`) : ["None noted"], "");
     const actions = m.actions.filter((a) => a.status !== "dismissed");
-    lines.push("Actions", ...actions.length ? actions.map((a) => `- ${a.title}${a.due ? ` · due ${fmtDate(a.due, S.dateFormat)}` : ""}${a.priority !== "none" ? ` · ${priorityName(a.priority)}` : ""}${a.status === "added" ? " · on a board" : ""}`) : ["None"]);
-    lines.push("", generatedLine(mm));
-    return lines.join("\n");
+    lines2.push("Actions", ...actions.length ? actions.map((a) => `- ${a.title}${a.due ? ` · due ${fmtDate(a.due, S.dateFormat)}` : ""}${a.priority !== "none" ? ` · ${priorityName(a.priority)}` : ""}${a.status === "added" ? " · on a board" : ""}`) : ["None"]);
+    lines2.push("", generatedLine(mm));
+    return lines2.join("\n");
   }
   var generatedLine = (mm) => `Generated by AI · ${fmtDate(mm.generatedAt, S.dateFormat)} ${fmtClock(mm.generatedAt)} · check before you rely on it.`;
-  function sectionHTML(key, title, value, { readOnly, list: list2 }) {
-    const text = list2 ? value.join("\n") : value;
-    const empty = !text.trim();
+  function sectionHTML(key, title, value, { readOnly, list: list3 }) {
+    const text2 = list3 ? value.join("\n") : value;
+    const empty2 = !text2.trim();
     if (readOnly) {
       return `
     <div class="min-section">
       <span class="section-title">${title}</span>
-      ${empty ? '<p class="min-empty">None noted</p>' : list2 ? `<ul class="min-list">${value.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="min-text">${esc(text)}</p>`}
+      ${empty2 ? '<p class="min-empty">None noted</p>' : list3 ? `<ul class="min-list">${value.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="min-text">${esc(text2)}</p>`}
     </div>`;
     }
     return `
   <div class="min-section">
     <label class="section-title" for="min-${key}">${title}</label>
-    <textarea id="min-${key}" class="min-edit ${list2 ? "min-edit-list" : ""}" data-min="${key}" rows="1" placeholder="None noted" aria-label="${title}">${esc(text)}</textarea>
-    ${list2 ? '<span class="hint">One per line</span>' : ""}
+    <textarea id="min-${key}" class="min-edit ${list3 ? "min-edit-list" : ""}" data-min="${key}" rows="1" placeholder="None noted" aria-label="${title}">${esc(text2)}</textarea>
+    ${list3 ? '<span class="hint">One per line</span>' : ""}
   </div>`;
   }
   function minutesHTML(m, { readOnly = false } = {}) {
@@ -3331,12 +5775,12 @@
       }
     });
     if (readOnly) return;
-    let timer = null;
+    let timer2 = null;
     const pending = {};
     const flush = () => {
-      if (!timer) return;
-      clearTimeout(timer);
-      timer = null;
+      if (!timer2) return;
+      clearTimeout(timer2);
+      timer2 = null;
       editMinutes(m.id, { ...pending });
       Object.keys(pending).forEach((k) => delete pending[k]);
     };
@@ -3346,19 +5790,432 @@
         grow(ta);
         const key = ta.dataset.min;
         pending[key] = key === "summary" ? ta.value : ta.value.split("\n").map((s) => s.trim()).filter(Boolean);
-        clearTimeout(timer);
-        timer = setTimeout(flush, 500);
+        clearTimeout(timer2);
+        timer2 = setTimeout(flush, 500);
       });
       ta.addEventListener("blur", flush);
     });
     window.addEventListener("pagehide", flush, { once: true });
   }
 
+  // src/webcrypto.js
+  var hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  var randomHex = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
+  async function pbkdf2Hex(secret, saltHex, iterations = 1e5) {
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), "PBKDF2", false, ["deriveBits"]);
+    const salt = new Uint8Array(saltHex.match(/../g).map((h) => parseInt(h, 16)));
+    return hex(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, key, 256));
+  }
+
+  // src/lock.js
+  var AFTER = [["immediately", "Immediately"], ["5m", "After 5 minutes"], ["1h", "After 1 hour"], ["off", "Off"]];
+  var AFTER_MS = { immediately: 0, "5m": 5 * 6e4, "1h": 36e5 };
+  var VERIFIER_KEY = "stackd-verifier";
+  function shouldLock({ after = "5m", lastActiveAt = 0, now: now2 = Date.now(), booting = false }) {
+    if (after === "off") return false;
+    if (booting) return true;
+    return now2 - lastActiveAt >= (AFTER_MS[after] ?? AFTER_MS["5m"]);
+  }
+  var backoffMs = (fails) => fails < 5 ? 0 : 3e4 * 2 ** (fails - 5);
+  async function makeVerifier(pin) {
+    const salt = randomHex(16);
+    return { salt, hash: await pbkdf2Hex(pin, salt) };
+  }
+  async function checkVerifier(pin, v) {
+    return !!v?.salt && await pbkdf2Hex(pin, v.salt) === v.hash;
+  }
+  var isLocked = false;
+  var reason = null;
+  var listeners4 = /* @__PURE__ */ new Set();
+  var locked = () => isLocked;
+  var lockReason = () => reason;
+  function onLockChange(fn) {
+    listeners4.add(fn);
+  }
+  var emit = () => listeners4.forEach((fn) => fn(isLocked));
+  var settings = () => current()?.lock || { after: "5m", biometrics: false };
+  function lock(why = null) {
+    if (!signedIn() || settings().after === "off" && why !== "pin_required") return;
+    reason = why;
+    if (!isLocked) {
+      isLocked = true;
+      emit();
+    }
+  }
+  function unlocked() {
+    isLocked = false;
+    reason = null;
+    patch({ lastActiveAt: Date.now(), offlineFails: 0, offlineWaitUntil: 0 }, { quiet: true });
+    emit();
+  }
+  var touchedAt = 0;
+  function touch2(now2 = Date.now()) {
+    if (!signedIn() || isLocked || now2 - touchedAt < 15e3) return;
+    touchedAt = now2;
+    patch({ lastActiveAt: now2 }, { quiet: true });
+  }
+  async function verifier() {
+    return needed() ? JSON.parse(await get(VERIFIER_KEY) || "null") : current()?.verifier || null;
+  }
+  async function keepVerifier(pin) {
+    const v = await makeVerifier(pin);
+    if (needed()) await set(VERIFIER_KEY, JSON.stringify(v));
+    else patch({ verifier: v }, { quiet: true });
+  }
+  async function unlockWithPin(pin) {
+    const a = current();
+    if (!a) return { ok: true };
+    const now2 = Date.now();
+    if (a.offlineWaitUntil > now2) return { ok: false, code: "wait", waitMs: a.offlineWaitUntil - now2, message: "Too many wrong PINs. Wait a moment." };
+    try {
+      await checkPin(pin);
+      unlocked();
+      return { ok: true };
+    } catch (e) {
+      if (e.code === "pin_wrong" || e.code === "pin_locked") return { ok: false, code: e.code, left: e.left, message: e.message };
+      if (e.code === "signed_out") return { ok: true };
+      if (reason === "pin_required") return { ok: false, code: "wait", waitMs: 0, message: "Connect to the internet to enter the new PIN." };
+      if (await checkVerifier(pin, await verifier())) {
+        unlocked();
+        return { ok: true };
+      }
+      const fails = (a.offlineFails || 0) + 1;
+      const wait = backoffMs(fails);
+      patch({ offlineFails: fails, offlineWaitUntil: wait ? Date.now() + wait : 0 }, { quiet: true });
+      return wait ? { ok: false, code: "wait", waitMs: wait, message: `Wrong PIN. Try again in ${Math.round(wait / 1e3)} seconds.` } : { ok: false, code: "pin_wrong", left: null, message: "Wrong PIN." };
+    }
+  }
+  var bio = () => globalThis.Capacitor?.Plugins?.Biometric;
+  async function biometricsAvailable() {
+    if (!globalThis.Capacitor?.isNativePlatform?.() || typeof bio()?.isAvailable !== "function") return false;
+    try {
+      const r = await bio().isAvailable();
+      return r?.available ? r.kind || "other" : false;
+    } catch {
+      return false;
+    }
+  }
+  async function unlockWithBiometrics() {
+    if (!settings().biometrics || !await biometricsAvailable()) return false;
+    try {
+      await bio().verify({ reason: "Unlock Stack'd" });
+      unlocked();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  function setLock(patch2) {
+    patch({ lock: { ...settings(), ...patch2 } });
+  }
+  function init2() {
+    onPinProved((pin) => {
+      keepVerifier(pin).catch(() => {
+      });
+      if (isLocked) unlocked();
+    });
+    onForget(() => {
+      isLocked = false;
+      reason = null;
+      remove(VERIFIER_KEY);
+      emit();
+    });
+    const a = current();
+    if (a && shouldLock({ after: settings().after, lastActiveAt: a.lastActiveAt, booting: true })) {
+      isLocked = true;
+    }
+    let hiddenAt = 0;
+    globalThis.document?.addEventListener?.("visibilitychange", () => {
+      if (!signedIn()) return;
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+        touch2();
+        return;
+      }
+      if (hiddenAt && shouldLock({ after: settings().after, lastActiveAt: hiddenAt })) lock();
+    });
+  }
+
+  // src/ui/account.js
+  var legalLinks = () => `<p class="hint set-hint">What the account stores, where and for how long: <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy Policy</a> · <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a></p>`;
+  var STORE_LINKS = "Cancel a subscription in the App Store (Settings › your name › Subscriptions) or Google Play (Play Store › Payments & subscriptions) separately.";
+  function ago(at, now2 = Date.now()) {
+    const m = Math.floor((now2 - at) / 6e4);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m} min ago`;
+    return fmtRelative(at);
+  }
+  var devices = null;
+  var loading = false;
+  function syncLine() {
+    const s = state2();
+    if (s.state === "syncing") return "Syncing…";
+    if (s.state === "offline") return s.pending ? `Offline, ${s.pending} change${s.pending === 1 ? "" : "s"} will sync` : "Offline";
+    if (s.state === "paused") return `Sync paused: ${s.paused?.message || "try again"}`;
+    return s.lastSyncAt ? `Synced ${ago(s.lastSyncAt)}` : "Not synced yet";
+  }
+  var syncDot = () => signedIn() && ["offline", "paused"].includes(state2().state) && state2().pending > 0;
+  var row = (iconName, title, sub, action = "") => `
+  <div class="set-row set-wrap">
+    <span class="lrow-icon">${icon(iconName, 18)}</span>
+    <div class="set-text"><span class="set-title">${title}</span>${sub ? `<span class="set-sub">${sub}</span>` : ""}</div>
+    ${action}
+  </div>`;
+  function accountSectionHTML() {
+    const avail = availability();
+    if (avail.reason === "legacy") return "";
+    const a = current();
+    if (!a) {
+      const why = avail.ok ? "" : avail.reason === "file" ? "Open Stack'd from its website to sign in." : "Sign-in arrives in the next update of the app.";
+      return `
+      <span class="section-title list-label" id="settings-account">Account</span>
+      <div class="card list-card">
+        ${row(
+        "lock",
+        "Sign in to sync across your devices",
+        why || "Optional. Without an account, everything stays on this device, as now.",
+        avail.ok ? '<button class="btn btn-sm btn-primary" data-signin>Sign in</button>' : ""
+      )}
+      </div>
+      ${legalLinks()}`;
+    }
+    const s = state2();
+    const info2 = info();
+    const list3 = devices?.devices || [];
+    const lockAfter = AFTER.find(([v]) => v === settings().after)?.[1] || "After 5 minutes";
+    return `
+      <span class="section-title list-label" id="settings-account">Account</span>
+      ${a.needsAccept ? `
+      <div class="notice notice-neutral">${icon("document", 18)}<span>The Terms or the Privacy Policy changed. Sync waits until you read and accept them.</span>
+        <button class="btn btn-sm btn-secondary" data-accept>Read and accept</button></div>` : ""}
+      <div class="card list-card">
+        ${row("note", esc(a.email), "Signed in on this device")}
+        ${row(s.state === "paused" ? "x" : "repeat", "Sync", esc(syncLine()), `<button class="btn btn-sm btn-secondary" data-sync-now ${s.state === "syncing" ? "disabled" : ""}>Sync now</button>`)}
+        ${info2 ? row("undo", "Restore this device's data from before sign-in", `Kept until ${fmtDate(info2.savedAt + BACKUP_DAYS * 864e5, S.dateFormat)}`, '<button class="btn btn-sm btn-secondary" data-restore-backup>Restore</button>') : ""}
+      </div>
+
+      <span class="section-title list-label">Devices</span>
+      <div class="card list-card" data-devices>
+        ${list3.length ? list3.map((d) => row(
+      d.platform === "web" ? "monitor" : "tasks",
+      esc(d.label) + (d.current ? " · This device" : ""),
+      `Signed in ${fmtDate(d.createdAt, S.dateFormat)} · active ${ago(d.lastSeenAt)}`,
+      d.current ? "" : `<button class="btn btn-sm btn-ghost" data-signout-device="${esc(d.id)}">Sign out</button>`
+    )).join("") : row("tasks", loading ? "Loading devices…" : "Devices", loading ? "" : "Could not load the list.", loading ? "" : '<button class="btn btn-sm btn-secondary" data-load-devices>Retry</button>')}
+      </div>
+      ${list3.length > 1 ? '<button class="btn btn-ghost btn-block set-under" data-signout-all>Sign out everywhere</button>' : ""}
+
+      <span class="section-title list-label">Security</span>
+      <div class="card list-card">
+        ${row("lock", "App lock", `${esc(lockAfter)}. The PIN locks the app; it does not encrypt your data.`, '<button class="btn btn-sm btn-secondary" data-lock-after aria-haspopup="menu">Change</button>')}
+        <div class="set-row set-wrap" data-bio-row hidden>
+          <span class="lrow-icon">${icon("lock", 18)}</span>
+          <div class="set-text"><span class="set-title">Unlock with Face ID or fingerprint</span><span class="set-sub">The PIN always works too.</span></div>
+          <div class="segmented solid" role="radiogroup" aria-label="Biometrics">
+            <button class="seg ${settings().biometrics ? "active" : ""}" role="radio" aria-checked="${settings().biometrics}" data-bio="on">On</button>
+            <button class="seg ${settings().biometrics ? "" : "active"}" role="radio" aria-checked="${!settings().biometrics}" data-bio="off">Off</button>
+          </div>
+        </div>
+        ${row("lock", "Change PIN", "Your other devices ask for the new one.", '<button class="btn btn-sm btn-secondary" data-change-pin>Change</button>')}
+      </div>
+
+      <span class="section-title list-label">Your data</span>
+      <div class="card list-card">
+        ${row("download", "Export my data", "One file with your account details and everything synced to it.", '<button class="btn btn-sm btn-secondary" data-export>Export</button>')}
+        ${row("trash", "Delete account", "Removes the account and everything synced to it.", '<button class="btn btn-sm btn-ghost danger" data-delete-account>Delete</button>')}
+      </div>
+      <button class="btn btn-secondary btn-block set-under" data-signout>Sign out of this device</button>
+      ${legalLinks()}`;
+  }
+  function askPin(title, { text: text2 = "", check: check2 }) {
+    return new Promise((resolve) => {
+      let pad3;
+      const { ov, close } = overlay(`
+      <div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="pin-title">
+        <div class="steps-head"><span></span><span></span><button type="button" class="icon-btn" data-close aria-label="Close">${icon("x")}</button></div>
+        <h2 id="pin-title">${esc(title)}</h2>
+        ${text2 ? `<p class="step-text">${esc(text2)}</p>` : ""}
+        ${pinpadHTML({ label: title })}
+      </div>`, { onClose: (r) => {
+        pad3?.destroy();
+        resolve(typeof r === "string" ? r : null);
+      } });
+      ov.querySelector("[data-close]").addEventListener("click", () => close(null));
+      pad3 = bindPinpad(ov, {
+        onComplete: async (pin) => {
+          const err = check2 ? await check2(pin) : null;
+          if (err) pad3.error(err);
+          else close(pin);
+        }
+      });
+      pad3.focus();
+    });
+  }
+  var serverPin = async (pin) => {
+    try {
+      await checkPin(pin);
+      return null;
+    } catch (e) {
+      return e.message;
+    }
+  };
+  async function loadDevices() {
+    loading = true;
+    try {
+      devices = await refresh();
+    } catch {
+      devices = null;
+    }
+    loading = false;
+    if (app.querySelector("[data-devices]")) rerender();
+  }
+  async function signOutFlow({ everywhere = false } = {}) {
+    const onlyHere = S.meetings.filter((m) => m.recording).length;
+    const choice = await openSignOutDialog({ pending: pendingCount(), onlyHere, web: client() === "web" });
+    if (!choice) return;
+    if (pendingCount() && choice.keepData === false) {
+      try {
+        await now();
+      } catch {
+      }
+    }
+    await signOut({ everywhere, keepData: choice.keepData });
+    devices = null;
+    if (!choice.keepData) await removeLocalData();
+    toast("Signed out");
+    rerender();
+  }
+  async function removeLocalData() {
+    await Promise.all(S.meetings.filter((m) => m.recording).map((m) => remove2(m.recording.key).catch(() => {
+    })));
+    [STORE_KEY, NOTE_DRAFT_KEY, BACKUP_KEY].forEach((k) => localStorage.removeItem(k));
+    globalThis.location?.reload();
+  }
+  function bindAccountSection(root = app) {
+    const q = (s) => root.querySelector(s);
+    q("[data-signin]")?.addEventListener("click", () => openSignIn());
+    if (!signedIn()) return;
+    if (!devices && !loading) loadDevices();
+    q("[data-load-devices]")?.addEventListener("click", loadDevices);
+    q("[data-sync-now]")?.addEventListener("click", async () => {
+      const s = await now();
+      toast(s.state === "synced" ? "Synced" : syncLine());
+      rerender();
+    });
+    q("[data-accept]")?.addEventListener("click", async () => {
+      const ok = await confirmDialog("Accept the updated documents?", `Read the Terms and the Privacy Policy at ${APP_HOST}/terms.html and ${APP_HOST}/privacy.html. Accepting lets sync continue.`, { confirmLabel: "I accept" });
+      if (!ok) return;
+      try {
+        await accept();
+        request2("accept");
+        toast("Accepted");
+      } catch (e) {
+        toast(e.message);
+      }
+      rerender();
+    });
+    q("[data-restore-backup]")?.addEventListener("click", async () => {
+      const info2 = info();
+      if (!info2) return;
+      const ok = await confirmDialog("Restore this device's old data?", "This signs this device out and puts back what was here before sign-in. Your account keeps its data.", { confirmLabel: "Sign out and restore", danger: true });
+      if (!ok) return;
+      const records = backupRecords();
+      await signOut({ keepData: true });
+      if (records) replaceRecords(records);
+      dropBackup();
+      toast("Restored");
+      rerender();
+    });
+    root.querySelectorAll("[data-signout-device]").forEach((b) => b.addEventListener("click", async () => {
+      const d = devices?.devices.find((x) => x.id === b.dataset.signoutDevice);
+      if (!await confirmDialog(`Sign out ${d?.label || "this device"}?`, "It signs out at its next contact with Stack'd.", { confirmLabel: "Sign out", danger: true })) return;
+      try {
+        await signOutDevice(b.dataset.signoutDevice);
+        toast("Signed out");
+      } catch (e) {
+        toast(e.message);
+      }
+      loadDevices();
+    }));
+    q("[data-signout-all]")?.addEventListener("click", () => signOutFlow({ everywhere: true }));
+    q("[data-signout]")?.addEventListener("click", () => signOutFlow());
+    q("[data-lock-after]")?.addEventListener("click", (e) => openMenu(e.currentTarget, AFTER.map(([v, label]) => ({
+      label,
+      checked: settings().after === v,
+      onClick: async () => {
+        if (v === settings().after) return;
+        const pin = await askPin("Enter your PIN", { text: "Changing the app lock asks for your PIN.", check: serverPin });
+        if (!pin) return;
+        setLock({ after: v });
+        rerender();
+      }
+    }))));
+    biometricsAvailable().then((kind) => {
+      const r = root.querySelector("[data-bio-row]");
+      if (!kind || !r) return;
+      r.hidden = false;
+      r.querySelectorAll("[data-bio]").forEach((b) => b.addEventListener("click", async () => {
+        const on = b.dataset.bio === "on";
+        if (on === settings().biometrics) return;
+        if (on && !await askPin("Enter your PIN", { text: "Turning on biometrics asks for your PIN once.", check: serverPin })) return;
+        setLock({ biometrics: on });
+        rerender();
+      }));
+    });
+    q("[data-change-pin]")?.addEventListener("click", async () => {
+      const old = await askPin("Your current PIN", {});
+      if (!old) return;
+      let first = null;
+      const next = await askPin("Choose a new PIN", { check: async (p) => /^(\d)\1{3}$/.test(p) || "0123456789".includes(p) || "9876543210".includes(p) ? "Choose a PIN that is not four of the same digit or a straight run." : (first = p, null) });
+      if (!next) return;
+      const again2 = await askPin("Enter it again", { check: async (p) => p === first ? null : "The two PINs were different." });
+      if (!again2) return;
+      try {
+        await changePin(old, next);
+        toast("PIN changed");
+      } catch (e) {
+        toast(e.message, { ms: 6e3 });
+      }
+    });
+    q("[data-export]")?.addEventListener("click", async () => {
+      try {
+        downloadFile(await exportData(), "stackd-account.json");
+        toast("Saved stackd-account.json");
+      } catch (e) {
+        toast(e.message);
+      }
+    });
+    q("[data-delete-account]")?.addEventListener("click", async () => {
+      const keep2 = await choiceDialog(
+        "Delete your account?",
+        `This removes the account and everything synced to it, on the server and for every device. Recordings stay on the devices that made them. ${STORE_LINKS} The steps are also at ${DELETION_URL}.`,
+        [{ id: "keep", label: "Keep a copy here" }, { id: "remove", label: "Remove from here too", danger: true }]
+      );
+      if (!keep2) return;
+      const pin = await askPin("Enter your PIN", { text: "To delete the account." });
+      if (!pin) return;
+      const typed = await promptDialog("Type DELETE to confirm", { placeholder: "DELETE", confirmLabel: "Delete account" });
+      if (typed !== "DELETE") {
+        if (typed !== null) toast("Nothing was deleted.");
+        return;
+      }
+      try {
+        await deleteAccount({ pin, keepData: keep2 === "keep" });
+        devices = null;
+        if (keep2 === "remove") await removeLocalData();
+        toast("Your account was deleted");
+        rerender();
+      } catch (e) {
+        toast(e.message, { ms: 6e3 });
+      }
+    });
+  }
+
   // src/ui/settings.js
   var THEME_LABEL = { light: "Light", dark: "Dark", system: "System" };
   var THEME_ICON = { light: "sun", dark: "moon", system: "monitor" };
   var COLOR_NAME = { red: "Red", amber: "Amber", green: "Green", blue: "Blue", violet: "Violet", gray: "Gray" };
-  var plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  var plural3 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   var sameTag2 = (a, b) => a.toLowerCase() === b.toLowerCase();
   function openSettings(section) {
     UI.screen = "settings";
@@ -3372,7 +6229,7 @@
     <button class="lrow-icon pc pc-${p.color}" data-color aria-label="Colour: ${COLOR_NAME[p.color]}" title="Change colour">${icon("flag", 18)}</button>
     <div class="set-text">
       <input class="set-input" data-name value="${esc(p.name)}" maxlength="24" autocomplete="off" aria-label="Priority name">
-      <span class="set-sub">${plural(priorityUseCount(p.id), "task")}</span>
+      <span class="set-sub">${plural3(priorityUseCount(p.id), "task")}</span>
     </div>
     <div class="set-actions">
       <button class="set-btn" data-move="-1" aria-label="Move ${esc(p.name)} up" ${i === 0 ? "disabled" : ""}>${icon("chevronUp", 18)}</button>
@@ -3383,7 +6240,7 @@
   }
   function labelRowHTML(name) {
     const use = tagUseCounts(name);
-    const sub = use.notes ? `${plural(use.tasks, "task")} · ${plural(use.notes, "note")}` : plural(use.tasks, "task");
+    const sub = use.notes ? `${plural3(use.tasks, "task")} · ${plural3(use.notes, "note")}` : plural3(use.tasks, "task");
     return `
   <div class="set-row" data-label="${esc(name)}">
     <span class="lrow-icon">${icon("tag", 18)}</span>
@@ -3401,6 +6258,39 @@
     <span class="lrow-icon dashed">${icon("plus", 18)}</span>
     <input class="set-input" ${attr} placeholder="${label}" maxlength="32" autocomplete="off" aria-label="${label}">
   </div>`;
+  var showImport = () => canImport() && !isLegacyOrigin();
+  function dataSectionHTML() {
+    if (!showImport()) return "";
+    return `
+      <span class="section-title list-label" id="settings-data">Your data</span>
+      <div class="card list-card">
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon("upload", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Import a Stack'd file</span>
+            <span class="set-sub set-long">Brings in the boards, tasks, notes and meetings from a file made with Download my data.</span>
+          </div>
+          <button class="btn btn-sm btn-secondary" data-import>Choose file</button>
+          <input type="file" class="visually-hidden-input" data-import-file accept=".json,application/json" tabindex="-1" aria-hidden="true">
+        </div>
+      </div>
+      <p class="hint set-hint">The file replaces what is on this device. Recordings are not in the file; transcripts, minutes and actions are.</p>`;
+  }
+  var countLine = (c) => [plural3(c.boards, "board"), plural3(c.tasks, "task"), plural3(c.notes, "note"), plural3(c.meetings, "meeting")].join(", ");
+  async function runImport(file) {
+    try {
+      const done2 = await importFile(file, {
+        confirm: ({ counts, current: current3, recordingsLost }) => confirmDialog(
+          "Replace what is on this device?",
+          `The file has ${countLine(counts)}. They replace the ${countLine(current3)} on this device, which cannot be undone.${recordingsLost ? ` ${plural3(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
+          { confirmLabel: "Replace", danger: true }
+        )
+      });
+      if (done2) toast(`Imported ${countLine(done2.counts)}`);
+    } catch (e) {
+      toast(e?.code ? e.message : "The file could not be imported. Nothing was changed.", { ms: 8e3 });
+    }
+  }
   function settingsHTML() {
     const labels = allTags().sort((a, b) => a.localeCompare(b, void 0, { sensitivity: "base" }));
     const n = S.priorities.length;
@@ -3413,6 +6303,9 @@
       </div>
     </header>
     <div class="scroll-area">
+      ${accountSectionHTML()}
+      ${sharedSectionHTML()}
+
       <span class="section-title list-label" id="settings-appearance">Appearance</span>
       <div class="card list-card">
         <div class="set-row set-wrap">
@@ -3464,9 +6357,17 @@
           <span class="lrow-icon">${icon("lock", 18)}</span>
           <div class="set-text">
             <span class="set-title">What leaves your device</span>
-            <span class="set-sub set-long">${esc(DISCLOSURE)} Recordings, transcripts, minutes and actions stay on this device otherwise.</span>
+            <span class="set-sub set-long">${esc(DISCLOSURE)} ${signedIn() ? "Signed in, transcripts, minutes and actions are also kept in your account by sync; recordings stay on this device." : "Recordings, transcripts, minutes and actions stay on this device otherwise."} <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy Policy</a></span>
           </div>
         </div>
+        ${signedIn() ? `
+        <div class="set-row">
+          <span class="lrow-icon">${icon("document", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">Plan account</span>
+            <span class="set-sub">${esc(current().email)}</span>
+          </div>
+        </div>` : `
         <div class="set-row set-wrap">
           <span class="lrow-icon">${icon("document", 18)}</span>
           <div class="set-text">
@@ -3474,7 +6375,7 @@
             <span class="set-sub num">${esc(S.plan.subscriberId)}</span>
           </div>
           <button class="btn btn-sm btn-secondary" data-copy-sub>Copy</button>
-        </div>
+        </div>`}
         <div class="set-row set-wrap">
           <span class="lrow-icon">${icon("undo", 18)}</span>
           <div class="set-text">
@@ -3495,6 +6396,8 @@
         <p class="hint set-hint">Proxy URL override, https only (http://localhost for a local Worker). Leave empty for the default.</p>
       </details>
 
+      ${dataSectionHTML()}
+
       <span class="section-title list-label" id="settings-automations">Automations</span>
       <div class="card list-card">
         <div class="set-row">
@@ -3504,14 +6407,6 @@
             <span class="set-sub">Built in · repeating tasks roll to their next date instead</span>
           </div>
           <span class="tag pc pc-green">On</span>
-        </div>
-        <div class="set-row is-disabled" aria-disabled="true">
-          <span class="lrow-icon dashed">${icon("plus", 18)}</span>
-          <div class="set-text">
-            <span class="set-title">New automation</span>
-            <span class="set-sub">Custom rules are coming soon</span>
-          </div>
-          <span class="tag">Soon</span>
         </div>
       </div>
     </div>
@@ -3551,28 +6446,43 @@
   }
   function bindSettings() {
     bindScrollShadow();
+    bindAccountSection(app);
+    bindSharedSection(app);
     app.querySelectorAll("[data-theme-opt]").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.themeOpt)));
     app.querySelectorAll("[data-date-format]").forEach((b) => b.addEventListener("click", () => setDateFormat(b.dataset.dateFormat)));
-    app.querySelectorAll("[data-prio]").forEach((row) => {
-      const id = row.dataset.prio;
+    app.querySelectorAll("[data-prio]").forEach((row2) => {
+      const id = row2.dataset.prio;
       const p = S.priorities.find((x) => x.id === id);
-      bindName(row.querySelector("[data-name]"), (name) => updatePriority(id, { name }));
-      row.querySelector("[data-color]").addEventListener("click", (e) => openMenu(e.currentTarget, PRIORITY_COLORS.map((c) => ({
+      bindName(row2.querySelector("[data-name]"), (name) => {
+        if (nameTaken("priority", name, { except: id })) {
+          toast(`There is already a priority called ${name}`);
+          rerender();
+          return;
+        }
+        updatePriority(id, { name });
+      });
+      row2.querySelector("[data-color]").addEventListener("click", (e) => openMenu(e.currentTarget, PRIORITY_COLORS.map((c) => ({
         label: COLOR_NAME[c] + (c === p.color ? " ✓" : ""),
         swatch: c,
         onClick: () => updatePriority(id, { color: c })
       }))));
-      row.querySelectorAll("[data-move]").forEach((b) => b.addEventListener("click", () => movePriority(id, +b.dataset.move)));
-      row.querySelector("[data-delete]").addEventListener("click", async () => {
+      row2.querySelectorAll("[data-move]").forEach((b) => b.addEventListener("click", () => movePriority(id, +b.dataset.move)));
+      row2.querySelector("[data-delete]").addEventListener("click", async () => {
         const used = priorityUseCount(id);
-        if (used && !await confirmDialog(`Delete “${p.name}”?`, `${plural(used, "task")} will have no priority.`, { confirmLabel: "Delete", danger: true })) return;
+        if (used && !await confirmDialog(`Delete “${p.name}”?`, `${plural3(used, "task")} will have no priority.`, { confirmLabel: "Delete", danger: true })) return;
         deletePriority(id);
       });
     });
-    bindAdd("[data-add-priority]", addPriority);
-    app.querySelectorAll("[data-label]").forEach((row) => {
-      const name = row.dataset.label;
-      bindName(row.querySelector("[data-name]"), async (next) => {
+    bindAdd("[data-add-priority]", (name) => {
+      if (nameTaken("priority", name)) {
+        toast(`There is already a priority called ${name}`);
+        return;
+      }
+      addPriority(name);
+    });
+    app.querySelectorAll("[data-label]").forEach((row2) => {
+      const name = row2.dataset.label;
+      bindName(row2.querySelector("[data-name]"), async (next) => {
         const target = allTags().find((x) => sameTag2(x, next) && !sameTag2(x, name));
         if (target && !await confirmDialog(`Merge #${name} into #${target}?`, `Every task with #${name} gets #${target} instead.`, { confirmLabel: "Merge" })) {
           rerender();
@@ -3580,13 +6490,22 @@
         }
         renameLabel(name, target || next);
       });
-      row.querySelector("[data-delete]").addEventListener("click", async () => {
+      row2.querySelector("[data-delete]").addEventListener("click", async () => {
         const used = tagUseCount(name);
-        if (used && !await confirmDialog(`Delete #${name}?`, `It is removed from ${plural(used, "task")}.`, { confirmLabel: "Delete", danger: true })) return;
+        if (used && !await confirmDialog(`Delete #${name}?`, `It is removed from ${plural3(used, "task")}.`, { confirmLabel: "Delete", danger: true })) return;
         deleteLabel(name);
       });
     });
     bindAdd("[data-add-label]", addLabel);
+    const pick2 = app.querySelector("[data-import-file]");
+    if (pick2) {
+      app.querySelector("[data-import]").addEventListener("click", () => pick2.click());
+      pick2.addEventListener("change", () => {
+        const file = pick2.files[0];
+        pick2.value = "";
+        if (file) runImport(file);
+      });
+    }
     bindPlanSection(app);
     app.querySelector("[data-copy-sub]")?.addEventListener("click", async () => {
       try {
@@ -3602,8 +6521,22 @@
     });
     const url = app.querySelector("[data-proxy-url]");
     if (url) {
-      const save2 = () => {
-        if (url.value.trim() === (S.ai.proxyUrl || "")) return;
+      let asking = false;
+      const save2 = async () => {
+        if (asking || url.value.trim() === (S.ai.proxyUrl || "")) return;
+        let host = "";
+        try {
+          host = new URL(url.value.trim()).hostname;
+        } catch {
+        }
+        const known = !host || host === "localhost" || host === "stackdplatform.com" || host.endsWith(".stackdplatform.com");
+        asking = !known;
+        const refused = !known && !await confirmDialog(`Send your meetings to ${host}?`, "Recordings and transcripts would go to this address instead of the Stack'd service, with your subscriber id. Only use an address you run yourself.", { confirmLabel: "Use it", danger: true });
+        asking = false;
+        if (refused) {
+          url.value = S.ai.proxyUrl || "";
+          return;
+        }
         if (!setProxyUrl(url.value)) {
           toast("Use an https:// address (or http://localhost)");
           url.value = S.ai.proxyUrl || "";
@@ -3683,10 +6616,10 @@
     const input = root.querySelector("[data-search]");
     if (!input) return;
     const clearBtn = root.querySelector("[data-search-clear]");
-    let timer = null;
+    let timer2 = null;
     const apply2 = (value) => {
-      clearTimeout(timer);
-      timer = null;
+      clearTimeout(timer2);
+      timer2 = null;
       if (value === UI.query) return;
       UI.query = value;
       UI.searchFocus = true;
@@ -3694,8 +6627,8 @@
       rerender();
     };
     input.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => apply2(input.value), 150);
+      clearTimeout(timer2);
+      timer2 = setTimeout(() => apply2(input.value), 150);
       clearBtn?.classList.toggle("hidden", !input.value && isDesktop.matches);
     });
     input.addEventListener("keydown", (e) => {
@@ -3745,6 +6678,27 @@
   // src/ui/board.js
   var visibleTasks = (listId) => filterTasks(sortedTasks(listId), UI.query);
   var boardKey = () => queryFor(`list:${S.currentList}`);
+  var PAGE = 100;
+  var paging = { key: "", extra: {} };
+  function page(slot2, items) {
+    const key = `${S.currentList}|${S.view}|${S.sort}|${UI.query}`;
+    if (paging.key !== key) {
+      paging.key = key;
+      paging.extra = {};
+    }
+    const n = PAGE + (paging.extra[slot2] || 0);
+    return { shown: items.length > n ? items.slice(0, n) : items, rest: Math.max(0, items.length - n) };
+  }
+  var moreHTML = (slot2, rest) => rest ? `<button type="button" class="showmore" data-more-rows="${esc(slot2)}">Show ${Math.min(rest, PAGE)} more<span class="hint"> · ${rest} not shown</span></button>` : "";
+  function pageTitleHTML(label, aria = `${label}. Open the menu`) {
+    return isDesktop.matches ? `<h1 class="page-title-text">${esc(label)}</h1>` : `<h1 class="page-title-h"><button class="page-title" data-lists aria-label="${esc(aria)}"><span>${esc(label)}</span>${icon("chevronDown")}</button></h1>`;
+  }
+  function bindPageTitle() {
+    app.querySelector("[data-lists]")?.addEventListener("click", () => {
+      UI.screen = "lists";
+      rerender();
+    });
+  }
   function viewbarHTML() {
     const short = TASK_SORTS.find(([v]) => v === S.sort)?.[2] || "Sort";
     return `
@@ -3790,25 +6744,26 @@
     const ts = filterTasks(all, UI.query);
     const lanes = lanesOf(S.currentList).map((lane) => {
       const cards = ts.filter((t) => t.lane === lane.id);
+      const paged = page(lane.id, cards);
       const inLane = all.filter((t) => t.lane === lane.id).length;
-      const headCls = lane.id === "inprogress" ? "active" : lane.id === DONE_LANE ? "muted" : "";
+      const isDone = lane.id === DONE_LANE;
       return `
-    <div class="lane" data-lane="${lane.id}">
-      <div class="lane-head ${headCls}">
-        <span class="lane-name">${esc(lane.name)}</span>
+    <div class="lane ${isDone ? "lane-fixed" : ""}" data-lane="${lane.id}">
+      <div class="lane-head">
+        ${isDone ? `<span class="lane-name">${esc(lane.name)}</span>` : `<button class="lane-name" data-lane-rename="${lane.id}" title="Rename" aria-label="Rename lane ${esc(lane.name)}" aria-keyshortcuts="Delete">${esc(lane.name)}</button>`}
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
-        <button class="lane-menu" data-lane-menu="${lane.id}" aria-label="${esc(lane.name)} lane options" aria-haspopup="menu">${icon("more", 16)}</button>
       </div>
       <div class="lane-cards">
-        ${cards.map((t) => `
-          <div class="kcard ${t.done ? "done-card" : ""}" data-id="${t.id}">
+        ${paged.shown.map((t) => `
+          <div class="kcard ${t.done ? "done-card" : ""}" data-id="${t.id}" tabindex="0" role="group" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
             <div class="kcard-line">
-              <input type="checkbox" aria-label="Toggle complete" class="check sm" ${t.done ? "checked" : ""} data-id="${t.id}">
+              <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check sm" ${t.done ? "checked" : ""} data-id="${t.id}">
               <span class="t-title">${esc(t.title)}</span>
               ${t.done || !canReorder() ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
             </div>
             ${t.done ? "" : taskMetaHTML(t)}
           </div>`).join("")}
+        ${moreHTML(lane.id, paged.rest)}
         ${lane.id === DONE_LANE && S.lastAuto ? `<span class="lane-note">Moved here automatically · ${fmtTime(S.lastAuto)}</span>` : `<button class="addcard" data-lane-add="${lane.id}">+ Add card</button>`}
       </div>
     </div>`;
@@ -3819,17 +6774,17 @@
     <span class="txt">Automation${desktop ? ":" : " on —"} ${desktop ? "marking a task complete moves its card" : "completed tasks move"} to <strong>${esc(laneName(S.currentList, DONE_LANE))}</strong></span>
     ${desktop ? '<button class="edit" data-editrules>Edit rules</button>' : ""}
   </div>
-  ${desktop ? "" : '<span class="hint board-hint">Swipe for more lanes · hold a card to move it</span>'}
+  ${desktop ? "" : '<span class="hint board-hint">Hold a card to move it · keep holding to delete</span>'}
   <div class="board ${desktop ? "cols3" : ""}">${lanes}
     <button class="lane-add" data-lane-new>${icon("plus", 18)}<span>Add lane</span></button>
   </div>`;
   }
   function mobileListHTML() {
     boardKey();
-    const list2 = listById(S.currentList);
+    const list3 = listById(S.currentList);
     const ts = visibleTasks(S.currentList);
     const total = tasksOf(S.currentList).length;
-    const headCount = UI.query ? `${ts.length} of ${total} task${total === 1 ? "" : "s"}` : S.view === "kanban" ? `${total} tasks` : `${openCount(S.currentList)} open`;
+    const headCount = UI.query ? `${ts.length} of ${total} task${total === 1 ? "" : "s"}` : `${openCount(S.currentList)} open`;
     const field = searchFieldHTML({ placeholder: "Search tasks" });
     const body = S.view === "kanban" ? kanbanHTML() : `
     <div class="scroll-area">
@@ -3837,23 +6792,24 @@
       ${ts.length ? `
       <span class="hint list-hint">Double-tap to complete · long-press or swipe left to delete</span>
       <div class="card list-card">
-        ${ts.map((t) => `
-        <div class="row trow ${t.done ? "done" : ""}" data-id="${t.id}">
-          <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
+        ${page("list", ts).shown.map((t) => `
+        <div class="row trow ${t.done ? "done" : ""}" data-id="${t.id}" tabindex="0" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
+          <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
           <div class="t-main">
             <span class="t-title">${esc(t.title)}</span>
             ${t.done ? "" : taskMetaHTML(t)}
           </div>
           ${t.done || !canReorder() ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
-          <button class="swipe-del" data-del aria-label="Delete" tabindex="-1">${icon("trash", 20)}</button>
+          <button class="swipe-del" data-del aria-label="Delete: ${esc(t.title)}" tabindex="-1">${icon("trash", 20)}</button>
         </div>`).join("")}
+        ${moreHTML("list", page("list", ts).rest)}
       </div>` : UI.query ? "" : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
     </div>`;
     return `
   <div class="screen">
     <header class="page-head">
       <div class="page-title-row">
-        <button class="page-title" data-lists aria-label="Switch board"><span>${esc(list2.name)}</span>${icon("chevronDown")}</button>
+        <span class="title-with-chip">${pageTitleHTML(list3.name, `${list3.name}. Switch board`)}${sharedChipHTML(list3)}</span>
         <span class="head-right"><span class="kicker">${headCount}</span>${searchToggleHTML()}</span>
       </div>
       ${viewbarHTML()}
@@ -3866,16 +6822,14 @@
     bindViewbar();
     bindSearch(app);
     bindScrollShadow();
-    app.querySelector("[data-lists]").addEventListener("click", () => {
-      UI.screen = "lists";
-      rerender();
-    });
+    bindPageTitle();
+    bindSharedChip(app);
     bindChecks();
-    app.querySelectorAll(".trow").forEach((row) => {
-      const t = taskById(row.dataset.id);
-      bindRowGestures(row, t);
-      const grip = row.querySelector(".grip");
-      if (grip) bindReorder(grip, row, taskReorder(t, ".trow"));
+    app.querySelectorAll(".trow").forEach((row2) => {
+      const t = taskById(row2.dataset.id);
+      bindRowGestures(row2, t);
+      const grip = row2.querySelector(".grip");
+      if (grip) bindReorder(grip, row2, taskReorder(t, ".trow"));
     });
     bindKanban();
   }
@@ -3891,11 +6845,11 @@
     <div class="tgrid tgrid-head">
       <span></span><span>Task</span><span>Due</span><span>Priority</span><span>Subtasks</span>
     </div>
-    ${ts.map((t) => {
+    ${page("table", ts).shown.map((t) => {
       const sub = t.subtasks.length ? `${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}` : null;
       return `
       <div class="tgrid tgrid-row ${t.done ? "done" : ""}" data-id="${t.id}">
-        <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
+        <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
         <span class="t-title">${esc(t.title)}</span>
         ${t.done ? "<span></span><span></span><span></span>" : `
         ${t.due ? dueChipHTML(t) : '<span class="cell-muted">—</span>'}
@@ -3903,6 +6857,7 @@
         ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
       </div>`;
     }).join("")}
+    ${moreHTML("table", page("table", ts).rest)}
     ${ts.length ? "" : `<p class="empty">${UI.query ? `No tasks match “${esc(UI.query)}”.` : "No tasks yet. Add one above."}</p>`}
   </div>
   <span class="hint">${UI.query ? "Clear the search to reorder" : "Drag rows to reprioritize"} · double-click a task to complete</span>`;
@@ -3934,6 +6889,10 @@
     area.addEventListener("scroll", () => head.classList.toggle("is-scrolled", area.scrollTop > 2), { passive: true });
   }
   function bindChecks() {
+    app.querySelectorAll("[data-more-rows]").forEach((b) => b.addEventListener("click", () => {
+      paging.extra[b.dataset.moreRows] = (paging.extra[b.dataset.moreRows] || 0) + PAGE;
+      rerender();
+    }));
     app.querySelectorAll(".check[data-id]").forEach((c) => {
       c.addEventListener("click", (e) => e.stopPropagation());
       c.addEventListener("pointerdown", (e) => e.stopPropagation());
@@ -3954,48 +6913,129 @@
       });
     });
     app.querySelectorAll("[data-lane-add]").forEach((b) => b.addEventListener("click", () => openSheet({ lane: b.dataset.laneAdd })));
-    app.querySelectorAll("[data-lane-menu]").forEach((b) => b.addEventListener("click", (e) => openLaneMenu(e.currentTarget, b.dataset.laneMenu)));
+    app.querySelectorAll("[data-lane-rename]").forEach((b) => {
+      b.addEventListener("click", () => editLaneName(b.dataset.laneRename));
+      b.addEventListener("keydown", (e) => {
+        if (e.key === "Delete") {
+          e.preventDefault();
+          confirmDeleteLane(b.dataset.laneRename);
+        }
+      });
+    });
+    app.querySelectorAll(".lane:not(.lane-fixed)").forEach(bindLane);
     app.querySelector("[data-lane-new]")?.addEventListener("click", async () => {
       const name = await promptDialog("New lane", { placeholder: "Lane name", confirmLabel: "Add" });
-      if (name) addLane(S.currentList, name);
+      if (!name) return;
+      if (nameTaken("lane", name, { listId: S.currentList })) {
+        toast(`There is already a lane called ${name}`);
+        return;
+      }
+      addLane(S.currentList, name);
     });
     app.querySelector("[data-editrules]")?.addEventListener("click", () => openSettings("automations"));
   }
-  function openLaneMenu(anchor, laneId) {
+  function editLaneName(laneId) {
     const listId = S.currentList;
-    const lanes = lanesOf(listId), i = lanes.findIndex((l) => l.id === laneId), lane = lanes[i];
-    if (!lane) return;
-    const items = [{
-      label: "Rename",
-      icon: "text",
-      onClick: async () => {
-        const name = await promptDialog("Rename lane", { value: lane.name, confirmLabel: "Rename" });
-        if (name) renameLane(listId, laneId, name);
+    const lane = lanesOf(listId).find((l) => l.id === laneId);
+    const btn = [...app.querySelectorAll("[data-lane-rename]")].find((b) => b.dataset.laneRename === laneId);
+    if (!lane || !btn || laneId === DONE_LANE) return;
+    const input = document.createElement("input");
+    input.className = "lane-name lane-name-input";
+    input.value = lane.name;
+    input.autocomplete = "off";
+    input.enterKeyHint = "done";
+    input.setAttribute("aria-label", "Lane name");
+    btn.replaceWith(input);
+    let closed = false;
+    const finish3 = (save2) => {
+      if (closed) return;
+      closed = true;
+      const name = input.value.trim();
+      if (!save2 || !name || name === lane.name) {
+        input.replaceWith(btn);
+        return;
       }
-    }];
-    if (i > 0) items.push({ label: "Move left", icon: "chevronLeft", onClick: () => moveLane(listId, laneId, -1) });
-    if (i < lanes.length - 1) items.push({ label: "Move right", icon: "chevronRight", onClick: () => moveLane(listId, laneId, 1) });
-    if (canDeleteLane(listId, laneId)) {
-      items.push({ divider: true }, {
-        label: "Delete lane",
-        icon: "trash",
-        danger: true,
-        onClick: async () => {
-          const n = laneTaskCount(listId, laneId);
-          const to = lanes.find((l) => l.id !== laneId && l.id !== DONE_LANE)?.name;
-          const body = n ? `${n} task${n === 1 ? "" : "s"} in ${lane.name} will move to ${to}.` : `${lane.name} is empty.`;
-          if (!await confirmDialog(`Delete ${lane.name}?`, body, { confirmLabel: "Delete", danger: true })) return;
-          deleteLane(listId, laneId);
-          toast(n ? `Lane deleted · ${n} moved to ${to}` : "Lane deleted");
-        }
-      });
-    }
-    openMenu(anchor, items);
+      if (nameTaken("lane", name, { listId, except: laneId })) {
+        input.replaceWith(btn);
+        toast(`There is already a lane called ${name}`);
+        return;
+      }
+      const x = app.querySelector(".board")?.scrollLeft || 0;
+      renameLane(listId, laneId, name);
+      const board = app.querySelector(".board");
+      if (board) board.scrollLeft = x;
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") finish3(true);
+      else if (e.key === "Escape") {
+        e.stopPropagation();
+        finish3(false);
+      }
+    });
+    input.addEventListener("blur", () => finish3(true));
+    input.focus();
+    input.select();
+  }
+  function bindLane(lane) {
+    const board = lane.closest(".board");
+    const laneId = lane.dataset.lane;
+    let target = null;
+    const mark = (el) => {
+      if (target === el) return;
+      target?.classList.remove("lane-drop");
+      target = el;
+      target?.classList.add("lane-drop");
+    };
+    bindHold(lane, {
+      ignore: ".kcard,.addcard,.lane-note,.lane-name-input",
+      ghostClass: "lane",
+      canDrag: () => !UI.query,
+      scroller: () => board,
+      axis: "x",
+      onDragMove: (ev) => {
+        const others = [...board.querySelectorAll(".lane")].filter((l) => l !== lane);
+        mark(others.find((l) => {
+          const r = l.getBoundingClientRect();
+          return ev.clientX < r.left + r.width / 2;
+        }) || others.find((l) => l.classList.contains("lane-fixed")) || null);
+      },
+      onDragEnd: () => {
+        lane.dataset.dropBefore = target?.dataset.lane || "";
+        mark(null);
+      },
+      onDrop: () => {
+        const before = lane.dataset.dropBefore;
+        delete lane.dataset.dropBefore;
+        const rest = lanesOf(S.currentList).filter((l) => l.id !== laneId && l.id !== DONE_LANE);
+        const i = rest.findIndex((l) => l.id === before);
+        reorderLane(S.currentList, laneId, i === -1 ? rest.length : i);
+      },
+      armButtons: () => [{ icon: "x", label: `Remove lane ${laneName(S.currentList, laneId)}`, onClick: () => confirmDeleteLane(laneId) }]
+    });
+  }
+  async function confirmDeleteLane(laneId) {
+    const listId = S.currentList;
+    if (!canDeleteLane(listId, laneId)) return;
+    const name = laneName(listId, laneId);
+    const n = laneTaskCount(listId, laneId);
+    const heir = laneHeir(listId, laneId);
+    const cards = `${n} card${n === 1 ? "" : "s"}`;
+    const body = !n ? `${name} is empty.` : heir ? `Its ${cards} move to ${laneName(listId, heir)}.` : `Its ${cards} move to Deleted, where they stay for ${RETENTION_DAYS} days. Done is the only lane left on this board.`;
+    if (!await confirmDialog(`Remove ${name}?`, body, { confirmLabel: "Remove", danger: true })) return;
+    buzz("MEDIUM");
+    const r = deleteLane(listId, laneId);
+    if (!r) return;
+    toast(
+      r.moved ? `Lane removed · ${r.moved} moved to ${laneName(listId, r.to)}` : r.binned ? `Lane removed · ${r.binned} moved to Deleted` : "Lane removed",
+      { action: { label: "Undo", onClick: () => {
+        if (restoreLane(listId, r.undo)) toast(`${name} is back`);
+      } } }
+    );
   }
   var openRow = null;
   var openSide = null;
-  var slideRow = (row, x) => {
-    row.style.transform = x ? `translateX(${x}px)` : "";
+  var slideRow = (row2, x) => {
+    row2.style.transform = x ? `translateX(${x}px)` : "";
   };
   function closeOpenRow() {
     if (!openRow) return;
@@ -4127,7 +7167,16 @@
         deleteWithUndo(task.id);
       }
     });
+    el.addEventListener("keydown", (e) => {
+      if (e.target !== el) return;
+      if (e.key === "Enter") openDetail(task.id);
+      else if (e.key === "Delete") {
+        e.preventDefault();
+        deleteWithUndo(task.id);
+      }
+    });
   }
+  var checkLabel = (t) => `${t.done ? "Reopen" : "Complete"}: ${t.title}`;
   function openDetail(id) {
     if (!taskById(id)) return;
     UI.detailId = id;
@@ -4172,175 +7221,59 @@
     });
     if (dragEl !== rowEl) dragEl.style.touchAction = "none";
   }
-  var EDGE = 56;
   function bindCard(card, task) {
-    card.addEventListener("pointerdown", (e) => {
-      if (e.target.closest(".check,.grip")) return;
-      let dragging = false, overLane = null, held = false, ghost = null, raf = 0, scrollV = 0;
-      const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
-      const isTouch = e.pointerType === "touch";
-      const canDrag = !UI.query;
-      const board = card.closest(".board");
-      const holdTimer = isTouch && canDrag ? setTimeout(() => {
-        held = true;
-        startDrag();
-      }, 350) : null;
-      const placeGhost = (x, y) => {
-        if (ghost) ghost.style.transform = `translate(${x - sx}px, ${y - sy}px)`;
-      };
-      const startDrag = () => {
-        dragging = true;
-        try {
-          card.setPointerCapture(pid);
-        } catch {
-        }
-        card.classList.add("dragging");
-        board?.classList.add("is-dragging");
-        const r = card.getBoundingClientRect();
-        ghost = card.cloneNode(true);
-        ghost.className = "kcard drag-ghost";
-        ghost.style.width = `${r.width}px`;
-        ghost.style.left = `${r.left}px`;
-        ghost.style.top = `${r.top}px`;
-        document.body.appendChild(ghost);
-        buzz("LIGHT");
-      };
-      const autoScroll = () => {
-        if (!dragging || !board) {
-          raf = 0;
-          return;
-        }
-        if (scrollV) board.scrollLeft += scrollV;
-        raf = requestAnimationFrame(autoScroll);
-      };
-      const blockScroll = (ev) => {
-        if (dragging) ev.preventDefault();
-      };
-      card.addEventListener("touchmove", blockScroll, { passive: false });
-      const move = (ev) => {
-        const dist = Math.hypot(ev.clientX - sx, ev.clientY - sy);
-        if (!dragging && !isTouch && dist > 8 && canDrag) startDrag();
-        if (!dragging) {
-          if (isTouch && dist > 10 && holdTimer) clearTimeout(holdTimer);
-          return;
-        }
-        placeGhost(ev.clientX, ev.clientY);
-        const lane = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".lane");
+    const board = card.closest(".board");
+    let overLane = null, dropLane = null;
+    bindHold(card, {
+      ignore: ".check,.grip",
+      ghostClass: "kcard",
+      canDrag: () => !UI.query,
+      // a filtered board does not lift cards (AC-08.2)
+      scroller: () => board,
+      axis: "x",
+      onTap: () => openDetail(task.id),
+      onDragMove: (ev) => {
+        const lane = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".lane") || null;
         if (overLane && overLane !== lane) overLane.classList.remove("dropover");
         overLane = lane;
         lane?.classList.add("dropover");
-        if (board) {
-          const r = board.getBoundingClientRect();
-          scrollV = ev.clientX > r.right - EDGE ? Math.ceil((ev.clientX - (r.right - EDGE)) / 4) : ev.clientX < r.left + EDGE ? -Math.ceil((r.left + EDGE - ev.clientX) / 4) : 0;
-          if (scrollV && !raf) raf = requestAnimationFrame(autoScroll);
-        }
-      };
-      const finish3 = () => {
-        if (holdTimer) clearTimeout(holdTimer);
-        cancelAnimationFrame(raf);
-        raf = 0;
-        card.removeEventListener("pointermove", move);
-        card.removeEventListener("pointerup", up);
-        card.removeEventListener("pointercancel", cancel);
-        card.removeEventListener("touchmove", blockScroll);
-        card.classList.remove("dragging");
-        board?.classList.remove("is-dragging");
-        ghost?.remove();
-        ghost = null;
+      },
+      onDragEnd: () => {
         overLane?.classList.remove("dropover");
-      };
-      const up = (ev) => {
-        finish3();
-        if (dragging && overLane && overLane.dataset.lane !== task.lane) {
-          if (overLane.dataset.lane === "done" && task.recur !== "none" && task.due) {
-            rerender();
-            completeTask(task.id);
-          } else moveToLane(task.id, overLane.dataset.lane);
-        } else if (dragging) {
-          rerender();
-        } else if (!held && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 8) {
-          openDetail(task.id);
-        }
-      };
-      const cancel = () => {
-        finish3();
-        if (dragging) rerender();
-      };
-      card.addEventListener("pointermove", move);
-      card.addEventListener("pointerup", up);
-      card.addEventListener("pointercancel", cancel);
+        dropLane = overLane;
+        overLane = null;
+      },
+      onDrop: () => {
+        const to = dropLane?.dataset.lane;
+        dropLane = null;
+        if (!to || to === task.lane) return;
+        if (to === DONE_LANE && task.recur !== "none" && task.due) completeTask(task.id);
+        else moveToLane(task.id, to);
+      },
+      armButtons: () => [{ icon: "x", label: `Delete card: ${task.title}`, onClick: () => confirmDeleteCard(task) }]
+    });
+    card.addEventListener("keydown", (e) => {
+      if (e.target !== card) return;
+      if (e.key === "Enter") openDetail(task.id);
+      else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        confirmDeleteCard(task);
+      }
     });
   }
-
-  // src/ui/movecopy.js
-  function openMoveCopy({ mode, task = null, listId = null, lane = null, title = null, onConfirm }) {
-    const pick = task ? { listId: task.listId, lane: task.lane } : { listId: listId || S.currentList, lane: lane || firstLane(listId || S.currentList) };
-    const isMove = mode === "move";
-    const label = title || (isMove ? "Move to" : mode === "copy" ? "Copy to" : "Add to board");
-    const confirmLabel = isMove ? "Move" : mode === "copy" ? "Copy" : "Choose";
-    const ov = document.createElement("div");
-    ov.className = "overlay";
-    ov.innerHTML = `
-  <div class="sheet" role="dialog" aria-label="${esc(label)}">
-    <div class="sheet-handle"></div>
-    <div class="sheet-head">
-      <span class="section-title">${esc(label)}</span>
-      <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
-    </div>
-    <div class="chip-group">
-      <span class="microlabel">Board</span>
-      <div class="chip-row" data-board>
-        ${S.lists.map((l) => `<button class="chip ${l.id === pick.listId ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("")}
-      </div>
-    </div>
-    <div class="chip-group">
-      <span class="microlabel">Lane</span>
-      <div class="chip-row" data-lane></div>
-    </div>
-    <button class="btn btn-primary btn-block" data-confirm>${confirmLabel}</button>
-  </div>`;
-    document.body.appendChild(ov);
-    const q = (s) => ov.querySelector(s);
-    const close = () => {
-      ov.remove();
-      document.removeEventListener("keydown", onKey);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    ov.addEventListener("click", (e) => {
-      if (e.target === ov) close();
-    });
-    q("[data-close]").addEventListener("click", close);
-    const confirmBtn = q("[data-confirm]");
-    const refresh2 = () => {
-      if (isMove && task) confirmBtn.disabled = pick.listId === task.listId && pick.lane === task.lane;
-    };
-    const renderLanes = () => {
-      pick.lane = validLane(pick.listId, pick.lane);
-      q("[data-lane]").innerHTML = lanesOf(pick.listId).map((l) => `<button class="chip ${l.id === pick.lane ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("");
-    };
-    const group = (sel, key, after) => q(sel).addEventListener("click", (e) => {
-      const chip = e.target.closest(".chip");
-      if (!chip) return;
-      pick[key] = chip.dataset.val;
-      q(sel).querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === chip));
-      after?.();
-      refresh2();
-    });
-    group("[data-board]", "listId", renderLanes);
-    group("[data-lane]", "lane");
-    renderLanes();
-    refresh2();
-    confirmBtn.addEventListener("click", () => {
-      close();
-      onConfirm(pick.listId, pick.lane);
-    });
+  async function confirmDeleteCard(task) {
+    const ok = await confirmDialog(
+      `Delete “${task.title}”?`,
+      `It moves to Deleted and is removed for good after ${RETENTION_DAYS} days.`,
+      { confirmLabel: "Delete", danger: true }
+    );
+    if (!ok) return;
+    buzz("MEDIUM");
+    deleteWithUndo(task.id);
   }
 
   // src/ui/tagpicker.js
-  function openTagPicker({ tags, onChange }) {
+  function openTagPicker({ tags, onChange: onChange3 }) {
     let selected = [...tags];
     const pool = normalizeTags([...selected, ...allTags()]);
     const ov = document.createElement("div");
@@ -4353,7 +7286,7 @@
       <button class="icon-btn" data-close aria-label="Done">${icon("x")}</button>
     </div>
     <div class="quickadd">
-      <input class="input" placeholder="New tag" data-tag-input autocapitalize="none">
+      <input class="input" placeholder="New tag" data-tag-input autocapitalize="none" maxlength="30">
       <button class="btn btn-primary" data-tag-add>Add</button>
     </div>
     <div class="chip-group">
@@ -4379,9 +7312,9 @@
     q("[data-close]").addEventListener("click", close);
     const input = q("[data-tag-input]");
     input.focus();
-    const emit = () => {
+    const emit2 = () => {
       selected = normalizeTags(selected);
-      onChange(selected);
+      onChange3(selected);
     };
     const has = (name) => selected.some((s) => s.toLowerCase() === name.toLowerCase());
     q("[data-pool]").addEventListener("click", (e) => {
@@ -4391,7 +7324,7 @@
       if (has(name)) selected = selected.filter((s) => s.toLowerCase() !== name.toLowerCase());
       else selected.push(name);
       chip.classList.toggle("on", has(name));
-      emit();
+      emit2();
     });
     const add2 = () => {
       const [name] = normalizeTags([input.value]);
@@ -4399,7 +7332,7 @@
       if (!name) return;
       if (!has(name)) {
         selected.push(name);
-        emit();
+        emit2();
       }
       const existing = [...ov.querySelectorAll("[data-pool] .chip")].find((c) => c.dataset.val.toLowerCase() === name.toLowerCase());
       if (existing) existing.classList.add("on");
@@ -4412,6 +7345,649 @@
     });
   }
   var chipHTML = (name, on) => `<button class="chip ${on ? "on" : ""}" data-val="${esc(name)}">#${esc(name)}</button>`;
+
+  // src/ui/noteeditor.js
+  var COLOR_NAME2 = { red: "Red", amber: "Amber", green: "Green", blue: "Blue", violet: "Violet", gray: "Gray" };
+  var colorName = (c) => c ? COLOR_NAME2[c] : "No colour";
+  var colorBarHTML = (color) => color ? `<span class="cbar pc-${color}" aria-hidden="true"></span>` : "";
+  function draftPreview(d) {
+    if (noteIsEmpty(d)) return "";
+    const text2 = d.title.trim() || firstLine(d.body) || (d.checklist || []).map((c) => c.text.trim()).find(Boolean) || "";
+    return `Draft: ${text2}`;
+  }
+  function collapsedHTML(d) {
+    const preview = draftPreview(d);
+    return `
+  <div class="composer-collapsed">
+    <button type="button" class="composer-placeholder ${preview ? "has-draft" : ""}" data-expand="body">${preview ? esc(preview) : "Take a note…"}</button>
+    <button type="button" class="ne-tool" data-expand="checklist" aria-label="New checklist" title="New checklist">${icon("checklist")}</button>
+  </div>`;
+  }
+  function checklistHTML(items) {
+    return `
+  <div class="ne-checks" role="group" aria-label="Checklist">
+    ${items.map((c) => `
+    <div class="ne-ci-row ${c.done ? "done" : ""}" data-ci-row="${c.id}">
+      <input type="checkbox" class="check sm" data-ci-done="${c.id}" ${c.done ? "checked" : ""} aria-label="Done">
+      <input class="ne-ci" data-ci="${c.id}" value="${esc(c.text)}" placeholder="List item" autocomplete="off" aria-label="List item">
+      <button type="button" class="s-del" data-ci-del="${c.id}" aria-label="Remove item" tabindex="-1">${icon("x", 16)}</button>
+    </div>`).join("")}
+  </div>`;
+  }
+  function formatRowHTML() {
+    return `
+    <div class="ne-format" role="toolbar" aria-label="Text formatting">
+      ${FORMATS.map(([cmd, label, glyph]) => `<button type="button" class="ne-tool ne-fmt" data-fmt="${cmd}" aria-pressed="false" aria-label="${label}" title="${label}"><span class="fmt-glyph fmt-${cmd}">${glyph}</span></button>`).join("")}
+    </div>`;
+  }
+  function editorHTML(v, { mode = "composer", expanded = true, formatOpen = false } = {}) {
+    const wrap = (inner2, cls) => `<form class="composer card ${cls} mode-${mode}" data-editor data-mode="${mode}" aria-label="${mode === "detail" ? "Note" : "New note"}">${colorBarHTML(v.color)}${inner2}</form>`;
+    if (mode === "composer" && !expanded) return wrap(collapsedHTML(v), "");
+    const inner = `
+  <div class="ne">
+    <input class="ne-title" data-f="title" value="${esc(v.title)}" placeholder="Title" maxlength="200" autocomplete="off" aria-label="Title">
+    <div class="ne-body" data-f="body" contenteditable="true" tabindex="0" role="textbox" aria-multiline="true" aria-label="Note" data-placeholder="Take a note…">${v.body}</div>
+    ${v.checklist ? checklistHTML(v.checklist) : ""}
+    ${v.tags.length ? `
+    <div class="ne-chips">${v.tags.map((t) => `<button type="button" class="chip sm removable" data-tag-remove="${esc(t)}" aria-label="Remove tag ${esc(t)}">#${esc(t)}${icon("x", 14)}</button>`).join("")}</div>` : ""}
+    ${formatOpen ? formatRowHTML() : ""}
+    <div class="ne-toolbar" role="toolbar" aria-label="Note tools">
+      <button type="button" class="ne-tool" data-tool="format" aria-pressed="${formatOpen}" aria-label="Formatting" title="Formatting">${icon("text")}</button>
+      <button type="button" class="ne-tool ${v.tags.length ? "on" : ""}" data-tool="tags" aria-label="Tags" title="Tags">${icon("tag")}</button>
+      <button type="button" class="ne-tool ${v.color ? "on" : ""} ${mode === "detail" && v.color ? "ne-tool-wide" : ""}" data-tool="color" aria-label="Colour: ${colorName(v.color)}" title="Colour">${icon("palette")}${v.color ? `<span class="swatch tool-swatch pc-${v.color}"></span>` : ""}${mode === "detail" && v.color ? `<span class="ne-tool-text">${colorName(v.color)}</span>` : ""}</button>
+      <button type="button" class="ne-tool" data-tool="checklist" aria-pressed="${!!v.checklist}" aria-label="Checklist" title="Checklist">${icon("checklist")}</button>
+      <span class="spacer"></span>
+      ${mode === "composer" ? `<button type="submit" class="btn btn-primary btn-sm" data-add ${noteIsEmpty(v) ? "disabled" : ""}>Add</button>` : ""}
+    </div>
+  </div>`;
+    return wrap(inner, "expanded");
+  }
+  var newItem = () => ({ id: uid(), text: "", done: false });
+  var emptyBody = (el) => /^(?:<div>)?(?:<br>)?(?:<\/div>)?$/i.test(el.innerHTML.trim());
+  function caretToEnd(el) {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    r.collapse(false);
+    const s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  }
+  function focusField(root, key) {
+    if (!key || !root) return;
+    let el = null;
+    if (key === "title") el = root.querySelector('[data-f="title"]');
+    else if (key === "body") el = root.querySelector('[data-f="body"]');
+    else if (key.startsWith("ci:")) el = root.querySelector(`[data-ci="${key.slice(3)}"]`);
+    if (!el) return;
+    el.focus();
+    if (el.isContentEditable) caretToEnd(el);
+    else if (el.value) el.setSelectionRange(el.value.length, el.value.length);
+  }
+  function bindEditor(host, opts) {
+    const { get: get2, set: set3, mode = "composer" } = opts;
+    const expanded = () => opts.expanded ? opts.expanded() : true;
+    let formatOpen = opts.formatOpen ? opts.formatOpen() : false;
+    const setFormatOpen = (v) => {
+      formatOpen = v;
+      opts.onFormatToggle?.(v);
+    };
+    const render2 = (focus) => {
+      host.innerHTML = editorHTML(get2(), { mode, expanded: expanded(), formatOpen });
+      bind();
+      focusField(host.querySelector("[data-editor]"), focus);
+    };
+    function bind() {
+      const root = host.querySelector("[data-editor]");
+      if (!root) return;
+      const q = (s) => root.querySelector(s);
+      const qa = (s) => [...root.querySelectorAll(s)];
+      const updateAdd = () => {
+        const b = q("[data-add]");
+        if (b) b.disabled = noteIsEmpty(get2());
+      };
+      root.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (!noteIsEmpty(get2())) opts.onAdd?.();
+      });
+      qa("[data-expand]").forEach((b) => {
+        b.addEventListener("click", () => opts.onExpand?.(b.dataset.expand));
+        if (b.dataset.expand === "body") b.addEventListener("focus", () => opts.onExpand?.("body"));
+      });
+      if (!expanded() && mode === "composer") return;
+      root.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+          e.preventDefault();
+          if (!noteIsEmpty(get2())) opts.onAdd?.();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          opts.onCollapse?.();
+        }
+      });
+      const title = q('[data-f="title"]');
+      title.addEventListener("input", () => {
+        set3({ title: title.value });
+        updateAdd();
+      });
+      title.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          focusField(root, "body");
+        }
+      });
+      const body = q('[data-f="body"]');
+      body.addEventListener("input", () => {
+        if (emptyBody(body)) body.innerHTML = "";
+        set3({ body: sanitize(body.innerHTML) });
+        updateAdd();
+      });
+      const applyFormat = (cmd) => {
+        if (document.activeElement !== body) focusField(root, "body");
+        exec(cmd);
+        reflectFormat(root);
+      };
+      body.addEventListener("keydown", (e) => {
+        if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+        const key = `${e.shiftKey ? "shift+" : ""}${e.key.toLowerCase()}`;
+        const cmd = SHORTCUTS[key];
+        if (!cmd) return;
+        e.preventDefault();
+        applyFormat(cmd);
+      });
+      q('[data-tool="format"]').addEventListener("click", () => {
+        setFormatOpen(!formatOpen);
+        render2(document.activeElement === body || !formatOpen ? "body" : null);
+      });
+      qa("[data-fmt]").forEach((b) => {
+        b.addEventListener("mousedown", (e) => e.preventDefault());
+        b.addEventListener("click", () => applyFormat(b.dataset.fmt));
+      });
+      body.addEventListener("paste", (e) => {
+        e.preventDefault();
+        const html = e.clipboardData.getData("text/html");
+        const text2 = e.clipboardData.getData("text/plain");
+        const ins = html ? sanitize(html) : fromPlain(text2);
+        if (!document.execCommand("insertHTML", false, ins)) document.execCommand("insertText", false, text2);
+      });
+      const items = () => get2().checklist || [];
+      const setItems = (list3) => set3({ checklist: list3 });
+      qa("[data-ci]").forEach((input) => {
+        const id = input.dataset.ci;
+        const item = () => items().find((c) => c.id === id);
+        input.addEventListener("input", () => {
+          const c = item();
+          if (c) c.text = input.value;
+          setItems(items());
+          updateAdd();
+        });
+        input.addEventListener("keydown", (e) => {
+          const list3 = items(), i = list3.findIndex((c) => c.id === id);
+          if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            const n = newItem();
+            list3.splice(i + 1, 0, n);
+            setItems(list3);
+            render2(`ci:${n.id}`);
+          } else if (e.key === "Backspace" && input.value === "" && list3.length) {
+            e.preventDefault();
+            list3.splice(i, 1);
+            setItems(list3.length ? list3 : list3);
+            render2(i > 0 ? `ci:${list3[i - 1].id}` : "body");
+          }
+        });
+      });
+      qa("[data-ci-done]").forEach((cb) => cb.addEventListener("change", () => {
+        const c = items().find((x) => x.id === cb.dataset.ciDone);
+        if (!c) return;
+        c.done = cb.checked;
+        setItems(items());
+        if (opts.resortOnToggle) {
+          render2(null);
+          return;
+        }
+        cb.closest(".ne-ci-row").classList.toggle("done", cb.checked);
+      }));
+      qa("[data-ci-del]").forEach((b) => b.addEventListener("click", () => {
+        const list3 = items(), i = list3.findIndex((c) => c.id === b.dataset.ciDel);
+        list3.splice(i, 1);
+        setItems(list3);
+        render2(list3[i] ? `ci:${list3[i].id}` : list3[i - 1] ? `ci:${list3[i - 1].id}` : "body");
+      }));
+      qa("[data-tag-remove]").forEach((b) => b.addEventListener("click", () => {
+        const name = b.dataset.tagRemove.toLowerCase();
+        set3({ tags: get2().tags.filter((t) => t.toLowerCase() !== name) });
+        render2(null);
+      }));
+      q('[data-tool="tags"]').addEventListener("click", () => {
+        openTagPicker({ tags: get2().tags, onChange: (tags) => {
+          set3({ tags });
+          render2(null);
+        } });
+      });
+      q('[data-tool="color"]').addEventListener("click", (e) => {
+        const current3 = get2().color;
+        const pick2 = (color) => {
+          set3({ color });
+          render2("body");
+        };
+        openMenu(e.currentTarget, [
+          { label: "None", swatch: "none", checked: !current3, onClick: () => pick2(null) },
+          ...NOTE_COLORS.map((c) => ({ label: COLOR_NAME2[c], swatch: c, checked: current3 === c, onClick: () => pick2(c) }))
+        ]);
+      });
+      q('[data-tool="checklist"]').addEventListener("click", async () => {
+        const list3 = get2().checklist;
+        if (!list3) {
+          const n = newItem();
+          setItems([n]);
+          render2(`ci:${n.id}`);
+          return;
+        }
+        if (list3.some((c) => c.text.trim())) {
+          const ok = await confirmDialog("Remove checklist?", "Its items are removed from this note.", { confirmLabel: "Remove", danger: true });
+          if (!ok) return;
+        }
+        setItems(null);
+        render2("body");
+      });
+    }
+    bind();
+    return { render: render2, focus: (key) => focusField(host.querySelector("[data-editor]"), key) };
+  }
+  function reflectFormat(root) {
+    const state3 = stateAt();
+    root.querySelectorAll("[data-fmt]").forEach((b) => b.setAttribute("aria-pressed", String(!!state3[b.dataset.fmt])));
+  }
+  document.addEventListener("selectionchange", () => {
+    const body = document.activeElement;
+    if (!body?.matches?.(".ne-body")) return;
+    reflectFormat(body.closest("[data-editor]"));
+  });
+
+  // src/ui/notedetail.js
+  function openNote(id) {
+    if (!noteById(id)) return;
+    UI.detailId = id;
+    UI.screen = "note";
+    rerender();
+  }
+  var datesLine = (n) => `Created ${fmtDateOrRelative(n.createdAt, S.dateFormat)} · Edited ${fmtDateOrRelative(n.updatedAt, S.dateFormat)}`;
+  var view = (n) => ({ ...n, checklist: n.checklist ? sortedChecklist(n.checklist) : null });
+  function authoringOrder(prev, shown) {
+    const kept = (prev || []).filter((c) => shown.some((s) => s.id === c.id));
+    shown.forEach((s, k) => {
+      if (kept.some((c) => c.id === s.id)) return;
+      const before = k > 0 ? kept.findIndex((c) => c.id === shown[k - 1].id) : -1;
+      kept.splice(before + 1, 0, s);
+    });
+    return kept;
+  }
+  var flushCurrent = null;
+  window.addEventListener("pagehide", () => flushCurrent?.());
+  function noteDetailHTML() {
+    const n = noteById(UI.detailId);
+    if (!n) {
+      UI.screen = "notes";
+      return '<div class="screen"></div>';
+    }
+    if (n.status !== "active") return readOnlyHTML(n);
+    return `
+  <div class="screen detail-screen note-screen">
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-back aria-label="Back to Notes">${icon("chevronLeft")}</button>
+      <span class="kicker">Note</span>
+      <button class="icon-btn" data-more aria-label="More actions" aria-haspopup="menu">${icon("more")}</button>
+    </header>
+    <div class="scroll-area">
+      <div data-editor-host>${editorHTML(view(n), { mode: "detail" })}</div>
+      <span class="hint note-dates" data-dates>${esc(datesLine(n))}</span>
+    </div>
+  </div>`;
+  }
+  function bindNoteDetail() {
+    const n = noteById(UI.detailId);
+    if (!n) {
+      rerender();
+      return;
+    }
+    if (n.status !== "active") {
+      bindReadOnly(n);
+      return;
+    }
+    bindScrollShadow();
+    let timer2 = null;
+    const flush = () => {
+      if (!timer2) return;
+      clearTimeout(timer2);
+      timer2 = null;
+      updateNote(n.id, { title: n.title, body: n.body, color: n.color, tags: n.tags, checklist: n.checklist });
+      const d = app.querySelector("[data-dates]");
+      if (d) d.textContent = datesLine(n);
+    };
+    flushCurrent = flush;
+    const set3 = (patch2) => {
+      if (patch2.checklist !== void 0 && patch2.checklist !== null) patch2 = { ...patch2, checklist: authoringOrder(n.checklist, patch2.checklist) };
+      Object.assign(n, patch2);
+      n.updatedAt = Date.now();
+      clearTimeout(timer2);
+      timer2 = setTimeout(flush, 500);
+    };
+    const host = app.querySelector("[data-editor-host]");
+    bindEditor(host, { mode: "detail", get: () => view(n), set: set3, resortOnToggle: true });
+    host.addEventListener("focusout", (e) => {
+      if (!host.contains(e.relatedTarget)) flush();
+    });
+    app.querySelector("[data-back]").addEventListener("click", () => {
+      flush();
+      flushCurrent = null;
+      UI.detailId = null;
+      UI.screen = "notes";
+      finalizeNote(n.id);
+    });
+    const leaving = () => {
+      flush();
+      flushCurrent = null;
+    };
+    app.querySelector("[data-more]").addEventListener("click", (e) => openMenu(e.currentTarget, [
+      { label: "Copy", icon: "copy", onClick: () => {
+        leaving();
+        const c = copyNote(n.id);
+        openNote(c.id);
+        toast("Copied");
+      } },
+      { label: "Archive", icon: "archive", onClick: () => {
+        leaving();
+        archiveNoteWithUndo(n.id);
+      } },
+      { divider: true },
+      { label: "Delete", icon: "trash", danger: true, onClick: () => {
+        leaving();
+        deleteNoteWithUndo(n.id);
+      } }
+    ]));
+  }
+  function readOnlyHTML(n) {
+    const archived = n.status === "archived";
+    const left = archived ? 0 : daysLeft(n.deletedAt, RETENTION_DAYS);
+    const status2 = archived ? `Archived ${fmtRelative(n.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
+    const items = n.checklist ? sortedChecklist(n.checklist) : [];
+    const hasTitle = !!n.title.trim();
+    return `
+  <div class="screen detail-screen is-readonly note-screen">
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-back aria-label="Back to ${archived ? "Archived" : "Deleted"}">${icon("chevronLeft")}</button>
+      <span class="kicker">${archived ? "Archived" : "Deleted"} note</span>
+      <span class="icon-btn-spacer" aria-hidden="true"></span>
+    </header>
+    <div class="scroll-area">
+      <div class="notice ${archived ? "notice-neutral" : ""}">
+        ${icon(archived ? "archive" : "trash", 18)}
+        <span>${status2}. Restore it to edit.</span>
+      </div>
+      <div class="card note-ro" aria-label="${esc(noteTitle(n))}${n.color ? `, ${colorName(n.color)}` : ""}">
+        ${colorBarHTML(n.color)}
+        <h1 class="note-ro-title ${hasTitle ? "" : "untitled"}">${esc(hasTitle ? n.title : "Untitled")}</h1>
+        ${isEmpty(n.body) ? "" : `<div class="note-ro-body">${n.body}</div>`}
+        ${items.length ? `
+        <div class="subrows">
+          ${items.map((c) => `
+          <div class="subrow ${c.done ? "done" : ""}">
+            <input type="checkbox" class="check sm" disabled ${c.done ? "checked" : ""} aria-label="${c.done ? "Done" : "Not done"}">
+            <span class="s-title">${esc(c.text)}</span>
+          </div>`).join("")}
+        </div>` : ""}
+        ${n.tags.length || n.color ? `
+        <div class="t-meta">
+          ${n.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}
+          ${n.color ? `<span class="tag pc pc-${n.color}">${colorName(n.color)}</span>` : ""}
+        </div>` : ""}
+      </div>
+      <span class="hint note-dates">${esc(datesLine(n))}</span>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" data-ro-restore>${icon("undo", 18)}Restore</button>
+        <button class="btn btn-ghost danger" data-ro-delete>${archived ? "Delete" : "Delete forever"}</button>
+      </div>
+    </div>
+  </div>`;
+  }
+  function bindReadOnly(n) {
+    bindScrollShadow();
+    const archived = n.status === "archived";
+    const toFolder = () => {
+      UI.detailId = null;
+      UI.screen = "folders";
+      UI.folder = archived ? "archived" : "deleted";
+      UI.folderKind = "notes";
+    };
+    app.querySelector("[data-back]").addEventListener("click", () => {
+      toFolder();
+      rerender();
+    });
+    app.querySelector("[data-ro-restore]").addEventListener("click", () => {
+      toFolder();
+      restoreNoteWithToast(n.id);
+    });
+    app.querySelector("[data-ro-delete]").addEventListener("click", async () => {
+      if (archived) {
+        toFolder();
+        deleteNoteWithUndo(n.id);
+        return;
+      }
+      if (await confirmDialog("Delete forever?", "This note cannot be recovered afterwards.", { confirmLabel: "Delete forever", danger: true })) {
+        toFolder();
+        deleteNoteForever(n.id);
+      }
+    });
+  }
+
+  // src/ui/notes.js
+  var draft = loadDraft() || blankDraft();
+  var saveTimer = null;
+  var persist2 = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveDraft(draft), 300);
+  };
+  var persistNow = () => {
+    clearTimeout(saveTimer);
+    saveDraft(draft);
+  };
+  var editor = null;
+  function openNotes() {
+    UI.screen = "notes";
+    UI.query = "";
+    UI.tagFilter = null;
+    UI.sortMenu = false;
+    UI.composer.expanded = false;
+    rerender();
+  }
+  function expand(target = "body") {
+    if (target === "checklist") {
+      if (!draft.checklist) {
+        draft.checklist = [{ id: uid(), text: "", done: false }];
+        persist2();
+      }
+      target = `ci:${draft.checklist[0].id}`;
+    }
+    if (UI.composer.expanded) {
+      editor?.focus(target);
+      return;
+    }
+    UI.composer.expanded = true;
+    UI.composer.focus = target;
+    rerender();
+  }
+  function collapse() {
+    if (!UI.composer.expanded) return;
+    UI.composer.expanded = false;
+    persistNow();
+    if (UI.screen === "notes") rerender();
+  }
+  function focusComposer() {
+    expand("body");
+    app.querySelector("[data-editor]")?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+  function add() {
+    const d = draft;
+    draft = blankDraft();
+    UI.composer.expanded = false;
+    const n = addNote(d);
+    if (!n) {
+      draft = d;
+      UI.composer.expanded = true;
+      rerender();
+      return;
+    }
+    toast("Note added", { action: { label: "Open", onClick: () => openNote(n.id) } });
+  }
+  document.addEventListener("click", (e) => {
+    if (!UI.composer.expanded) return;
+    if (!e.target.isConnected) return;
+    if (e.target.closest("[data-editor], .overlay, .menu-popover, .menu-backdrop, .toast")) return;
+    collapse();
+  });
+  var MAX_CHIPS = 3;
+  function noteMetaHTML(n, { links = false } = {}) {
+    const chips = n.tags.slice(0, MAX_CHIPS).map((t) => links ? `<button type="button" class="tag tag-btn" data-tagfilter="${esc(t)}" aria-label="Show notes tagged ${esc(t)}">#${esc(t)}</button>` : `<span class="tag">#${esc(t)}</span>`);
+    if (n.tags.length > MAX_CHIPS) chips.push(`<span class="tag">+${n.tags.length - MAX_CHIPS}</span>`);
+    const p = checklistProgress(n);
+    if (p) chips.push(`<span class="t-sub num" aria-label="Checklist, ${p.done} of ${p.total} done">${icon("checklist", 12)}${p.done}/${p.total}</span>`);
+    return chips.length ? `<div class="t-meta">${chips.join("")}</div>` : "";
+  }
+  function noteRowHTML(n, { dateLabel: dateLabel2 = "Created", grip = false } = {}) {
+    const hasTitle = !!n.title.trim();
+    const title = noteTitle(n);
+    const preview = hasTitle && !isEmpty(n.body) ? firstLine(n.body) : "";
+    const when = fmtDateOrRelative(dateLabel2 === "Created" ? n.createdAt : n.updatedAt, S.dateFormat);
+    return `
+  <div class="row nrow" data-id="${n.id}" role="button" tabindex="0" aria-label="${esc(title)}${n.color ? `, ${colorName(n.color)}` : ""}">
+    ${colorBarHTML(n.color)}
+    <div class="t-main">
+      <div class="nrow-line">
+        <span class="t-title ${hasTitle ? "" : "untitled"}">${esc(title)}</span>
+        <span class="nrow-date num">${dateLabel2} ${esc(when)}</span>
+      </div>
+      ${noteMetaHTML(n, { links: true })}
+      ${preview ? `<span class="nrow-preview">${esc(preview)}</span>` : ""}
+    </div>
+    ${grip ? `<span class="grip" aria-hidden="true">${icon("grip")}</span>` : ""}
+  </div>`;
+  }
+  var dateLabel = () => S.notesSort.startsWith("created") ? "Created" : "Edited";
+  var DEFAULT_SORT = "created-desc";
+  var SHORT = {
+    manual: "Manual",
+    "created-desc": "Newest first",
+    "created-asc": "Oldest first",
+    "updated-desc": "Recently edited",
+    "updated-asc": "Least recently edited"
+  };
+  var canReorder2 = () => S.notesSort === "manual" && !UI.query && !UI.tagFilter;
+  function sortbarHTML() {
+    return `
+  <div class="viewbar notes-bar ${searchOpen() ? "searching" : ""}">
+    ${searchFieldHTML({ placeholder: "Search notes" })}
+    <span class="sortwrap">
+      <button class="sortbtn ${S.notesSort !== DEFAULT_SORT ? "on" : ""}" data-sortbtn aria-haspopup="menu" aria-expanded="${UI.sortMenu}">${icon("sort")}${SHORT[S.notesSort]}</button>
+      ${UI.sortMenu ? `
+      <div class="sortmenu" role="menu">
+        ${NOTES_SORTS.map(([v, label]) => `<button role="menuitemradio" aria-checked="${S.notesSort === v}" data-notes-sort="${v}" class="${S.notesSort === v ? "active" : ""}">${label}</button>`).join("")}
+      </div>` : ""}
+    </span>
+  </div>`;
+  }
+  function bindSortbar() {
+    app.querySelector("[data-sortbtn]")?.addEventListener("click", () => {
+      UI.sortMenu = !UI.sortMenu;
+      rerender();
+    });
+    app.querySelectorAll("[data-notes-sort]").forEach((b) => b.addEventListener("click", () => {
+      UI.sortMenu = false;
+      setNotesSort(b.dataset.notesSort);
+      rerender();
+    }));
+  }
+  function notesHTML() {
+    queryFor("notes");
+    const all = sortedNotes();
+    const total = all.length;
+    const filtering = !!(UI.query || UI.tagFilter);
+    const notes = filtering ? filterNotes(all, UI.query, UI.tagFilter) : all;
+    const kicker = !total ? "No notes" : filtering ? `${notes.length} of ${total} note${total === 1 ? "" : "s"}` : `${total} note${total === 1 ? "" : "s"}`;
+    const empty2 = !total ? "No notes yet. Write one above." : UI.query ? `No notes match “${esc(UI.query)}”.` : `No notes with #${esc(UI.tagFilter)}.`;
+    return `
+  <div class="screen notes-screen">
+    <header class="page-head">
+      <div class="page-title-row">
+        ${pageTitleHTML("Notes")}
+        <span class="head-right"><span class="kicker">${kicker}</span>${searchToggleHTML()}</span>
+      </div>
+      ${sortbarHTML()}
+      ${UI.tagFilter ? `
+      <div class="filterline">
+        <button type="button" class="chip sm on removable" data-tagfilter-clear aria-label="Remove tag filter ${esc(UI.tagFilter)}">#${esc(UI.tagFilter)}${icon("x", 14)}</button>
+      </div>` : ""}
+    </header>
+    <div class="scroll-area">
+      <div data-composer-host>${editorHTML(draft, { mode: "composer", expanded: UI.composer.expanded, formatOpen: UI.composer.formatOpen })}</div>
+      ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder2() })).join("")}</div>` : `<p class="empty">${empty2}</p>`}
+      ${notes.length > 1 && canReorder2() ? '<span class="hint">Drag the handle to reorder</span>' : ""}
+    </div>
+  </div>`;
+  }
+  function bindNotes() {
+    bindScrollShadow();
+    bindPageTitle();
+    const host = app.querySelector("[data-composer-host]");
+    editor = bindEditor(host, {
+      mode: "composer",
+      get: () => draft,
+      set: (patch2) => {
+        Object.assign(draft, patch2);
+        persist2();
+      },
+      expanded: () => UI.composer.expanded,
+      formatOpen: () => UI.composer.formatOpen,
+      onFormatToggle: (v) => {
+        UI.composer.formatOpen = v;
+      },
+      onAdd: add,
+      onCollapse: collapse,
+      onExpand: expand
+    });
+    if (UI.composer.focus) {
+      editor.focus(UI.composer.focus);
+      UI.composer.focus = null;
+    }
+    bindSortbar();
+    bindSearch(app);
+    app.querySelector("[data-tagfilter-clear]")?.addEventListener("click", () => {
+      UI.tagFilter = null;
+      rerender();
+    });
+    app.querySelectorAll(".nrow").forEach((row2) => {
+      const id = row2.dataset.id;
+      row2.addEventListener("click", (e) => {
+        const tag = e.target.closest("[data-tagfilter]");
+        if (tag) {
+          UI.tagFilter = tag.dataset.tagfilter;
+          rerender();
+          return;
+        }
+        if (e.target.closest(".grip") || row2.dataset.dragged) {
+          delete row2.dataset.dragged;
+          return;
+        }
+        openNote(id);
+      });
+      row2.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openNote(id);
+        }
+      });
+      const grip = row2.querySelector(".grip");
+      if (grip) bindReorder(grip, row2, { rowSel: ".nrow", enabled: canReorder2, onDrop: (beforeId) => reorderNote(id, beforeId) });
+    });
+  }
 
   // src/ui/recorder.js
   var TIMESLICE_MS = 5e3;
@@ -4428,7 +8004,7 @@
     }
     return "";
   }
-  var canRecord = () => typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia && available();
+  var canRecord = () => typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia && available2();
   var session = null;
   var isRecording = () => !!session;
   var recordingMeetingId = () => session?.meetingId || null;
@@ -4454,8 +8030,16 @@
       toast("This browser can't record audio.");
       return;
     }
-    await persist();
-    await begin(key, { meetingId: m.id, mimeType: rec.mimeType || mimeType || "audio/webm" });
+    try {
+      await persist();
+      await begin(key, { meetingId: m.id, mimeType: rec.mimeType || mimeType || "audio/webm" });
+    } catch (e) {
+      stream.getTracks().forEach((t) => t.stop());
+      svc?.stop?.().catch?.(() => {
+      });
+      toast("Recordings can't be saved on this device right now.");
+      return;
+    }
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
@@ -4514,16 +8098,16 @@
     });
     await s.chunkQueue;
     const durationMs = s.durationMs || Date.now() - s.startedAt;
-    const row = await finish(s.key, durationMs);
+    const row2 = await finish(s.key, durationMs);
     session = null;
     UI.recorder = null;
     const m = meetingById(s.meetingId);
-    if (m && row && row.sizeBytes > 0) {
-      const rec = { key: s.key, mimeType: row.mimeType, durationMs, sizeBytes: row.sizeBytes, recordedAt: s.startedAt };
+    if (m && row2 && row2.sizeBytes > 0) {
+      const rec = { key: s.key, mimeType: row2.mimeType, durationMs, sizeBytes: row2.sizeBytes, recordedAt: s.startedAt };
       if (m.recording) replaceRecording(m.id, rec);
       else setRecording(m.id, rec);
     } else {
-      await remove(s.key).catch(() => {
+      await remove2(s.key).catch(() => {
       });
       toast("Nothing was recorded");
       rerender();
@@ -4591,7 +8175,7 @@
       <span class="rec-clock num" data-clock aria-live="off">00:00 <span class="hint">/ ${fmtDuration(MAX_RECORDING_MS)}</span></span>
       <button type="button" class="stop-btn" data-stop aria-label="Stop recording" aria-pressed="true">${icon("stop", 26)}</button>
     </div>
-    <span class="hint">Recording keeps going if the screen locks</span>
+    <span class="hint">${nativeService() ? "Recording keeps going if the screen locks" : "Keep Stack’d open and the screen on while recording"}</span>
   </div>`;
   }
   function transcribeHTML(m) {
@@ -4616,17 +8200,17 @@
       <span class="hint">keeps going if you leave this screen</span>
     </div>`;
     }
-    const state = aiButtonState("transcribe");
+    const state3 = aiButtonState("transcribe");
     const planErr = err && (err.code === "plan_required" || err.code === "allowance_exhausted");
     const mins = Math.ceil(m.recording.durationMs / 6e4);
-    const hint = state.locked ? state.hint : state.hint ? `uses ${mins} min of ${state.hint.replace(" of audio left", " left")}` : "";
+    const hint = state3.locked ? state3.hint : state3.hint ? `uses ${mins} min of ${state3.hint.replace(" of audio left", " left")}` : "";
     return `
   <div class="cta" data-cta="transcribe">
     ${err && !planErr ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
     ${err?.code === "allowance_exhausted" ? `<div class="notice"><span>${esc(err.message)}</span></div>` : ""}
     <span class="cta-row">
-      <button type="button" class="btn ${m.transcript ? "btn-secondary" : "btn-primary"} ${state.locked ? "is-locked" : ""}" data-transcribe ${offline ? "disabled" : ""} ${state.locked ? 'data-locked="1"' : ""}>
-        ${icon(state.locked ? "lock" : "document", 18)}${err && !planErr ? "Retry" : m.transcript ? "Transcribe again" : "Transcribe"}
+      <button type="button" class="btn ${m.transcript ? "btn-secondary" : "btn-primary"} ${state3.locked ? "is-locked" : ""}" data-transcribe ${offline ? "disabled" : ""} ${state3.locked ? 'data-locked="1"' : ""}>
+        ${icon(state3.locked ? "lock" : "document", 18)}${err && !planErr ? "Retry" : m.transcript ? "Transcribe again" : "Transcribe"}
       </button>
       ${hint ? `<span class="hint cta-hint">${esc(hint)}</span>` : ""}
     </span>
@@ -4797,12 +8381,13 @@
         if (!ok) return;
         markDisclosed();
       }
+      if (await stopForPlan("transcribe")) return;
       if (m.transcript && !await confirmDialog("Transcribe again?", "The transcript, the minutes and the actions not yet added to a board are replaced.", { confirmLabel: "Transcribe" })) return;
       stopPlayback();
       transcribe(m.id, { onProgress: (pct) => {
-        const fill = root.querySelector("[data-upload-fill]"), text = root.querySelector("[data-upload-text]");
+        const fill = root.querySelector("[data-upload-fill]"), text2 = root.querySelector("[data-upload-text]");
         if (fill) fill.style.width = `${pct}%`;
-        if (text) text.textContent = `Uploading ${pct} %`;
+        if (text2) text2.textContent = `Uploading ${pct} %`;
       } });
     });
     root.querySelector("[data-cancel-upload]")?.addEventListener("click", () => {
@@ -4851,30 +8436,30 @@
     const speakers = {};
     const segments = [];
     items.forEach((it) => {
-      const text = String(it.text ?? "").replace(/[ \t]+\n/g, "\n").trim();
-      if (!text) return;
+      const text2 = String(it.text ?? "").replace(/[ \t]+\n/g, "\n").trim();
+      if (!text2) return;
       const key = (it.who || "").trim();
       if (!labels.has(key)) {
         const label = `S${labels.size + 1}`;
         labels.set(key, label);
         speakers[label] = key || null;
       }
-      segments.push({ id: uid2(), speaker: labels.get(key), startMs: it.startMs ?? null, text });
+      segments.push({ id: uid2(), speaker: labels.get(key), startMs: it.startMs ?? null, text: text2 });
     });
     if (segments.length && Object.keys(speakers).length === 1 && speakers.S1 === null) speakers.S1 = "Transcript";
     return { segments, speakers };
   }
   var stripTags = (s) => s.replace(/<\/?[^>]+>/g, "");
-  function parseVTT(text) {
-    const blocks = String(text ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+  function parseVTT(text2) {
+    const blocks = String(text2 ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
     const items = [];
     blocks.forEach((block) => {
-      const lines = block.split("\n").filter((l) => l.trim() !== "");
-      if (!lines.length || /^(WEBVTT|NOTE|STYLE|REGION)\b/.test(lines[0]) && !lines.some((l) => l.includes("-->"))) return;
-      const ti = lines.findIndex((l) => l.includes("-->"));
+      const lines2 = block.split("\n").filter((l) => l.trim() !== "");
+      if (!lines2.length || /^(WEBVTT|NOTE|STYLE|REGION)\b/.test(lines2[0]) && !lines2.some((l) => l.includes("-->"))) return;
+      const ti = lines2.findIndex((l) => l.includes("-->"));
       if (ti === -1) return;
-      const startMs = parseTime(lines[ti].split("-->")[0].trim().split(/\s+/)[0]);
-      const body = lines.slice(ti + 1).join("\n");
+      const startMs = parseTime(lines2[ti].split("-->")[0].trim().split(/\s+/)[0]);
+      const body = lines2.slice(ti + 1).join("\n");
       const voice = /<v(?:\.[^\s>]*)?\s+([^>]*)>/.exec(body);
       const who = voice ? voice[1].trim() : null;
       const plain = stripTags(body);
@@ -4884,15 +8469,15 @@
     });
     return assemble(items);
   }
-  function parseSRT(text) {
-    const blocks = String(text ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
+  function parseSRT(text2) {
+    const blocks = String(text2 ?? "").replace(/\r\n?/g, "\n").split(/\n{2,}/);
     const items = [];
     blocks.forEach((block) => {
-      const lines = block.split("\n").filter((l) => l.trim() !== "");
-      const ti = lines.findIndex((l) => l.includes("-->"));
+      const lines2 = block.split("\n").filter((l) => l.trim() !== "");
+      const ti = lines2.findIndex((l) => l.includes("-->"));
       if (ti === -1) return;
-      const startMs = parseTime(lines[ti].split("-->")[0].trim());
-      const plain = stripTags(lines.slice(ti + 1).join("\n"));
+      const startMs = parseTime(lines2[ti].split("-->")[0].trim());
+      const plain = stripTags(lines2.slice(ti + 1).join("\n"));
       const named = /^([^:\n]{1,40}):\s+(.+)/s.exec(plain);
       if (named) items.push({ who: named[1].trim(), startMs, text: named[2] });
       else items.push({ who: null, startMs, text: plain });
@@ -4905,15 +8490,15 @@
   var NAMED = new RegExp(`^${NAME}:\\s+(.*)$`);
   var HEADER = new RegExp(`^${NAME}\\s{2,}(\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[AP]M)?)\\s*$`, "i");
   var isName = (s) => s && !/^(https?|mailto|tel|note|nb|ps|todo|re)$/i.test(s.trim());
-  function parsePasted(text) {
-    const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+  function parsePasted(text2) {
+    const lines2 = String(text2 ?? "").replace(/\r\n?/g, "\n").split("\n");
     const items = [];
     let cur = null;
-    const start = (who, startMs, first) => {
+    const start2 = (who, startMs, first) => {
       cur = { who, startMs, text: first };
       items.push(cur);
     };
-    lines.forEach((raw) => {
+    lines2.forEach((raw) => {
       const line = raw.trim();
       if (!line) {
         if (cur) cur.text += "\n";
@@ -4921,26 +8506,26 @@
       }
       let m;
       if ((m = TIMED.exec(line)) && isName(m[2])) {
-        start(m[2], parseTime(m[1]), m[3]);
+        start2(m[2], parseTime(m[1]), m[3]);
         return;
       }
       if ((m = NAMED_TIMED.exec(line)) && isName(m[1])) {
-        start(m[1], parseTime(m[2]), m[3]);
+        start2(m[1], parseTime(m[2]), m[3]);
         return;
       }
       if ((m = HEADER.exec(line)) && isName(m[1])) {
-        start(m[1], parseTime(m[2]), "");
+        start2(m[1], parseTime(m[2]), "");
         return;
       }
       if ((m = NAMED.exec(line)) && isName(m[1])) {
-        start(m[1], null, m[2]);
+        start2(m[1], null, m[2]);
         return;
       }
       if (cur) cur.text += (cur.text && !cur.text.endsWith("\n") ? " " : "") + line;
-      else start(null, null, line);
+      else start2(null, null, line);
     });
     const anyNamed = items.some((it) => it.who);
-    if (!anyNamed) return assemble([{ who: null, startMs: null, text: lines.join("\n") }]);
+    if (!anyNamed) return assemble([{ who: null, startMs: null, text: lines2.join("\n") }]);
     return assemble(items);
   }
   function parseDocxXml(xml) {
@@ -4950,16 +8535,16 @@
     let m;
     while (m = re.exec(s)) {
       const p = m[0];
-      const text = p.replace(/<w:tab\/>/g, "	").replace(/<w:br[^>]*\/>|<w:cr\/>/g, "\n").replace(/<w:delText[^>]*>[\s\S]*?<\/w:delText>/g, "").replace(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g, "$1").replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)));
-      paragraphs.push(text);
+      const text2 = p.replace(/<w:tab\/>/g, "	").replace(/<w:br[^>]*\/>|<w:cr\/>/g, "\n").replace(/<w:delText[^>]*>[\s\S]*?<\/w:delText>/g, "").replace(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g, "$1").replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)));
+      paragraphs.push(text2);
     }
     return paragraphs.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   }
-  function parseByName(fileName, text) {
+  function parseByName(fileName, text2) {
     const ext = String(fileName ?? "").toLowerCase().split(".").pop();
-    if (ext === "vtt") return parseVTT(text);
-    if (ext === "srt") return parseSRT(text);
-    return parsePasted(text);
+    if (ext === "vtt") return parseVTT(text2);
+    if (ext === "srt") return parseSRT(text2);
+    return parsePasted(text2);
   }
   function speakerName(t, label) {
     const name = t?.speakers?.[label];
@@ -5028,14 +8613,14 @@
     unlisten?.();
     const merged = mergeAdjacent(m.transcript.segments).filter((s) => s.startMs !== null && s.startMs !== void 0);
     unlisten = onPlayerTime((ms, playing) => {
-      let current = null;
+      let current3 = null;
       merged.forEach((s) => {
-        if (s.startMs <= ms + 50) current = s.id;
+        if (s.startMs <= ms + 50) current3 = s.id;
       });
       root.querySelectorAll(".tseg.playing").forEach((el) => {
-        if (!playing || el.dataset.seg !== current) el.classList.remove("playing");
+        if (!playing || el.dataset.seg !== current3) el.classList.remove("playing");
       });
-      if (playing && current) root.querySelector(`.tseg[data-seg="${current}"]`)?.classList.add("playing");
+      if (playing && current3) root.querySelector(`.tseg[data-seg="${current3}"]`)?.classList.add("playing");
     });
     root.querySelectorAll("[data-edit]").forEach((p) => {
       const original = p.textContent;
@@ -5046,9 +8631,9 @@
         }
       });
       p.addEventListener("blur", () => {
-        const text = p.textContent.trim();
-        if (text === original.trim()) return;
-        if (!text) {
+        const text2 = p.textContent.trim();
+        if (text2 === original.trim()) return;
+        if (!text2) {
           p.textContent = original;
           return;
         }
@@ -5059,15 +8644,15 @@
         while (last + 1 < segs.length && segs[last + 1].speaker === segs[first].speaker) last += 1;
         if (last > first) m.transcript.segments.splice(first + 1, last - first);
         const wasStale = !!m.minutes && m.transcript.updatedAt > m.minutes.transcriptUpdatedAt;
-        editSegment(m.id, p.dataset.edit, text);
+        editSegment(m.id, p.dataset.edit, text2);
         if (m.minutes && !wasStale) rerender();
       });
     });
     root.querySelectorAll("[data-speaker]").forEach((b) => b.addEventListener("click", async () => {
       const label = b.dataset.speaker;
-      const current = m.transcript.speakers[label] || "";
+      const current3 = m.transcript.speakers[label] || "";
       const name = await promptDialog(`Name for ${speakerName(m.transcript, label)}`, {
-        value: current,
+        value: current3,
         placeholder: speakerName({ speakers: {} }, label),
         confirmLabel: "Rename",
         allowEmpty: true
@@ -5075,6 +8660,73 @@
       if (name === null) return;
       renameSpeaker(m.id, label, name);
     }));
+  }
+
+  // src/ui/movecopy.js
+  function openMoveCopy({ mode, task = null, listId = null, lane = null, title = null, onConfirm }) {
+    const pick2 = task ? { listId: task.listId, lane: task.lane } : { listId: listId || S.currentList, lane: lane || firstLane(listId || S.currentList) };
+    const isMove = mode === "move";
+    const label = title || (isMove ? "Move to" : mode === "copy" ? "Copy to" : "Add to board");
+    const confirmLabel = isMove ? "Move" : mode === "copy" ? "Copy" : "Choose";
+    const ov = document.createElement("div");
+    ov.className = "overlay";
+    ov.innerHTML = `
+  <div class="sheet" role="dialog" aria-label="${esc(label)}">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="section-title">${esc(label)}</span>
+      <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
+    </div>
+    <div class="chip-group">
+      <span class="microlabel">Board</span>
+      <div class="chip-row" data-board>
+        ${activeLists().map((l) => `<button class="chip ${l.id === pick2.listId ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("")}
+      </div>
+    </div>
+    <div class="chip-group">
+      <span class="microlabel">Lane</span>
+      <div class="chip-row" data-lane></div>
+    </div>
+    <button class="btn btn-primary btn-block" data-confirm>${confirmLabel}</button>
+  </div>`;
+    document.body.appendChild(ov);
+    const q = (s) => ov.querySelector(s);
+    const close = () => {
+      ov.remove();
+      document.removeEventListener("keydown", onKey);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", onKey);
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov) close();
+    });
+    q("[data-close]").addEventListener("click", close);
+    const confirmBtn = q("[data-confirm]");
+    const refresh3 = () => {
+      if (isMove && task) confirmBtn.disabled = pick2.listId === task.listId && pick2.lane === task.lane;
+    };
+    const renderLanes = () => {
+      pick2.lane = validLane(pick2.listId, pick2.lane);
+      q("[data-lane]").innerHTML = lanesOf(pick2.listId).map((l) => `<button class="chip ${l.id === pick2.lane ? "on" : ""}" data-val="${l.id}">${esc(l.name)}</button>`).join("");
+    };
+    const group = (sel, key, after) => q(sel).addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip");
+      if (!chip) return;
+      pick2[key] = chip.dataset.val;
+      q(sel).querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === chip));
+      after?.();
+      refresh3();
+    });
+    group("[data-board]", "listId", renderLanes);
+    group("[data-lane]", "lane");
+    renderLanes();
+    refresh3();
+    confirmBtn.addEventListener("click", () => {
+      close();
+      onConfirm(pick2.listId, pick2.lane);
+    });
   }
 
   // src/ui/actioncards.js
@@ -5171,11 +8823,11 @@
         return;
       }
       const title = el.querySelector("[data-title]");
-      let timer = null;
+      let timer2 = null;
       const flush = () => {
-        if (!timer) return;
-        clearTimeout(timer);
-        timer = null;
+        if (!timer2) return;
+        clearTimeout(timer2);
+        timer2 = null;
         editAction(m.id, a.id, { title: title.value });
       };
       const grow2 = () => {
@@ -5185,8 +8837,8 @@
       grow2();
       title.addEventListener("input", () => {
         grow2();
-        clearTimeout(timer);
-        timer = setTimeout(flush, 500);
+        clearTimeout(timer2);
+        timer2 = setTimeout(flush, 500);
       });
       title.addEventListener("blur", flush);
       title.addEventListener("keydown", (e) => {
@@ -5235,10 +8887,10 @@
       }
     }
     if (eocd === -1) throw new Error("not a zip file");
-    const count = v.getUint16(eocd + 10, true);
+    const count2 = v.getUint16(eocd + 10, true);
     let p = v.getUint32(eocd + 16, true);
     const out = [];
-    for (let n = 0; n < count; n++) {
+    for (let n = 0; n < count2; n++) {
       if (v.getUint32(p, true) !== SIG_CENTRAL) throw new Error("bad central directory");
       const method = v.getUint16(p + 10, true);
       const compressedSize = v.getUint32(p + 20, true);
@@ -5255,8 +8907,8 @@
     const v = new DataView(buffer);
     if (v.getUint32(entry.offset, true) !== SIG_LOCAL) throw new Error("bad local header");
     const nameLen = v.getUint16(entry.offset + 26, true), extraLen = v.getUint16(entry.offset + 28, true);
-    const start = entry.offset + 30 + nameLen + extraLen;
-    return new Uint8Array(buffer, start, entry.compressedSize);
+    const start2 = entry.offset + 30 + nameLen + extraLen;
+    return new Uint8Array(buffer, start2, entry.compressedSize);
   }
   async function inflate(bytes) {
     const ds = new DecompressionStream("deflate-raw");
@@ -5340,8 +8992,8 @@
         onError("That file is too large to be a transcript.");
         return;
       }
-      const finish3 = (text) => {
-        const parsed = parseByName(ext === "docx" ? "x.txt" : file.name, text);
+      const finish3 = (text2) => {
+        const parsed = parseByName(ext === "docx" ? "x.txt" : file.name, text2);
         if (!parsed.segments.length) {
           onError("Couldn't read this file: it has no text.");
           return;
@@ -5396,15 +9048,15 @@
       });
     });
   }
-  var flushCurrent = null;
-  window.addEventListener("pagehide", () => flushCurrent?.());
+  var flushCurrent2 = null;
+  window.addEventListener("pagehide", () => flushCurrent2?.());
   function meetingHTML() {
     const m = meetingById(UI.detailId);
     if (!m) {
       UI.screen = "meetings";
       return '<div class="screen"></div>';
     }
-    if (m.status !== "active") return readOnlyHTML(m);
+    if (m.status !== "active") return readOnlyHTML2(m);
     const live = isRecording() && recordingMeetingId() === m.id;
     return `
   <div class="screen detail-screen meeting-screen ${live ? "is-live" : ""}">
@@ -5431,22 +9083,22 @@
       return;
     }
     if (m.status !== "active") {
-      bindReadOnly(m);
+      bindReadOnly2(m);
       return;
     }
     bindScrollShadow();
     const input = app.querySelector("[data-title]");
-    let timer = null;
+    let timer2 = null;
     const flush = () => {
-      if (!timer) return;
-      clearTimeout(timer);
-      timer = null;
+      if (!timer2) return;
+      clearTimeout(timer2);
+      timer2 = null;
       updateMeeting(m.id, { title: input.value });
     };
-    flushCurrent = flush;
+    flushCurrent2 = flush;
     input.addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(flush, 500);
+      clearTimeout(timer2);
+      timer2 = setTimeout(flush, 500);
     });
     input.addEventListener("blur", flush);
     input.addEventListener("keydown", (e) => {
@@ -5457,7 +9109,7 @@
     });
     const leaving = () => {
       flush();
-      flushCurrent = null;
+      flushCurrent2 = null;
       stopPlayback();
     };
     app.querySelector("[data-back]").addEventListener("click", () => {
@@ -5500,10 +9152,10 @@
     const actions = app.querySelector('[data-block="actions"]');
     if (actions) bindActions(actions, m.id);
   }
-  function readOnlyHTML(m) {
+  function readOnlyHTML2(m) {
     const archived = m.status === "archived";
     const left = archived ? 0 : daysLeft(m.deletedAt, RETENTION_DAYS);
-    const status = archived ? `Archived ${fmtRelative(m.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
+    const status2 = archived ? `Archived ${fmtRelative(m.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
     return `
   <div class="screen detail-screen is-readonly meeting-screen">
     <header class="page-head detail-top">
@@ -5514,7 +9166,7 @@
     <div class="scroll-area">
       <div class="notice ${archived ? "notice-neutral" : ""}">
         ${icon(archived ? "archive" : "trash", 18)}
-        <span>${status}. Restore it to edit.</span>
+        <span>${status2}. Restore it to edit.</span>
       </div>
       <h1 class="note-ro-title ${m.title.trim() ? "" : "untitled"}">${esc(meetingTitle(m))}</h1>
       <span class="hint mdate">${esc(dateLine(m))}</span>
@@ -5528,7 +9180,7 @@
     </div>
   </div>`;
   }
-  function bindReadOnly(m) {
+  function bindReadOnly2(m) {
     bindScrollShadow();
     const archived = m.status === "archived";
     const toFolder = () => {
@@ -5560,6 +9212,143 @@
     if (transcript) bindTranscript(transcript, m, { readOnly: true });
   }
 
+  // src/ui/meetings.js
+  function openMeetings() {
+    UI.screen = "meetings";
+    UI.query = "";
+    UI.sortMenu = false;
+    rerender();
+  }
+  function addMeeting() {
+    newMeeting();
+  }
+  function meetingChipsHTML(m) {
+    const chips = [];
+    if (m.recording) chips.push(`<span class="tag"><span aria-hidden="true">${icon("mic", 12)}</span>${fmtDuration(m.recording.durationMs)}</span>`);
+    if (m.jobs?.transcribe) chips.push('<span class="tag working">Transcribing…</span>');
+    else if (m.transcript) chips.push('<span class="tag">Transcript</span>');
+    if (m.jobs?.summarise) chips.push('<span class="tag working">Summarising…</span>');
+    else if (m.minutes) chips.push('<span class="tag">Minutes</span>');
+    const { proposed, added } = actionCounts(m);
+    if (proposed) chips.push(`<span class="tag">${proposed} action${proposed === 1 ? "" : "s"}</span>`);
+    else if (added) chips.push(`<span class="tag tag-done">${added} added</span>`);
+    if (m.lastError && !m.jobs?.transcribe && !m.jobs?.summarise) chips.push('<span class="tag tag-soon">Failed</span>');
+    return chips.length ? `<div class="t-meta mchips">${chips.join("")}</div>` : "";
+  }
+  function meetingRowHTML(m) {
+    const title = meetingTitle(m);
+    const when = fmtDateOrRelative(m.createdAt, S.dateFormat);
+    return `
+  <div class="row nrow mrow" data-id="${m.id}" role="button" tabindex="0" aria-label="${esc(title)}">
+    <div class="t-main">
+      <div class="nrow-line">
+        <span class="t-title ${m.title.trim() ? "" : "untitled"}">${esc(title)}</span>
+        <span class="nrow-date num">${esc(when)}</span>
+      </div>
+      ${meetingChipsHTML(m)}
+    </div>
+  </div>`;
+  }
+  var DEFAULT_SORT2 = "created-desc";
+  var SHORT2 = Object.fromEntries(MEETINGS_SORTS);
+  function sortbarHTML2() {
+    return `
+  <div class="viewbar notes-bar ${searchOpen() ? "searching" : ""}">
+    ${searchFieldHTML({ placeholder: "Search meetings" })}
+    <span class="sortwrap">
+      <button class="sortbtn ${S.meetingsSort !== DEFAULT_SORT2 ? "on" : ""}" data-sortbtn aria-haspopup="menu" aria-expanded="${UI.sortMenu}">${icon("sort")}${SHORT2[S.meetingsSort]}</button>
+      ${UI.sortMenu ? `
+      <div class="sortmenu" role="menu">
+        ${MEETINGS_SORTS.map(([v, label]) => `<button role="menuitemradio" aria-checked="${S.meetingsSort === v}" data-meetings-sort="${v}" class="${S.meetingsSort === v ? "active" : ""}">${label}</button>`).join("")}
+      </div>` : ""}
+    </span>
+    ${isDesktop.matches ? `<button class="btn btn-primary btn-sm" data-new-meeting>${icon("plus", 18)}New meeting</button>` : ""}
+  </div>`;
+  }
+  function bindSortbar2() {
+    app.querySelector("[data-new-meeting]")?.addEventListener("click", addMeeting);
+    app.querySelector("[data-sortbtn]")?.addEventListener("click", () => {
+      UI.sortMenu = !UI.sortMenu;
+      rerender();
+    });
+    app.querySelectorAll("[data-meetings-sort]").forEach((b) => b.addEventListener("click", () => {
+      UI.sortMenu = false;
+      setMeetingsSort(b.dataset.meetingsSort);
+      rerender();
+    }));
+  }
+  function meetingsHTML() {
+    queryFor("meetings");
+    const all = sortedMeetings();
+    const total = all.length;
+    const meetings = UI.query ? filterMeetings(all, UI.query, meetingTitle) : all;
+    const kicker = !total ? "No meetings" : UI.query ? `${meetings.length} of ${total} meeting${total === 1 ? "" : "s"}` : `${total} meeting${total === 1 ? "" : "s"}`;
+    const empty2 = !total ? "No meetings yet. Tap + to record one or paste a transcript." : `No meetings match “${esc(UI.query)}”.`;
+    return `
+  <div class="screen meetings-screen">
+    <header class="page-head">
+      <div class="page-title-row">
+        ${pageTitleHTML("Meetings")}
+        <span class="head-right"><span class="kicker">${kicker}</span>${searchToggleHTML()}</span>
+      </div>
+      ${sortbarHTML2()}
+    </header>
+    <div class="scroll-area">
+      ${meetings.length ? `<div class="card list-card" role="list">${meetings.map(meetingRowHTML).join("")}</div>` : `<p class="empty">${empty2}</p>`}
+    </div>
+  </div>`;
+  }
+  function bindMeetings() {
+    bindScrollShadow();
+    bindPageTitle();
+    bindSortbar2();
+    bindSearch(app);
+    app.querySelectorAll(".mrow").forEach((row2) => {
+      const id = row2.dataset.id;
+      row2.addEventListener("click", () => openMeeting(id));
+      row2.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openMeeting(id);
+        }
+      });
+    });
+  }
+
+  // src/ui/addmenu.js
+  var TILES = [
+    { id: "task", label: "Add task", icon: "tasks", run: () => openSheet() },
+    { id: "note", label: "Add note", icon: "note", run: () => {
+      openNotes();
+      focusComposer();
+    } },
+    { id: "meeting", label: "Add meeting", icon: "meeting", run: () => addMeeting() },
+    /* was "Add automation", which only led to a "coming soon" row (testing
+       report BUG-07); it comes back when custom rules exist */
+    { id: "board", label: "Add board", icon: "board", run: () => newBoardFlow() }
+  ];
+  function openAddMenu() {
+    const { ov, close } = overlay(`
+    <div class="add-menu" role="dialog" aria-label="Add">
+      <div class="add-grid">
+        ${TILES.map((t, i) => `
+        <button class="add-tile" data-tile="${t.id}" style="--i: ${i}">
+          <span class="add-tile-icon">${icon(t.icon, 20)}</span>
+          <span>${t.label}</span>
+        </button>`).join("")}
+      </div>
+    </div>`);
+    ov.classList.add("add-overlay");
+    ov.querySelector(".add-menu").addEventListener("click", (e) => {
+      if (!e.target.closest("[data-tile]")) close();
+    });
+    ov.querySelectorAll("[data-tile]").forEach((b) => b.addEventListener("click", () => {
+      close();
+      TILES.find((t) => t.id === b.dataset.tile).run();
+    }));
+    ov.querySelector("[data-tile]").focus();
+  }
+
   // src/ui/detail.js
   function scheduleNote(t) {
     return [
@@ -5580,7 +9369,7 @@
         <div class="subrows">
           ${t.subtasks.map((s) => `
           <div class="subrow ${s.done ? "done" : ""}">
-            <input type="checkbox" aria-label="Toggle complete" class="check sm" ${s.done ? "checked" : ""} ${readOnly ? "disabled" : `data-sub="${s.id}"`}>
+            <input type="checkbox" aria-label="${esc(`${s.done ? "Reopen" : "Complete"}: ${s.title}`)}" class="check sm" ${s.done ? "checked" : ""} ${readOnly ? "disabled" : `data-sub="${s.id}"`}>
             <span class="s-title">${esc(s.title)}</span>
             ${readOnly ? "" : `<button class="s-del" data-subdel="${s.id}" aria-label="Delete subtask">${icon("x", 16)}</button>`}
           </div>`).join("")}
@@ -5598,21 +9387,21 @@
       UI.screen = "list";
       return mobileListHTML();
     }
-    if (t.status !== "active") return readOnlyHTML2(t);
-    const list2 = listById(t.listId);
+    if (t.status !== "active") return readOnlyHTML3(t);
+    const list3 = listById(t.listId);
     const dueTone = t.due ? fmtDue(t.due, { dueTime: t.dueTime }).cls : "";
     const note = scheduleNote(t);
     return `
   <div class="screen detail-screen">
     <header class="page-head detail-top">
-      <button class="icon-btn" data-back aria-label="Back to ${esc(list2.name)}">${icon("chevronLeft")}</button>
-      <span class="kicker">${esc(list2.name)}</span>
+      <button class="icon-btn" data-back aria-label="Back to ${esc(list3.name)}">${icon("chevronLeft")}</button>
+      <span class="kicker">${esc(list3.name)}</span>
       <button class="icon-btn" data-more aria-label="More actions" aria-haspopup="menu">${icon("more")}</button>
     </header>
     <div class="scroll-area">
       <div class="detail-head">
         <div class="detail-title-row">
-          <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
+          <input type="checkbox" aria-label="${esc(`${t.done ? "Reopen" : "Complete"}: ${t.title}`)}" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
           <h1 class="detail-title" data-title tabindex="0" title="Tap to edit">${esc(t.title)}</h1>
         </div>
         ${fromMeetingHTML(t)}
@@ -5634,19 +9423,19 @@
         <div class="kv-row kv-stack">
           <span class="kv-label">Priority</span>
           <div class="chip-row" data-priority>
-            ${[{ id: "none", name: "None" }, ...[...S.priorities].reverse()].map((p) => `<button class="chip sm ${t.priority === p.id ? `on ${p.color ? `pc pc-${p.color}` : ""}` : ""}" data-val="${p.id}" aria-pressed="${t.priority === p.id}">${esc(p.name)}</button>`).join("")}
+            ${[...S.priorities, { id: "none", name: "None" }].map((p) => `<button class="chip sm ${t.priority === p.id ? `on ${p.color ? `pc pc-${p.color}` : ""}` : ""}" data-val="${p.id}" aria-pressed="${t.priority === p.id}">${esc(p.name)}</button>`).join("")}
           </div>
         </div>
         <div class="kv-row kv-stack">
           <span class="kv-label">${icon("tag", 16)}Tags</span>
           <div class="chip-row" data-tags>
-            ${t.tags.map((tag) => `<button class="chip sm on removable" data-remove="${esc(tag)}" aria-label="Remove tag ${esc(tag)}">#${esc(tag)}${icon("x", 14)}</button>`).join("")}
+            ${t.tags.map((tag) => `<button class="chip sm on removable" data-remove="${esc(tag)}" aria-label="Remove tag ${esc(tag)}"><span class="chip-text">#${esc(tag)}</span>${icon("x", 14)}</button>`).join("")}
             <button class="chip sm" data-add-tag>${icon("plus", 14)}${t.tags.length ? "Add" : "Add tags…"}</button>
           </div>
         </div>
         <div class="kv-row">
           <span class="kv-label">${icon("move", 16)}Move</span>
-          <button class="kv-val" data-move>${esc(list2.name)} · ${esc(laneName(t.listId, t.lane))}${icon("chevronRight", 16)}</button>
+          <button class="kv-val" data-move>${esc(list3.name)} · ${esc(laneName(t.listId, t.lane))}${icon("chevronRight", 16)}</button>
         </div>
         <div class="kv-row">
           <span class="kv-label">Reminder</span>
@@ -5669,7 +9458,7 @@
       return;
     }
     if (t.status !== "active") {
-      bindReadOnly2(t);
+      bindReadOnly3(t);
       return;
     }
     bindScrollShadow();
@@ -5759,8 +9548,16 @@
       commit();
     }));
     app.querySelectorAll("[data-subdel]").forEach((b) => b.addEventListener("click", () => {
-      t.subtasks = t.subtasks.filter((s) => s.id !== b.dataset.subdel);
+      const at = t.subtasks.findIndex((s) => s.id === b.dataset.subdel);
+      if (at === -1) return;
+      const [gone] = t.subtasks.splice(at, 1);
       commit();
+      toast("Subtask deleted", { action: { label: "Undo", onClick: () => {
+        const now2 = taskById(t.id);
+        if (!now2 || now2.subtasks.some((s) => s.id === gone.id)) return;
+        now2.subtasks.splice(Math.min(at, now2.subtasks.length), 0, gone);
+        commit();
+      } } });
     }));
     const input = app.querySelector(".addsub-input");
     input.addEventListener("keydown", (e) => {
@@ -5771,14 +9568,14 @@
       }
     });
   }
-  function readOnlyHTML2(t) {
+  function readOnlyHTML3(t) {
     const archived = t.status === "archived";
     const o = t.origin || t;
     const from = `${listById(o.listId)?.name || "Deleted board"} · ${laneName(o.listId, o.lane)}`;
     const left = archived ? 0 : daysLeft(t.deletedAt, RETENTION_DAYS);
-    const status = archived ? `Archived ${fmtRelative(t.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
+    const status2 = archived ? `Archived ${fmtRelative(t.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
     const note = scheduleNote(t);
-    const row = (label, value) => `
+    const row2 = (label, value) => `
         <div class="kv-row">
           <span class="kv-label">${label}</span>
           <span class="kv-val static">${value}</span>
@@ -5793,7 +9590,7 @@
     <div class="scroll-area">
       <div class="notice ${archived ? "notice-neutral" : ""}">
         ${icon(archived ? "archive" : "trash", 18)}
-        <span>${status} · from ${esc(from)}. Restore it to edit.</span>
+        <span>${status2} · from ${esc(from)}. Restore it to edit.</span>
       </div>
       <div class="detail-head">
         <div class="detail-title-row">
@@ -5803,12 +9600,12 @@
         ${taskMetaHTML(t)}
       </div>
       <div class="card">
-        ${row(`${icon("calendar", 16)}Due date`, t.due ? esc(fmtDateLong(t.due, t.dueTime)) : "—")}
+        ${row2(`${icon("calendar", 16)}Due date`, t.due ? esc(fmtDateLong(t.due, t.dueTime)) : "—")}
         ${note ? `<div class="kv-note">${esc(note)}</div>` : ""}
-        ${row("Priority", esc(priorityName(t.priority)))}
-        ${row(`${icon("tag", 16)}Tags`, t.tags.length ? t.tags.map((x) => `#${esc(x)}`).join(" ") : "—")}
-        ${row(`${icon("move", 16)}From`, esc(from))}
-        ${row("Reminder", esc(reminderLabel(t.reminder)))}
+        ${row2("Priority", esc(priorityName(t.priority)))}
+        ${row2(`${icon("tag", 16)}Tags`, t.tags.length ? t.tags.map((x) => `#${esc(x)}`).join(" ") : "—")}
+        ${row2(`${icon("move", 16)}From`, esc(from))}
+        ${row2("Reminder", esc(reminderLabel(t.reminder)))}
       </div>
       ${t.subtasks.length ? subtasksHTML(t, { readOnly: true }) : ""}
       <div class="dialog-actions">
@@ -5818,7 +9615,7 @@
     </div>
   </div>`;
   }
-  function bindReadOnly2(t) {
+  function bindReadOnly3(t) {
     bindScrollShadow();
     const toFolder = () => {
       UI.detailId = null;
@@ -5845,750 +9642,6 @@
     });
   }
 
-  // src/ui/noteeditor.js
-  var COLOR_NAME2 = { red: "Red", amber: "Amber", green: "Green", blue: "Blue", violet: "Violet", gray: "Gray" };
-  var colorName = (c) => c ? COLOR_NAME2[c] : "No colour";
-  var colorBarHTML = (color) => color ? `<span class="cbar pc-${color}" aria-hidden="true"></span>` : "";
-  function draftPreview(d) {
-    if (noteIsEmpty(d)) return "";
-    const text = d.title.trim() || firstLine(d.body) || (d.checklist || []).map((c) => c.text.trim()).find(Boolean) || "";
-    return `Draft: ${text}`;
-  }
-  function collapsedHTML(d) {
-    const preview = draftPreview(d);
-    return `
-  <div class="composer-collapsed">
-    <button type="button" class="composer-placeholder ${preview ? "has-draft" : ""}" data-expand="body">${preview ? esc(preview) : "Take a note…"}</button>
-    <button type="button" class="ne-tool" data-expand="checklist" aria-label="New checklist" title="New checklist">${icon("checklist")}</button>
-  </div>`;
-  }
-  function checklistHTML(items) {
-    return `
-  <div class="ne-checks" role="group" aria-label="Checklist">
-    ${items.map((c) => `
-    <div class="ne-ci-row ${c.done ? "done" : ""}" data-ci-row="${c.id}">
-      <input type="checkbox" class="check sm" data-ci-done="${c.id}" ${c.done ? "checked" : ""} aria-label="Done">
-      <input class="ne-ci" data-ci="${c.id}" value="${esc(c.text)}" placeholder="List item" autocomplete="off" aria-label="List item">
-      <button type="button" class="s-del" data-ci-del="${c.id}" aria-label="Remove item" tabindex="-1">${icon("x", 16)}</button>
-    </div>`).join("")}
-  </div>`;
-  }
-  function formatRowHTML() {
-    return `
-    <div class="ne-format" role="toolbar" aria-label="Text formatting">
-      ${FORMATS.map(([cmd, label, glyph]) => `<button type="button" class="ne-tool ne-fmt" data-fmt="${cmd}" aria-pressed="false" aria-label="${label}" title="${label}"><span class="fmt-glyph fmt-${cmd}">${glyph}</span></button>`).join("")}
-    </div>`;
-  }
-  function editorHTML(v, { mode = "composer", expanded = true, formatOpen = false } = {}) {
-    const wrap = (inner2, cls) => `<form class="composer card ${cls} mode-${mode}" data-editor data-mode="${mode}" aria-label="${mode === "detail" ? "Note" : "New note"}">${colorBarHTML(v.color)}${inner2}</form>`;
-    if (mode === "composer" && !expanded) return wrap(collapsedHTML(v), "");
-    const inner = `
-  <div class="ne">
-    <input class="ne-title" data-f="title" value="${esc(v.title)}" placeholder="Title" maxlength="200" autocomplete="off" aria-label="Title">
-    <div class="ne-body" data-f="body" contenteditable="true" tabindex="0" role="textbox" aria-multiline="true" aria-label="Note" data-placeholder="Take a note…">${v.body}</div>
-    ${v.checklist ? checklistHTML(v.checklist) : ""}
-    ${v.tags.length ? `
-    <div class="ne-chips">${v.tags.map((t) => `<button type="button" class="chip sm removable" data-tag-remove="${esc(t)}" aria-label="Remove tag ${esc(t)}">#${esc(t)}${icon("x", 14)}</button>`).join("")}</div>` : ""}
-    ${formatOpen ? formatRowHTML() : ""}
-    <div class="ne-toolbar" role="toolbar" aria-label="Note tools">
-      <button type="button" class="ne-tool" data-tool="format" aria-pressed="${formatOpen}" aria-label="Formatting" title="Formatting">${icon("text")}</button>
-      <button type="button" class="ne-tool ${v.tags.length ? "on" : ""}" data-tool="tags" aria-label="Tags" title="Tags">${icon("tag")}</button>
-      <button type="button" class="ne-tool ${v.color ? "on" : ""} ${mode === "detail" && v.color ? "ne-tool-wide" : ""}" data-tool="color" aria-label="Colour: ${colorName(v.color)}" title="Colour">${icon("palette")}${v.color ? `<span class="swatch tool-swatch pc-${v.color}"></span>` : ""}${mode === "detail" && v.color ? `<span class="ne-tool-text">${colorName(v.color)}</span>` : ""}</button>
-      <button type="button" class="ne-tool" data-tool="checklist" aria-pressed="${!!v.checklist}" aria-label="Checklist" title="Checklist">${icon("checklist")}</button>
-      <span class="spacer"></span>
-      ${mode === "composer" ? `<button type="submit" class="btn btn-primary btn-sm" data-add ${noteIsEmpty(v) ? "disabled" : ""}>Add</button>` : ""}
-    </div>
-  </div>`;
-    return wrap(inner, "expanded");
-  }
-  var newItem = () => ({ id: uid(), text: "", done: false });
-  var emptyBody = (el) => /^(?:<div>)?(?:<br>)?(?:<\/div>)?$/i.test(el.innerHTML.trim());
-  function caretToEnd(el) {
-    const r = document.createRange();
-    r.selectNodeContents(el);
-    r.collapse(false);
-    const s = window.getSelection();
-    s.removeAllRanges();
-    s.addRange(r);
-  }
-  function focusField(root, key) {
-    if (!key || !root) return;
-    let el = null;
-    if (key === "title") el = root.querySelector('[data-f="title"]');
-    else if (key === "body") el = root.querySelector('[data-f="body"]');
-    else if (key.startsWith("ci:")) el = root.querySelector(`[data-ci="${key.slice(3)}"]`);
-    if (!el) return;
-    el.focus();
-    if (el.isContentEditable) caretToEnd(el);
-    else if (el.value) el.setSelectionRange(el.value.length, el.value.length);
-  }
-  function bindEditor(host, opts) {
-    const { get, set, mode = "composer" } = opts;
-    const expanded = () => opts.expanded ? opts.expanded() : true;
-    let formatOpen = opts.formatOpen ? opts.formatOpen() : false;
-    const setFormatOpen = (v) => {
-      formatOpen = v;
-      opts.onFormatToggle?.(v);
-    };
-    const render2 = (focus) => {
-      host.innerHTML = editorHTML(get(), { mode, expanded: expanded(), formatOpen });
-      bind();
-      focusField(host.querySelector("[data-editor]"), focus);
-    };
-    function bind() {
-      const root = host.querySelector("[data-editor]");
-      if (!root) return;
-      const q = (s) => root.querySelector(s);
-      const qa = (s) => [...root.querySelectorAll(s)];
-      const updateAdd = () => {
-        const b = q("[data-add]");
-        if (b) b.disabled = noteIsEmpty(get());
-      };
-      root.addEventListener("submit", (e) => {
-        e.preventDefault();
-        if (!noteIsEmpty(get())) opts.onAdd?.();
-      });
-      qa("[data-expand]").forEach((b) => {
-        b.addEventListener("click", () => opts.onExpand?.(b.dataset.expand));
-        if (b.dataset.expand === "body") b.addEventListener("focus", () => opts.onExpand?.("body"));
-      });
-      if (!expanded() && mode === "composer") return;
-      root.addEventListener("keydown", (e) => {
-        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-          e.preventDefault();
-          if (!noteIsEmpty(get())) opts.onAdd?.();
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          opts.onCollapse?.();
-        }
-      });
-      const title = q('[data-f="title"]');
-      title.addEventListener("input", () => {
-        set({ title: title.value });
-        updateAdd();
-      });
-      title.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
-          e.preventDefault();
-          focusField(root, "body");
-        }
-      });
-      const body = q('[data-f="body"]');
-      body.addEventListener("input", () => {
-        if (emptyBody(body)) body.innerHTML = "";
-        set({ body: sanitize(body.innerHTML) });
-        updateAdd();
-      });
-      const applyFormat = (cmd) => {
-        if (document.activeElement !== body) focusField(root, "body");
-        exec(cmd);
-        reflectFormat(root);
-      };
-      body.addEventListener("keydown", (e) => {
-        if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-        const key = `${e.shiftKey ? "shift+" : ""}${e.key.toLowerCase()}`;
-        const cmd = SHORTCUTS[key];
-        if (!cmd) return;
-        e.preventDefault();
-        applyFormat(cmd);
-      });
-      q('[data-tool="format"]').addEventListener("click", () => {
-        setFormatOpen(!formatOpen);
-        render2(document.activeElement === body || !formatOpen ? "body" : null);
-      });
-      qa("[data-fmt]").forEach((b) => {
-        b.addEventListener("mousedown", (e) => e.preventDefault());
-        b.addEventListener("click", () => applyFormat(b.dataset.fmt));
-      });
-      body.addEventListener("paste", (e) => {
-        e.preventDefault();
-        const html = e.clipboardData.getData("text/html");
-        const text = e.clipboardData.getData("text/plain");
-        const ins = html ? sanitize(html) : fromPlain(text);
-        if (!document.execCommand("insertHTML", false, ins)) document.execCommand("insertText", false, text);
-      });
-      const items = () => get().checklist || [];
-      const setItems = (list2) => set({ checklist: list2 });
-      qa("[data-ci]").forEach((input) => {
-        const id = input.dataset.ci;
-        const item = () => items().find((c) => c.id === id);
-        input.addEventListener("input", () => {
-          const c = item();
-          if (c) c.text = input.value;
-          setItems(items());
-          updateAdd();
-        });
-        input.addEventListener("keydown", (e) => {
-          const list2 = items(), i = list2.findIndex((c) => c.id === id);
-          if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
-            e.preventDefault();
-            const n = newItem();
-            list2.splice(i + 1, 0, n);
-            setItems(list2);
-            render2(`ci:${n.id}`);
-          } else if (e.key === "Backspace" && input.value === "" && list2.length) {
-            e.preventDefault();
-            list2.splice(i, 1);
-            setItems(list2.length ? list2 : list2);
-            render2(i > 0 ? `ci:${list2[i - 1].id}` : "body");
-          }
-        });
-      });
-      qa("[data-ci-done]").forEach((cb) => cb.addEventListener("change", () => {
-        const c = items().find((x) => x.id === cb.dataset.ciDone);
-        if (!c) return;
-        c.done = cb.checked;
-        setItems(items());
-        if (opts.resortOnToggle) {
-          render2(null);
-          return;
-        }
-        cb.closest(".ne-ci-row").classList.toggle("done", cb.checked);
-      }));
-      qa("[data-ci-del]").forEach((b) => b.addEventListener("click", () => {
-        const list2 = items(), i = list2.findIndex((c) => c.id === b.dataset.ciDel);
-        list2.splice(i, 1);
-        setItems(list2);
-        render2(list2[i] ? `ci:${list2[i].id}` : list2[i - 1] ? `ci:${list2[i - 1].id}` : "body");
-      }));
-      qa("[data-tag-remove]").forEach((b) => b.addEventListener("click", () => {
-        const name = b.dataset.tagRemove.toLowerCase();
-        set({ tags: get().tags.filter((t) => t.toLowerCase() !== name) });
-        render2(null);
-      }));
-      q('[data-tool="tags"]').addEventListener("click", () => {
-        openTagPicker({ tags: get().tags, onChange: (tags) => {
-          set({ tags });
-          render2(null);
-        } });
-      });
-      q('[data-tool="color"]').addEventListener("click", (e) => {
-        const current = get().color;
-        const pick = (color) => {
-          set({ color });
-          render2("body");
-        };
-        openMenu(e.currentTarget, [
-          { label: "None", swatch: "none", checked: !current, onClick: () => pick(null) },
-          ...NOTE_COLORS.map((c) => ({ label: COLOR_NAME2[c], swatch: c, checked: current === c, onClick: () => pick(c) }))
-        ]);
-      });
-      q('[data-tool="checklist"]').addEventListener("click", async () => {
-        const list2 = get().checklist;
-        if (!list2) {
-          const n = newItem();
-          setItems([n]);
-          render2(`ci:${n.id}`);
-          return;
-        }
-        if (list2.some((c) => c.text.trim())) {
-          const ok = await confirmDialog("Remove checklist?", "Its items are removed from this note.", { confirmLabel: "Remove", danger: true });
-          if (!ok) return;
-        }
-        setItems(null);
-        render2("body");
-      });
-    }
-    bind();
-    return { render: render2, focus: (key) => focusField(host.querySelector("[data-editor]"), key) };
-  }
-  function reflectFormat(root) {
-    const state = stateAt();
-    root.querySelectorAll("[data-fmt]").forEach((b) => b.setAttribute("aria-pressed", String(!!state[b.dataset.fmt])));
-  }
-  document.addEventListener("selectionchange", () => {
-    const body = document.activeElement;
-    if (!body?.matches?.(".ne-body")) return;
-    reflectFormat(body.closest("[data-editor]"));
-  });
-
-  // src/ui/notedetail.js
-  function openNote(id) {
-    if (!noteById(id)) return;
-    UI.detailId = id;
-    UI.screen = "note";
-    rerender();
-  }
-  var datesLine = (n) => `Created ${fmtDateOrRelative(n.createdAt, S.dateFormat)} · Edited ${fmtDateOrRelative(n.updatedAt, S.dateFormat)}`;
-  var view = (n) => ({ ...n, checklist: n.checklist ? sortedChecklist(n.checklist) : null });
-  function authoringOrder(prev, shown) {
-    const kept = (prev || []).filter((c) => shown.some((s) => s.id === c.id));
-    shown.forEach((s, k) => {
-      if (kept.some((c) => c.id === s.id)) return;
-      const before = k > 0 ? kept.findIndex((c) => c.id === shown[k - 1].id) : -1;
-      kept.splice(before + 1, 0, s);
-    });
-    return kept;
-  }
-  var flushCurrent2 = null;
-  window.addEventListener("pagehide", () => flushCurrent2?.());
-  function noteDetailHTML() {
-    const n = noteById(UI.detailId);
-    if (!n) {
-      UI.screen = "notes";
-      return '<div class="screen"></div>';
-    }
-    if (n.status !== "active") return readOnlyHTML3(n);
-    return `
-  <div class="screen detail-screen note-screen">
-    <header class="page-head detail-top">
-      <button class="icon-btn" data-back aria-label="Back to Notes">${icon("chevronLeft")}</button>
-      <span class="kicker">Note</span>
-      <button class="icon-btn" data-more aria-label="More actions" aria-haspopup="menu">${icon("more")}</button>
-    </header>
-    <div class="scroll-area">
-      <div data-editor-host>${editorHTML(view(n), { mode: "detail" })}</div>
-      <span class="hint note-dates" data-dates>${esc(datesLine(n))}</span>
-    </div>
-  </div>`;
-  }
-  function bindNoteDetail() {
-    const n = noteById(UI.detailId);
-    if (!n) {
-      rerender();
-      return;
-    }
-    if (n.status !== "active") {
-      bindReadOnly3(n);
-      return;
-    }
-    bindScrollShadow();
-    let timer = null;
-    const flush = () => {
-      if (!timer) return;
-      clearTimeout(timer);
-      timer = null;
-      updateNote(n.id, { title: n.title, body: n.body, color: n.color, tags: n.tags, checklist: n.checklist });
-      const d = app.querySelector("[data-dates]");
-      if (d) d.textContent = datesLine(n);
-    };
-    flushCurrent2 = flush;
-    const set = (patch) => {
-      if (patch.checklist !== void 0 && patch.checklist !== null) patch = { ...patch, checklist: authoringOrder(n.checklist, patch.checklist) };
-      Object.assign(n, patch);
-      n.updatedAt = Date.now();
-      clearTimeout(timer);
-      timer = setTimeout(flush, 500);
-    };
-    const host = app.querySelector("[data-editor-host]");
-    bindEditor(host, { mode: "detail", get: () => view(n), set, resortOnToggle: true });
-    host.addEventListener("focusout", (e) => {
-      if (!host.contains(e.relatedTarget)) flush();
-    });
-    app.querySelector("[data-back]").addEventListener("click", () => {
-      flush();
-      flushCurrent2 = null;
-      UI.detailId = null;
-      UI.screen = "notes";
-      finalizeNote(n.id);
-    });
-    const leaving = () => {
-      flush();
-      flushCurrent2 = null;
-    };
-    app.querySelector("[data-more]").addEventListener("click", (e) => openMenu(e.currentTarget, [
-      { label: "Copy", icon: "copy", onClick: () => {
-        leaving();
-        const c = copyNote(n.id);
-        openNote(c.id);
-        toast("Copied");
-      } },
-      { label: "Archive", icon: "archive", onClick: () => {
-        leaving();
-        archiveNoteWithUndo(n.id);
-      } },
-      { divider: true },
-      { label: "Delete", icon: "trash", danger: true, onClick: () => {
-        leaving();
-        deleteNoteWithUndo(n.id);
-      } }
-    ]));
-  }
-  function readOnlyHTML3(n) {
-    const archived = n.status === "archived";
-    const left = archived ? 0 : daysLeft(n.deletedAt, RETENTION_DAYS);
-    const status = archived ? `Archived ${fmtRelative(n.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
-    const items = n.checklist ? sortedChecklist(n.checklist) : [];
-    const hasTitle = !!n.title.trim();
-    return `
-  <div class="screen detail-screen is-readonly note-screen">
-    <header class="page-head detail-top">
-      <button class="icon-btn" data-back aria-label="Back to ${archived ? "Archived" : "Deleted"}">${icon("chevronLeft")}</button>
-      <span class="kicker">${archived ? "Archived" : "Deleted"} note</span>
-      <span class="icon-btn-spacer" aria-hidden="true"></span>
-    </header>
-    <div class="scroll-area">
-      <div class="notice ${archived ? "notice-neutral" : ""}">
-        ${icon(archived ? "archive" : "trash", 18)}
-        <span>${status}. Restore it to edit.</span>
-      </div>
-      <div class="card note-ro" aria-label="${esc(noteTitle(n))}${n.color ? `, ${colorName(n.color)}` : ""}">
-        ${colorBarHTML(n.color)}
-        <h1 class="note-ro-title ${hasTitle ? "" : "untitled"}">${esc(hasTitle ? n.title : "Untitled")}</h1>
-        ${isEmpty(n.body) ? "" : `<div class="note-ro-body">${n.body}</div>`}
-        ${items.length ? `
-        <div class="subrows">
-          ${items.map((c) => `
-          <div class="subrow ${c.done ? "done" : ""}">
-            <input type="checkbox" class="check sm" disabled ${c.done ? "checked" : ""} aria-label="${c.done ? "Done" : "Not done"}">
-            <span class="s-title">${esc(c.text)}</span>
-          </div>`).join("")}
-        </div>` : ""}
-        ${n.tags.length || n.color ? `
-        <div class="t-meta">
-          ${n.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}
-          ${n.color ? `<span class="tag pc pc-${n.color}">${colorName(n.color)}</span>` : ""}
-        </div>` : ""}
-      </div>
-      <span class="hint note-dates">${esc(datesLine(n))}</span>
-      <div class="dialog-actions">
-        <button class="btn btn-secondary" data-ro-restore>${icon("undo", 18)}Restore</button>
-        <button class="btn btn-ghost danger" data-ro-delete>${archived ? "Delete" : "Delete forever"}</button>
-      </div>
-    </div>
-  </div>`;
-  }
-  function bindReadOnly3(n) {
-    bindScrollShadow();
-    const archived = n.status === "archived";
-    const toFolder = () => {
-      UI.detailId = null;
-      UI.screen = "folders";
-      UI.folder = archived ? "archived" : "deleted";
-      UI.folderKind = "notes";
-    };
-    app.querySelector("[data-back]").addEventListener("click", () => {
-      toFolder();
-      rerender();
-    });
-    app.querySelector("[data-ro-restore]").addEventListener("click", () => {
-      toFolder();
-      restoreNoteWithToast(n.id);
-    });
-    app.querySelector("[data-ro-delete]").addEventListener("click", async () => {
-      if (archived) {
-        toFolder();
-        deleteNoteWithUndo(n.id);
-        return;
-      }
-      if (await confirmDialog("Delete forever?", "This note cannot be recovered afterwards.", { confirmLabel: "Delete forever", danger: true })) {
-        toFolder();
-        deleteNoteForever(n.id);
-      }
-    });
-  }
-
-  // src/ui/notes.js
-  var draft = loadDraft() || blankDraft();
-  var saveTimer = null;
-  var persist2 = () => {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => saveDraft(draft), 300);
-  };
-  var persistNow = () => {
-    clearTimeout(saveTimer);
-    saveDraft(draft);
-  };
-  var editor = null;
-  function openNotes() {
-    UI.screen = "notes";
-    UI.query = "";
-    UI.tagFilter = null;
-    UI.sortMenu = false;
-    UI.composer.expanded = false;
-    rerender();
-  }
-  function expand(target = "body") {
-    if (target === "checklist") {
-      if (!draft.checklist) {
-        draft.checklist = [{ id: uid(), text: "", done: false }];
-        persist2();
-      }
-      target = `ci:${draft.checklist[0].id}`;
-    }
-    if (UI.composer.expanded) {
-      editor?.focus(target);
-      return;
-    }
-    UI.composer.expanded = true;
-    UI.composer.focus = target;
-    rerender();
-  }
-  function collapse() {
-    if (!UI.composer.expanded) return;
-    UI.composer.expanded = false;
-    persistNow();
-    if (UI.screen === "notes") rerender();
-  }
-  function focusComposer() {
-    expand("body");
-    app.querySelector("[data-editor]")?.scrollIntoView({ block: "start", behavior: "smooth" });
-  }
-  function add() {
-    const d = draft;
-    draft = blankDraft();
-    UI.composer.expanded = false;
-    const n = addNote(d);
-    if (!n) {
-      draft = d;
-      UI.composer.expanded = true;
-      rerender();
-      return;
-    }
-    toast("Note added", { action: { label: "Open", onClick: () => openNote(n.id) } });
-  }
-  document.addEventListener("click", (e) => {
-    if (!UI.composer.expanded) return;
-    if (!e.target.isConnected) return;
-    if (e.target.closest("[data-editor], .overlay, .menu-popover, .menu-backdrop, .toast")) return;
-    collapse();
-  });
-  var MAX_CHIPS = 3;
-  function noteMetaHTML(n, { links = false } = {}) {
-    const chips = n.tags.slice(0, MAX_CHIPS).map((t) => links ? `<button type="button" class="tag tag-btn" data-tagfilter="${esc(t)}" aria-label="Show notes tagged ${esc(t)}">#${esc(t)}</button>` : `<span class="tag">#${esc(t)}</span>`);
-    if (n.tags.length > MAX_CHIPS) chips.push(`<span class="tag">+${n.tags.length - MAX_CHIPS}</span>`);
-    const p = checklistProgress(n);
-    if (p) chips.push(`<span class="t-sub num" aria-label="Checklist, ${p.done} of ${p.total} done">${icon("checklist", 12)}${p.done}/${p.total}</span>`);
-    return chips.length ? `<div class="t-meta">${chips.join("")}</div>` : "";
-  }
-  function noteRowHTML(n, { dateLabel: dateLabel2 = "Created", grip = false } = {}) {
-    const hasTitle = !!n.title.trim();
-    const title = noteTitle(n);
-    const preview = hasTitle && !isEmpty(n.body) ? firstLine(n.body) : "";
-    const when = fmtDateOrRelative(dateLabel2 === "Created" ? n.createdAt : n.updatedAt, S.dateFormat);
-    return `
-  <div class="row nrow" data-id="${n.id}" role="button" tabindex="0" aria-label="${esc(title)}${n.color ? `, ${colorName(n.color)}` : ""}">
-    ${colorBarHTML(n.color)}
-    <div class="t-main">
-      <div class="nrow-line">
-        <span class="t-title ${hasTitle ? "" : "untitled"}">${esc(title)}</span>
-        <span class="nrow-date num">${dateLabel2} ${esc(when)}</span>
-      </div>
-      ${noteMetaHTML(n, { links: true })}
-      ${preview ? `<span class="nrow-preview">${esc(preview)}</span>` : ""}
-    </div>
-    ${grip ? `<span class="grip" aria-hidden="true">${icon("grip")}</span>` : ""}
-  </div>`;
-  }
-  var dateLabel = () => S.notesSort.startsWith("created") ? "Created" : "Edited";
-  var DEFAULT_SORT = "created-desc";
-  var SHORT = {
-    manual: "Manual",
-    "created-desc": "Newest first",
-    "created-asc": "Oldest first",
-    "updated-desc": "Recently edited",
-    "updated-asc": "Least recently edited"
-  };
-  var canReorder2 = () => S.notesSort === "manual" && !UI.query && !UI.tagFilter;
-  function sortbarHTML() {
-    return `
-  <div class="viewbar notes-bar ${searchOpen() ? "searching" : ""}">
-    ${searchFieldHTML({ placeholder: "Search notes" })}
-    <span class="sortwrap">
-      <button class="sortbtn ${S.notesSort !== DEFAULT_SORT ? "on" : ""}" data-sortbtn aria-haspopup="menu" aria-expanded="${UI.sortMenu}">${icon("sort")}${SHORT[S.notesSort]}</button>
-      ${UI.sortMenu ? `
-      <div class="sortmenu" role="menu">
-        ${NOTES_SORTS.map(([v, label]) => `<button role="menuitemradio" aria-checked="${S.notesSort === v}" data-notes-sort="${v}" class="${S.notesSort === v ? "active" : ""}">${label}</button>`).join("")}
-      </div>` : ""}
-    </span>
-  </div>`;
-  }
-  function bindSortbar() {
-    app.querySelector("[data-sortbtn]")?.addEventListener("click", () => {
-      UI.sortMenu = !UI.sortMenu;
-      rerender();
-    });
-    app.querySelectorAll("[data-notes-sort]").forEach((b) => b.addEventListener("click", () => {
-      UI.sortMenu = false;
-      setNotesSort(b.dataset.notesSort);
-      rerender();
-    }));
-  }
-  function notesHTML() {
-    queryFor("notes");
-    const all = sortedNotes();
-    const total = all.length;
-    const filtering = !!(UI.query || UI.tagFilter);
-    const notes = filtering ? filterNotes(all, UI.query, UI.tagFilter) : all;
-    const kicker = !total ? "No notes" : filtering ? `${notes.length} of ${total} note${total === 1 ? "" : "s"}` : `${total} note${total === 1 ? "" : "s"}`;
-    const empty = !total ? "No notes yet. Write one above." : UI.query ? `No notes match “${esc(UI.query)}”.` : `No notes with #${esc(UI.tagFilter)}.`;
-    return `
-  <div class="screen notes-screen">
-    <header class="page-head">
-      <div class="page-title-row">
-        <h1 class="page-title-text">Notes</h1>
-        <span class="head-right"><span class="kicker">${kicker}</span>${searchToggleHTML()}</span>
-      </div>
-      ${sortbarHTML()}
-      ${UI.tagFilter ? `
-      <div class="filterline">
-        <button type="button" class="chip sm on removable" data-tagfilter-clear aria-label="Remove tag filter ${esc(UI.tagFilter)}">#${esc(UI.tagFilter)}${icon("x", 14)}</button>
-      </div>` : ""}
-    </header>
-    <div class="scroll-area">
-      <div data-composer-host>${editorHTML(draft, { mode: "composer", expanded: UI.composer.expanded, formatOpen: UI.composer.formatOpen })}</div>
-      ${notes.length ? `<div class="card list-card" role="list">${notes.map((n) => noteRowHTML(n, { dateLabel: dateLabel(), grip: canReorder2() })).join("")}</div>` : `<p class="empty">${empty}</p>`}
-      ${notes.length > 1 && canReorder2() ? '<span class="hint">Drag the handle to reorder</span>' : ""}
-    </div>
-  </div>`;
-  }
-  function bindNotes() {
-    bindScrollShadow();
-    const host = app.querySelector("[data-composer-host]");
-    editor = bindEditor(host, {
-      mode: "composer",
-      get: () => draft,
-      set: (patch) => {
-        Object.assign(draft, patch);
-        persist2();
-      },
-      expanded: () => UI.composer.expanded,
-      formatOpen: () => UI.composer.formatOpen,
-      onFormatToggle: (v) => {
-        UI.composer.formatOpen = v;
-      },
-      onAdd: add,
-      onCollapse: collapse,
-      onExpand: expand
-    });
-    if (UI.composer.focus) {
-      editor.focus(UI.composer.focus);
-      UI.composer.focus = null;
-    }
-    bindSortbar();
-    bindSearch(app);
-    app.querySelector("[data-tagfilter-clear]")?.addEventListener("click", () => {
-      UI.tagFilter = null;
-      rerender();
-    });
-    app.querySelectorAll(".nrow").forEach((row) => {
-      const id = row.dataset.id;
-      row.addEventListener("click", (e) => {
-        const tag = e.target.closest("[data-tagfilter]");
-        if (tag) {
-          UI.tagFilter = tag.dataset.tagfilter;
-          rerender();
-          return;
-        }
-        if (e.target.closest(".grip") || row.dataset.dragged) {
-          delete row.dataset.dragged;
-          return;
-        }
-        openNote(id);
-      });
-      row.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          openNote(id);
-        }
-      });
-      const grip = row.querySelector(".grip");
-      if (grip) bindReorder(grip, row, { rowSel: ".nrow", enabled: canReorder2, onDrop: (beforeId) => reorderNote(id, beforeId) });
-    });
-  }
-
-  // src/ui/meetings.js
-  function openMeetings() {
-    UI.screen = "meetings";
-    UI.query = "";
-    UI.sortMenu = false;
-    rerender();
-  }
-  function addMeeting() {
-    newMeeting();
-  }
-  function meetingChipsHTML(m) {
-    const chips = [];
-    if (m.recording) chips.push(`<span class="tag"><span aria-hidden="true">${icon("mic", 12)}</span>${fmtDuration(m.recording.durationMs)}</span>`);
-    if (m.jobs?.transcribe) chips.push('<span class="tag working">Transcribing…</span>');
-    else if (m.transcript) chips.push('<span class="tag">Transcript</span>');
-    if (m.jobs?.summarise) chips.push('<span class="tag working">Summarising…</span>');
-    else if (m.minutes) chips.push('<span class="tag">Minutes</span>');
-    const { proposed, added } = actionCounts(m);
-    if (proposed) chips.push(`<span class="tag">${proposed} action${proposed === 1 ? "" : "s"}</span>`);
-    else if (added) chips.push(`<span class="tag tag-done">${added} added</span>`);
-    if (m.lastError && !m.jobs?.transcribe && !m.jobs?.summarise) chips.push('<span class="tag tag-soon">Failed</span>');
-    return chips.length ? `<div class="t-meta mchips">${chips.join("")}</div>` : "";
-  }
-  function meetingRowHTML(m) {
-    const title = meetingTitle(m);
-    const when = fmtDateOrRelative(m.createdAt, S.dateFormat);
-    return `
-  <div class="row nrow mrow" data-id="${m.id}" role="button" tabindex="0" aria-label="${esc(title)}">
-    <div class="t-main">
-      <div class="nrow-line">
-        <span class="t-title ${m.title.trim() ? "" : "untitled"}">${esc(title)}</span>
-        <span class="nrow-date num">${esc(when)}</span>
-      </div>
-      ${meetingChipsHTML(m)}
-    </div>
-  </div>`;
-  }
-  var DEFAULT_SORT2 = "created-desc";
-  var SHORT2 = Object.fromEntries(MEETINGS_SORTS);
-  function sortbarHTML2() {
-    return `
-  <div class="viewbar notes-bar ${searchOpen() ? "searching" : ""}">
-    ${searchFieldHTML({ placeholder: "Search meetings" })}
-    <span class="sortwrap">
-      <button class="sortbtn ${S.meetingsSort !== DEFAULT_SORT2 ? "on" : ""}" data-sortbtn aria-haspopup="menu" aria-expanded="${UI.sortMenu}">${icon("sort")}${SHORT2[S.meetingsSort]}</button>
-      ${UI.sortMenu ? `
-      <div class="sortmenu" role="menu">
-        ${MEETINGS_SORTS.map(([v, label]) => `<button role="menuitemradio" aria-checked="${S.meetingsSort === v}" data-meetings-sort="${v}" class="${S.meetingsSort === v ? "active" : ""}">${label}</button>`).join("")}
-      </div>` : ""}
-    </span>
-    ${isDesktop.matches ? `<button class="btn btn-primary btn-sm" data-new-meeting>${icon("plus", 18)}New meeting</button>` : ""}
-  </div>`;
-  }
-  function bindSortbar2() {
-    app.querySelector("[data-new-meeting]")?.addEventListener("click", addMeeting);
-    app.querySelector("[data-sortbtn]")?.addEventListener("click", () => {
-      UI.sortMenu = !UI.sortMenu;
-      rerender();
-    });
-    app.querySelectorAll("[data-meetings-sort]").forEach((b) => b.addEventListener("click", () => {
-      UI.sortMenu = false;
-      setMeetingsSort(b.dataset.meetingsSort);
-      rerender();
-    }));
-  }
-  function meetingsHTML() {
-    queryFor("meetings");
-    const all = sortedMeetings();
-    const total = all.length;
-    const meetings = UI.query ? filterMeetings(all, UI.query, meetingTitle) : all;
-    const kicker = !total ? "No meetings" : UI.query ? `${meetings.length} of ${total} meeting${total === 1 ? "" : "s"}` : `${total} meeting${total === 1 ? "" : "s"}`;
-    const empty = !total ? "No meetings yet. Tap + to record one or paste a transcript." : `No meetings match “${esc(UI.query)}”.`;
-    return `
-  <div class="screen meetings-screen">
-    <header class="page-head">
-      <div class="page-title-row">
-        <h1 class="page-title-text">Meetings</h1>
-        <span class="head-right"><span class="kicker">${kicker}</span>${searchToggleHTML()}</span>
-      </div>
-      ${sortbarHTML2()}
-    </header>
-    <div class="scroll-area">
-      ${meetings.length ? `<div class="card list-card" role="list">${meetings.map(meetingRowHTML).join("")}</div>` : `<p class="empty">${empty}</p>`}
-    </div>
-  </div>`;
-  }
-  function bindMeetings() {
-    bindScrollShadow();
-    bindSortbar2();
-    bindSearch(app);
-    app.querySelectorAll(".mrow").forEach((row) => {
-      const id = row.dataset.id;
-      row.addEventListener("click", () => openMeeting(id));
-      row.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          openMeeting(id);
-        }
-      });
-    });
-  }
-
   // src/ui/folders.js
   function openFolder(tab, kind) {
     if (tab === "deleted") purgeDeleted();
@@ -6599,8 +9652,9 @@
   }
   function originLabel(t) {
     const o = t.origin || t;
-    const board = listById(o.listId)?.name || "Deleted board";
-    return `${board} · ${laneName(o.listId, o.lane)}`;
+    const board = listById(o.listId);
+    const name = !board ? "Deleted board" : board.status === "active" ? board.name : `${board.name} (${board.status})`;
+    return `${name} · ${laneName(o.listId, o.lane)}`;
   }
   function whenLabel(x, tab) {
     if (tab === "archived") return `Archived ${fmtRelative(x.archivedAt)}`;
@@ -6646,30 +9700,38 @@
     </div>
   </div>`;
   }
+  function boardRowHTML(l, tab) {
+    const n = boardCardCount(l.id);
+    return `
+  <div class="row frow brow" data-board="${l.id}">
+    <div class="t-main">
+      <span class="t-title">${esc(l.name)}</span>
+      <span class="frow-origin">Board · ${n} card${n === 1 ? "" : "s"} inside · ${whenLabel(l, tab)}</span>
+      ${actionsHTML2("board", l.id, tab)}
+    </div>
+  </div>`;
+  }
+  var KINDS = { tasks: "tasks", notes: "notes", meetings: "meetings", boards: "boards" };
   function foldersHTML() {
-    const tab = UI.folder, kind = UI.folderKind;
-    const tasks = folderTasks(tab), notes = folderNotes(tab), meetings = folderMeetings(tab);
-    const total = (t) => folderTasks(t).length + folderNotes(t).length + folderMeetings(t).length;
-    const rows = kind === "notes" ? notes.map((n) => noteRowHTML2(n, tab)) : kind === "meetings" ? meetings.map((m) => meetingRowHTML2(m, tab)) : tasks.map((t) => taskRowHTML(t, tab));
-    const disclaimer = `Tasks, notes and meetings stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
-    const what = kind === "notes" ? "notes" : kind === "meetings" ? "meetings" : "tasks";
-    const empty = tab === "archived" ? `Nothing archived yet. Archive ${what} you are done with but want to keep.` : kind === "tasks" ? "Nothing in Deleted." : `No deleted ${what}.`;
+    const tab = UI.folder, kind = KINDS[UI.folderKind] || "tasks";
+    const tasks = folderTasks(tab), notes = folderNotes(tab), meetings = folderMeetings(tab), boards = folderBoards(tab);
+    const total = tasks.length + notes.length + meetings.length + boards.length;
+    const rows = kind === "notes" ? notes.map((n) => noteRowHTML2(n, tab)) : kind === "meetings" ? meetings.map((m) => meetingRowHTML2(m, tab)) : kind === "boards" ? boards.map((l) => boardRowHTML(l, tab)) : tasks.map((t) => taskRowHTML(t, tab));
+    const disclaimer = `Tasks, notes, meetings and boards stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
+    const empty2 = tab === "archived" ? `Nothing archived yet. Archive ${kind} you are done with but want to keep.` : kind === "tasks" ? "Nothing in Deleted." : `No deleted ${kind}.`;
     const seg = (k, label, n) => `<button class="seg ${kind === k ? "active" : ""}" data-kind="${k}" role="tab" aria-selected="${kind === k}">${label} · ${n}</button>`;
     return `
   <div class="screen">
     <header class="page-head">
       <div class="page-title-row">
-        <h1 class="page-title-text">Folders</h1>
-        <span class="kicker">${rows.length} ${tab}</span>
-      </div>
-      <div class="segmented" role="tablist" aria-label="Folder">
-        <button class="seg ${tab === "archived" ? "active" : ""}" data-tab="archived" role="tab" aria-selected="${tab === "archived"}">Archived · ${total("archived")}</button>
-        <button class="seg ${tab === "deleted" ? "active" : ""}" data-tab="deleted" role="tab" aria-selected="${tab === "deleted"}">Deleted · ${total("deleted")}</button>
+        ${pageTitleHTML(tab === "archived" ? "Archived" : "Deleted")}
+        <span class="kicker">${rows.length} ${rows.length === 1 ? kind.slice(0, -1) : kind}</span>
       </div>
       <div class="segmented solid folder-kind" role="tablist" aria-label="Kind">
         ${seg("tasks", "Tasks", tasks.length)}
         ${seg("notes", "Notes", notes.length)}
         ${seg("meetings", "Meetings", meetings.length)}
+        ${seg("boards", "Boards", boards.length)}
       </div>
     </header>
     <div class="scroll-area">
@@ -6677,28 +9739,29 @@
       <div class="notice">
         ${icon("trash", 18)}
         <span>${disclaimer}</span>
-        ${total("deleted") ? '<button class="btn btn-sm btn-ghost danger" data-empty>Empty folder</button>' : ""}
+        ${total ? '<button class="btn btn-sm btn-ghost danger" data-empty>Empty Deleted</button>' : ""}
       </div>` : ""}
-      ${rows.length ? `<div class="card list-card">${rows.join("")}</div>` : `<p class="empty">${empty}</p>`}
+      ${rows.length ? `<div class="card list-card">${rows.join("")}</div>` : `<p class="empty">${empty2}</p>`}
     </div>
   </div>`;
   }
   function bindFolders() {
     bindScrollShadow();
-    app.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => openFolder(b.dataset.tab)));
+    bindPageTitle();
     app.querySelectorAll("[data-kind]").forEach((b) => b.addEventListener("click", () => {
       UI.folderKind = b.dataset.kind;
       rerender();
     }));
-    app.querySelectorAll(".frow").forEach((row) => row.addEventListener("click", (e) => {
-      if (e.target.closest(".frow-actions")) return;
-      if (row.dataset.note) openNote(row.dataset.note);
-      else if (row.dataset.meeting) openMeeting(row.dataset.meeting);
-      else openDetail(row.dataset.id);
+    app.querySelectorAll(".frow").forEach((row2) => row2.addEventListener("click", (e) => {
+      if (e.target.closest(".frow-actions") || row2.dataset.board) return;
+      if (row2.dataset.note) openNote(row2.dataset.note);
+      else if (row2.dataset.meeting) openMeeting(row2.dataset.meeting);
+      else openDetail(row2.dataset.id);
     }));
     app.querySelectorAll("[data-restore-task]").forEach((b) => b.addEventListener("click", () => restoreWithToast(b.dataset.restoreTask)));
     app.querySelectorAll("[data-restore-note]").forEach((b) => b.addEventListener("click", () => restoreNoteWithToast(b.dataset.restoreNote)));
     app.querySelectorAll("[data-restore-meeting]").forEach((b) => b.addEventListener("click", () => restoreMeetingWithToast(b.dataset.restoreMeeting)));
+    app.querySelectorAll("[data-restore-board]").forEach((b) => b.addEventListener("click", () => restoreBoardWithToast(b.dataset.restoreBoard)));
     const confirmForever = (what) => confirmDialog("Delete forever?", `This ${what} cannot be recovered afterwards.`, { confirmLabel: "Delete forever", danger: true });
     app.querySelectorAll("[data-delete-task]").forEach((b) => b.addEventListener("click", async () => {
       const id = b.dataset.deleteTask;
@@ -6724,14 +9787,48 @@
       }
       if (await confirmForever("meeting")) deleteMeetingForever(id);
     }));
+    app.querySelectorAll("[data-delete-board]").forEach((b) => b.addEventListener("click", async () => {
+      const id = b.dataset.deleteBoard;
+      if (UI.folder === "archived") {
+        removeBoardWithUndo(id, "delete");
+        return;
+      }
+      const n = boardCardCount(id);
+      if (await confirmForever(n ? `board and its ${n} card${n === 1 ? "" : "s"}` : "board")) deleteListForever(id);
+    }));
     app.querySelector("[data-empty]")?.addEventListener("click", async () => {
-      if (await confirmDialog("Empty the Deleted folder?", "Every task, note and meeting in it is removed permanently.", { confirmLabel: "Empty folder", danger: true })) {
+      if (await confirmDialog("Empty Deleted?", "Every task, note, meeting and board in it is removed permanently.", { confirmLabel: "Empty Deleted", danger: true })) {
         emptyDeleted();
       }
     });
   }
 
   // src/ui/shell.js
+  function accountLine() {
+    const a = current();
+    if (!a) return { who: "On this device", sub: "Not signed in · sync is off" };
+    const s = state2();
+    const sub = s.state === "syncing" ? "Syncing…" : s.state === "offline" ? s.pending ? `Offline · ${s.pending} to sync` : "Offline" : s.state === "paused" ? "Sync paused" : s.lastSyncAt ? `Synced ${ago(s.lastSyncAt)}` : "Signed in";
+    return { who: a.email, sub };
+  }
+  var dotHTML = () => syncDot() ? '<span class="sync-dot" aria-label="Changes waiting to sync"></span>' : "";
+  function moveBannerHTML() {
+    if (!isLegacyOrigin()) return "";
+    return `
+  <div class="notice move-banner" role="region" aria-label="Stack'd has moved">
+    ${icon("move", 18)}
+    <span><strong>Stack'd has moved to <a href="${APP_ORIGIN}" target="_blank" rel="noopener">${APP_HOST}</a>.</strong>
+      Download your data here, then import it there in Settings. Recordings cannot travel in the file; their transcripts and minutes do.</span>
+    <button class="btn btn-sm btn-secondary" data-download-data>${icon("download", 16)}Download my data</button>
+  </div>`;
+  }
+  function bindMoveBanner() {
+    app.querySelector("[data-download-data]")?.addEventListener("click", () => {
+      const name = exportFileName();
+      downloadFile(exportFile(), name);
+      toast(`Saved ${name}. Open ${APP_HOST}, then Settings › Import a Stack'd file.`, { ms: 1e4 });
+    });
+  }
   function onboardingHTML() {
     return `
   <div class="screen">
@@ -6758,6 +9855,84 @@
       commit();
     }));
   }
+  function openBoard(id) {
+    S.currentList = id;
+    UI.screen = "list";
+    commit();
+  }
+  var newBoard = () => newBoardFlow();
+  function pressable(el, onPress) {
+    if (!el) return;
+    el.addEventListener("click", onPress);
+    el.addEventListener("keydown", (e) => {
+      if (e.target === el && (e.key === "Enter" || e.key === " ")) {
+        e.preventDefault();
+        onPress();
+      }
+    });
+  }
+  function bindBoardRows(rowSel) {
+    const rows = [...app.querySelectorAll(rowSel)];
+    const ids = rows.map((r) => r.dataset.id);
+    const moveTo = (id, at) => reorderList(id, ids.filter((x) => x !== id)[at] ?? null);
+    const step = (id, dir) => {
+      const to = ids.indexOf(id) + dir;
+      if (to >= 0 && to < ids.length) moveTo(id, to);
+    };
+    rows.forEach((row2) => {
+      const id = row2.dataset.id, i = ids.indexOf(id);
+      const name = () => listById(id)?.name || "board";
+      let over = null, after = false, drop = null;
+      const clear = () => over?.classList.remove("dropover", "dropover-after");
+      bindHold(row2, {
+        ghostClass: row2.classList.contains("side-item") ? "side-item" : "lrow",
+        scroller: () => row2.closest(".scroll-area, .sidebar"),
+        axis: "y",
+        onTap: () => openBoard(id),
+        onDragMove: (ev) => {
+          const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(rowSel);
+          clear();
+          over = target && target !== row2 ? target : null;
+          if (!over) return;
+          const r = over.getBoundingClientRect();
+          after = ev.clientY > r.top + r.height / 2;
+          over.classList.add(after ? "dropover-after" : "dropover");
+        },
+        onDragEnd: () => {
+          clear();
+          drop = over ? { id: over.dataset.id, after } : null;
+          over = null;
+        },
+        onDrop: () => {
+          if (!drop) return;
+          const rest = ids.filter((x) => x !== id);
+          moveTo(id, rest.indexOf(drop.id) + (drop.after ? 1 : 0));
+          drop = null;
+        },
+        armButtons: () => [
+          ...i > 0 ? [{ icon: "chevronUp", label: `Move ${name()} up`, onClick: () => step(id, -1) }] : [],
+          ...i < ids.length - 1 ? [{ icon: "chevronDown", label: `Move ${name()} down`, onClick: () => step(id, 1) }] : [],
+          { icon: "x", label: `Remove board: ${name()}`, onClick: () => askRemoveBoard(id) }
+        ]
+      });
+      row2.addEventListener("keydown", (e) => {
+        if (e.target !== row2) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openBoard(id);
+        } else if (e.altKey && e.key === "ArrowUp") {
+          e.preventDefault();
+          step(id, -1);
+        } else if (e.altKey && e.key === "ArrowDown") {
+          e.preventDefault();
+          step(id, 1);
+        } else if (e.key === "Delete" || e.key === "Backspace") {
+          e.preventDefault();
+          askRemoveBoard(id);
+        }
+      });
+    });
+  }
   var folderEntries = () => [
     { tab: "archived", label: "Archived", icon: "archive", count: folderCount("archived") },
     { tab: "deleted", label: "Deleted", icon: "trash", count: folderCount("deleted") }
@@ -6770,27 +9945,28 @@
   }
   function listsMenuHTML() {
     return `
-  <div class="screen">
+  <div class="screen menu-screen ${UI.menuSlide ? "slide-in" : ""}">
     <header class="page-head">
-      <div class="page-title-row">
-        <h1 class="page-title-text">Boards</h1>
-        <span class="kicker">Stack'd</span>
+      <div class="page-title-row menu-brand-row">
+        <h1 class="kicker menu-brand">Stack'd Minimalist</h1>
       </div>
     </header>
     <div class="scroll-area">
+      ${invitesHTML()}
+      <h2 class="menu-title">Boards</h2>
       <div class="card list-card">
-        ${S.lists.map((l) => `
-        <div class="lrow ${l.id === S.currentList ? "current" : ""}" data-id="${l.id}">
+        ${activeLists().map((l) => `
+        <div class="lrow ${l.id === S.currentList ? "current" : ""}" data-id="${l.id}" role="button" tabindex="0" aria-label="${esc(l.name)}, ${openCount(l.id)} open" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Delete">
           <span class="lrow-icon">${icon("board", 18)}</span>
           <span class="lname">${esc(l.name)}</span>
           <span class="lcount num">${openCount(l.id)}</span>
         </div>`).join("")}
-        <div class="lrow newlist" data-newlist>
+        <div class="lrow newlist" data-newlist role="button" tabindex="0">
           <span class="lrow-icon">${icon("plus", 18)}</span>
           <span class="lname">New board…</span>
         </div>
       </div>
-      <span class="section-title list-label">Notes</span>
+      <h2 class="menu-title">Notes</h2>
       <div class="card list-card">
         <div class="lrow" data-open-notes>
           <span class="lrow-icon">${icon("note", 18)}</span>
@@ -6803,7 +9979,7 @@
           <span class="lcount num">${activeMeetings().length}</span>
         </div>
       </div>
-      <span class="section-title list-label">Folders</span>
+      <h2 class="menu-title">Archive &amp; Bin</h2>
       <div class="card list-card">
         ${folderEntries().map((f) => `
         <div class="lrow" data-open-folder="${f.tab}">
@@ -6816,38 +9992,38 @@
         <div class="lrow" data-open-settings>
           <span class="lrow-icon">${icon("settings", 18)}</span>
           <span class="lname">Settings</span>
+          ${dotHTML()}
           ${icon("chevronRight", 18)}
         </div>
       </div>
-      <span class="hint">Synced 2 min ago · free account</span>
+      <span class="hint">${esc(accountLine().sub)}</span>
     </div>
   </div>`;
   }
   function bindListsMenu() {
+    UI.menuSlide = false;
     bindScrollShadow();
-    app.querySelectorAll(".lrow[data-id]").forEach((row) => row.addEventListener("click", () => {
-      S.currentList = row.dataset.id;
-      UI.screen = "list";
-      commit();
-    }));
-    app.querySelector("[data-newlist]").addEventListener("click", newList);
+    bindBoardRows(".lrow[data-id]");
+    pressable(app.querySelector("[data-newlist]"), newBoard);
     bindFolderLinks();
+    bindInvites(app);
   }
   function mobileNavHTML() {
     const item = (screen, label, name) => `
     <button class="nav-item ${UI.screen === screen ? "active" : ""}" data-nav="${screen}" aria-label="${label}">
       <span class="nav-icon">${icon(name, 24)}</span>
+      ${screen === "lists" && invitations().length ? '<span class="nav-dot" aria-hidden="true"></span>' : ""}
       <span class="nav-item-indicator"></span>
     </button>`;
     return `
   <nav class="bottom-nav">
     <div class="nav-pill">
-      ${item("lists", "Boards", "grid")}
+      ${item("lists", invitations().length ? "Boards, an invitation is waiting" : "Boards", "grid")}
       ${item("list", "Tasks", "tasks")}
       ${item("notes", "Notes", "note")}
-      ${item("folders", "Folders", "folder")}
+      ${item("folders", "Archive & Bin", "archive")}
     </div>
-    <button class="nav-fab" data-add aria-label="${UI.screen === "notes" ? "New note" : UI.screen === "meetings" ? "New meeting" : "Add task"}">${icon("plus", 28)}</button>
+    <button class="nav-fab" data-add aria-label="Add" aria-haspopup="dialog">${icon("plus", 28)}</button>
   </nav>`;
   }
   function bindMobileNav() {
@@ -6865,14 +10041,15 @@
       UI.screen = target;
       rerender();
     }));
-    app.querySelector(".nav-fab")?.addEventListener("click", () => UI.screen === "notes" ? focusComposer() : UI.screen === "meetings" ? addMeeting() : openSheet());
+    app.querySelector(".nav-fab")?.addEventListener("click", openAddMenu);
   }
   function desktopHTML() {
-    const list2 = listById(S.currentList);
+    const list3 = listById(S.currentList);
     if (!["detail", "folders", "settings", "notes", "note", "meetings", "meeting"].includes(UI.screen)) boardKey();
     const main = UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meetings" ? meetingsHTML() : UI.screen === "meeting" ? meetingHTML() : `
     <header class="main-head">
-      <h1 class="page-title-text">${esc(list2.name)}</h1>
+      <h1 class="page-title-text">${esc(list3.name)}</h1>
+      ${sharedChipHTML(list3)}
       ${searchFieldHTML({ placeholder: "Search tasks" })}
       ${viewbarHTML()}
       ${S.view === "kanban" ? `<button class="btn btn-primary btn-sm" data-add>${icon("plus", 18)}Add task</button>` : ""}
@@ -6886,9 +10063,10 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="brand"><div class="brand-mark"></div><div class="brand-name">STACK'D</div></div>
+      ${invitations().length ? `<div class="side-invites">${invitesHTML()}</div>` : ""}
       <span class="section-title side-label">Boards</span>
-      ${S.lists.map((l) => `
-      <div class="side-item ${onBoard && l.id === S.currentList ? "active" : ""}" data-id="${l.id}">
+      ${activeLists().map((l) => `
+      <div class="side-item ${onBoard && l.id === S.currentList ? "active" : ""}" data-id="${l.id}" role="button" tabindex="0" aria-label="${esc(l.name)}, ${openCount(l.id)} open" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Delete">
         <span class="name">${esc(l.name)}</span>
         <span class="count num">${openCount(l.id)}</span>
       </div>`).join("")}
@@ -6903,7 +10081,7 @@
         <span class="name">Meetings</span>
         <span class="count num">${activeMeetings().length}</span>
       </div>
-      <span class="section-title side-label">Folders</span>
+      <span class="section-title side-label">Archive &amp; Bin</span>
       ${folderEntries().map((f) => `
       <div class="side-item ${inFolders && UI.folder === f.tab ? "active" : ""}" data-open-folder="${f.tab}">
         ${icon(f.icon, 16)}
@@ -6913,23 +10091,22 @@
       <div class="side-item side-settings ${UI.screen === "settings" ? "active" : ""}" data-open-settings>
         ${icon("settings", 16)}
         <span class="name">Settings</span>
+        ${dotHTML()}
       </div>
       <div class="side-user">
-        <span class="who">Alex Rivera</span>
-        <span class="sub">Synced across 3 devices</span>
+        <span class="who">${esc(accountLine().who)}</span>
+        <span class="sub">${esc(accountLine().sub)}</span>
       </div>
     </aside>
     <main class="main">${main}</main>
   </div>`;
   }
   function bindDesktop() {
-    app.querySelectorAll(".side-item[data-id]").forEach((el) => el.addEventListener("click", () => {
-      S.currentList = el.dataset.id;
-      UI.screen = "list";
-      commit();
-    }));
-    app.querySelector("[data-newlist]").addEventListener("click", newList);
+    bindBoardRows(".side-item[data-id]");
+    app.querySelector("[data-newlist]").addEventListener("click", newBoard);
     bindFolderLinks();
+    bindInvites(app);
+    bindSharedChip(app);
     if (UI.screen === "detail") {
       bindDetail();
       return;
@@ -6973,35 +10150,164 @@
       });
       app.querySelector("[data-quickadd-btn]").addEventListener("click", commitAdd);
     }
-    app.querySelectorAll(".tgrid-row").forEach((row) => {
-      const t = taskById(row.dataset.id);
-      bindRowGestures(row, t);
-      bindReorder(row, row, taskReorder(t, ".tgrid-row"));
+    app.querySelectorAll(".tgrid-row").forEach((row2) => {
+      const t = taskById(row2.dataset.id);
+      bindRowGestures(row2, t);
+      bindReorder(row2, row2, taskReorder(t, ".tgrid-row"));
     });
     bindKanban();
   }
 
+  // src/ui/lockscreen.js
+  function lockHTML() {
+    const a = current();
+    const changed = lockReason() === "pin_required";
+    return `
+  <main class="screen lock-screen" role="main" aria-label="Stack'd is locked">
+    <div class="lock-card">
+      <span class="lock-icon" aria-hidden="true">${icon("lock", 22)}</span>
+      <h1 class="lock-title">Stack'd is locked</h1>
+      <p class="hint">${changed ? "Your PIN was changed on another device. Enter the new PIN." : esc(a?.email || "")}</p>
+      ${pinpadHTML({ label: changed ? "Enter the new PIN" : "Enter your PIN" })}
+      <button type="button" class="btn btn-ghost btn-block" data-bio hidden>${icon("lock", 16)}Use Face ID or fingerprint</button>
+      <button type="button" class="btn btn-ghost btn-block" data-forgot>Forgot your PIN?</button>
+    </div>
+  </main>`;
+  }
+  var waitTimer = null;
+  function bindLock() {
+    const pad3 = bindPinpad(app, {
+      onComplete: async (pin) => {
+        const r = await unlockWithPin(pin);
+        if (r.ok) return;
+        if (r.code === "wait" && r.waitMs) {
+          pad3.error(r.message);
+          pad3.disable(true);
+          clearTimeout(waitTimer);
+          waitTimer = setTimeout(() => {
+            pad3.disable(false);
+            pad3.error("");
+          }, r.waitMs);
+          return;
+        }
+        pad3.error(r.message);
+        if (r.code === "pin_locked") app.querySelector("[data-forgot]").textContent = "Reset your PIN with an email code";
+      }
+    });
+    pad3.focus();
+    app.querySelector("[data-forgot]").addEventListener("click", async () => {
+      const ok = await confirmDialog("Reset your PIN?", "We send a code to your email. After the reset, your other devices are signed out.", { confirmLabel: "Send a code" });
+      if (ok) openSignIn({ mode: "signin" });
+    });
+    biometricsAvailable().then((kind) => {
+      if (!kind || !settings().biometrics) return;
+      const b = app.querySelector("[data-bio]");
+      if (!b) return;
+      b.hidden = false;
+      b.addEventListener("click", () => unlockWithBiometrics());
+      unlockWithBiometrics();
+    });
+  }
+
+  // src/ui/approval.js
+  var store = () => globalThis.Capacitor?.getPlatform?.() === "ios" ? "Screen Time" : "Google Family Link";
+  function approvalHTML() {
+    return `
+  <main class="screen lock-screen" role="main" aria-labelledby="approval-title">
+    <div class="lock-card">
+      <span class="lock-icon" aria-hidden="true">${icon("lock", 22)}</span>
+      <h1 class="lock-title" id="approval-title" tabindex="-1">Waiting for a parent</h1>
+      <p class="hint">A parent or guardian needs to approve Stack'd for your account in ${store()}. Your boards, notes and meetings stay on this device.</p>
+      <button type="button" class="btn btn-secondary btn-block" data-approval-check>Check again</button>
+    </div>
+  </main>`;
+  }
+  function bindApproval() {
+    app.querySelector("#approval-title")?.focus();
+    app.querySelector("[data-approval-check]")?.addEventListener("click", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      await check();
+      if (waiting()) {
+        b.disabled = false;
+        toast("Not approved yet");
+      }
+    });
+  }
+
   // app.js
+  var screenKey = () => [isDesktop.matches, UI.screen, S.currentList, S.view, UI.folder, UI.folderKind, UI.detailId].join("|");
+  var shownKey = null;
+  function readScroll() {
+    const one = (sel, prop) => app.querySelector(sel)?.[prop] || 0;
+    return {
+      key: shownKey,
+      board: one(".board", "scrollLeft"),
+      area: one(".scroll-area", "scrollTop"),
+      main: one(".main", "scrollTop"),
+      side: one(".sidebar", "scrollTop"),
+      lanes: [...app.querySelectorAll(".lane")].map((l) => [l.dataset.lane, l.querySelector(".lane-cards")?.scrollTop || 0])
+    };
+  }
+  function keepScroll(was) {
+    shownKey = S.onboarded ? screenKey() : null;
+    if (!shownKey || was.key !== shownKey) return;
+    const put = (sel, prop, v) => {
+      const el = app.querySelector(sel);
+      if (el && v) el[prop] = v;
+    };
+    put(".board", "scrollLeft", was.board);
+    put(".scroll-area", "scrollTop", was.area);
+    put(".main", "scrollTop", was.main);
+    put(".sidebar", "scrollTop", was.side);
+    was.lanes.forEach(([id, top]) => {
+      const el = top && [...app.querySelectorAll(".lane")].find((l) => l.dataset.lane === id)?.querySelector(".lane-cards");
+      if (el) el.scrollTop = top;
+    });
+  }
   function render() {
+    const was = readScroll();
+    draw2();
+    keepScroll(was);
+  }
+  function screenHTML() {
+    return UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meeting" ? meetingHTML() : UI.screen === "meetings" ? meetingsHTML() : mobileListHTML();
+  }
+  var withNav = () => !["detail", "note", "meeting"].includes(UI.screen) && !(UI.screen === "notes" && UI.composer.expanded);
+  function draw2() {
     applyTheme();
+    dropWaiting();
     if (isRecording() && !(UI.screen === "meeting" && UI.detailId === recordingMeetingId())) {
       UI.screen = "meeting";
       UI.detailId = recordingMeetingId();
       toast("Stop the recording first");
     }
     const focusAddsub = document.activeElement?.classList?.contains("addsub-input");
+    const banner = moveBannerHTML();
+    if (waiting()) {
+      document.querySelectorAll(".overlay").forEach((o) => o.remove());
+      app.innerHTML = approvalHTML();
+      bindApproval();
+      return;
+    }
     if (!S.onboarded) {
-      app.innerHTML = onboardingHTML();
+      app.innerHTML = banner + onboardingHTML();
       bindOnboarding();
+      bindMoveBanner();
+      return;
+    }
+    if (locked()) {
+      app.innerHTML = lockHTML();
+      bindLock();
       return;
     }
     if (isDesktop.matches) {
-      app.innerHTML = desktopHTML();
+      app.innerHTML = banner + desktopHTML();
       bindDesktop();
     } else {
-      const screen = UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meetings" ? meetingsHTML() : UI.screen === "meeting" ? meetingHTML() : mobileListHTML();
-      const withNav = !["detail", "note", "meeting"].includes(UI.screen) && !(UI.screen === "notes" && UI.composer.expanded);
-      app.innerHTML = screen + (withNav ? mobileNavHTML() : "");
+      const screen = screenHTML();
+      const nav = withNav();
+      app.innerHTML = banner + screen + (nav ? mobileNavHTML() : "");
       if (UI.screen === "lists") bindListsMenu();
       else if (UI.screen === "detail") bindDetail();
       else if (UI.screen === "folders") bindFolders();
@@ -7011,30 +10317,98 @@
       else if (UI.screen === "meetings") bindMeetings();
       else if (UI.screen === "meeting") bindMeeting();
       else bindMobileList();
-      if (withNav) bindMobileNav();
+      if (nav) bindMobileNav();
     }
+    bindMoveBanner();
     if (focusAddsub || UI.refocusAddsub) {
       UI.refocusAddsub = false;
       document.querySelector(".addsub-input")?.focus();
     }
   }
   setRenderer(render);
-  setAfterCommit(syncReminders);
-  setMediaRemover((keys) => keys.forEach((k) => remove(k).catch(() => {
+  setAfterCommit(() => {
+    syncReminders();
+    request2("edit");
+  });
+  setSaveFailed(() => toast("Stack'd has run out of space on this device. Empty Deleted or remove old tasks; new changes are not saved until then.", { ms: 12e3 }));
+  init();
+  init2();
+  setBlocked(() => locked());
+  purgeOld();
+  var wasLocked = locked();
+  onLockChange((on) => {
+    document.querySelectorAll(".overlay").forEach((o) => {
+      if (on) o.remove();
+    });
+    render();
+    if (wasLocked && !on) request2("unlock");
+    wasLocked = on;
+  });
+  onPinRequired(() => lock("pin_required"));
+  onGone((name) => toast(`You are no longer on “${name}”`, { ms: 6e3 }));
+  var shownInvites = "";
+  onShared((sh) => {
+    const key = sh.invites.map((i) => i.id).join(",");
+    if (key === shownInvites) return;
+    shownInvites = key;
+    rerender();
+  });
+  var shownSync = "";
+  onState((s) => {
+    const key = s.state === "syncing" && UI.screen !== "settings" ? shownSync : `${s.state}|${s.pending}|${s.paused?.code || ""}`;
+    if (key === shownSync) return;
+    shownSync = key;
+    const a = document.activeElement;
+    if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
+    if (UI.screen === "settings" || UI.screen === "lists" || isDesktop.matches) rerender();
+  });
+  var signedInAs = current()?.userId || null;
+  onChange((a) => {
+    const id = a?.userId || null;
+    if (id !== signedInAs) {
+      if (id) identify(id);
+      else anonymous(S.plan.subscriberId);
+      signedInAs = id;
+    }
+    rerender();
+  });
+  function syncSoon(reason2) {
+    if (!signedIn()) return;
+    if (!started()) {
+      if (!locked()) startSync();
+      return;
+    }
+    request2(reason2);
+  }
+  ready.then(() => syncSoon("boot"));
+  onChange2(() => render());
+  check();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") check();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") syncSoon("focus");
+  });
+  window.addEventListener("online", () => syncSoon("online"));
+  setInterval(() => {
+    if (document.visibilityState === "visible") syncSoon("poll");
+  }, POLL_MS);
+  ["pointerdown", "keydown"].forEach((t) => document.addEventListener(t, () => touch2(), { passive: true, capture: true }));
+  setMediaRemover((keys) => keys.forEach((k) => remove2(k).catch(() => {
   })));
   purgeDeleted();
-  if (available()) {
-    orphans(S.meetings.map((m) => m.recording?.key).filter(Boolean)).then((rows) => rows.forEach((row) => {
-      const m = meetingById(row.meetingId);
-      if (m && m.status === "active" && !m.recording && row.sizeBytes > 0 && row.durationMs > 0) {
-        setRecording(m.id, { key: row.key, mimeType: row.mimeType, durationMs: row.durationMs, sizeBytes: row.sizeBytes, recordedAt: row.updatedAt - row.durationMs });
-      } else remove(row.key).catch(() => {
+  if (available2()) {
+    orphans(S.meetings.map((m) => m.recording?.key).filter(Boolean)).then((rows) => rows.forEach((row2) => {
+      const m = meetingById(row2.meetingId);
+      if (m && m.status === "active" && !m.recording && row2.sizeBytes > 0 && row2.durationMs > 0) {
+        setRecording(m.id, { key: row2.key, mimeType: row2.mimeType, durationMs: row2.durationMs, sizeBytes: row2.sizeBytes, recordedAt: row2.updatedAt - row2.durationMs });
+      } else remove2(row2.key).catch(() => {
       });
     })).catch(() => {
     });
   }
   resumeJobs();
-  configure(S.plan.subscriberId);
+  configure(current()?.userId || S.plan.subscriberId);
   setTranscribedHandler((id) => {
     const m = meetingById(id);
     if (!m?.recording) return;
@@ -7044,7 +10418,10 @@
     if (code === "plan_required") openPlanRequired({ step });
     else if (code === "allowance_exhausted") openAllowanceUsed({ step, resetsAt });
   });
-  document.addEventListener("resume", () => resumeJobs());
+  document.addEventListener("resume", () => {
+    resumeJobs();
+    syncSoon("resume");
+  });
   window.addEventListener("online", () => resumeJobs());
   function openTask(id) {
     const t = taskById(id);
@@ -7059,6 +10436,139 @@
       UI.sortMenu = false;
       rerender();
     }
+  });
+  var TOP_LEVEL = ["list", "notes", "meetings", "folders", "settings"];
+  var ITEMS = ".row, .kcard, .lane, .board, .card, .set-row, .lrow, .chip-row, .search-row, .invite-card, .notice";
+  var FIELDS = 'input, textarea, select, [contenteditable="true"], [data-editor]';
+  function asScreen(screen, build) {
+    const was = { screen: UI.screen, slide: UI.menuSlide };
+    UI.screen = screen;
+    UI.menuSlide = false;
+    try {
+      return build();
+    } finally {
+      UI.screen = was.screen;
+      UI.menuSlide = was.slide;
+    }
+  }
+  function peekLayer(html, cls) {
+    const el = document.createElement("div");
+    el.className = cls;
+    el.setAttribute("aria-hidden", "true");
+    el.inert = true;
+    el.innerHTML = html;
+    document.body.appendChild(el);
+    return el;
+  }
+  var waiting2 = null;
+  var peeking = false;
+  function dropWaiting() {
+    waiting2?.els.forEach((el) => el.remove());
+    waiting2 = null;
+  }
+  function buildMenuPeek() {
+    const dim = peekLayer("", "peek-dim");
+    const layer = peekLayer(asScreen("lists", listsMenuHTML), "peek peek-over");
+    return { kind: "menu", layer, dim, els: [dim, layer] };
+  }
+  function buildBackPeek() {
+    const t = taskById(UI.detailId);
+    const to = t && t.status !== "active" ? "folders" : "list";
+    const under = peekLayer(asScreen(to, screenHTML), "peek peek-under");
+    const nav = peekLayer(asScreen(to, mobileNavHTML), "peek-nav");
+    const shade = peekLayer("", "peek-shade");
+    return { kind: "back", to, under, shade, els: [under, nav, shade] };
+  }
+  var peekKind = () => UI.screen === "detail" ? "back" : "menu";
+  function preparePeek() {
+    const kind = peekKind();
+    if (waiting2?.kind === kind) return;
+    dropWaiting();
+    waiting2 = kind === "back" ? buildBackPeek() : buildMenuPeek();
+    waiting2.els.forEach((el) => el.classList.add("peek-waiting"));
+  }
+  function takePeek() {
+    preparePeek();
+    const peek = waiting2;
+    waiting2 = null;
+    peek.els.forEach((el) => el.classList.remove("peek-waiting"));
+    peeking = true;
+    return peek;
+  }
+  var endPeek = (peek) => {
+    peek.els.forEach((el) => el.remove());
+    peeking = false;
+  };
+  var shift = (px) => `translate3d(${px.toFixed(1)}px, 0, 0)`;
+  function peekMenu() {
+    const peek = takePeek();
+    const { layer, dim } = peek;
+    const w = window.innerWidth;
+    const at = (p) => shift((p - 1) * w);
+    layer.style.transform = at(0);
+    return {
+      move: (p) => {
+        layer.style.transform = at(p);
+        dim.style.opacity = String(p);
+      },
+      settle: (open2) => {
+        if (open2) app.querySelectorAll(".bottom-nav [data-nav]").forEach((b) => b.classList.toggle("active", b.dataset.nav === "lists"));
+        dim.style.transition = "opacity 220ms ease";
+        dim.style.opacity = open2 ? "1" : "0";
+        slideTo(layer, at(open2 ? 1 : 0), () => {
+          if (open2) {
+            UI.menuSlide = false;
+            UI.screen = "lists";
+            rerender();
+          }
+          endPeek(peek);
+        });
+      }
+    };
+  }
+  function peekBack() {
+    const peek = takePeek();
+    const { to, under, shade } = peek;
+    const w = window.innerWidth;
+    const at = (p) => shift(p * w);
+    const behind = (p) => shift((p - 1) * 0.24 * w);
+    app.classList.add("is-peeking");
+    under.style.transform = behind(0);
+    return {
+      move: (p) => {
+        app.style.transform = at(p);
+        under.style.transform = behind(p);
+        shade.style.opacity = String(1 - p);
+      },
+      settle: (open2) => {
+        under.style.transition = "transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+        under.style.transform = behind(open2 ? 1 : 0);
+        shade.style.transition = "opacity 220ms ease";
+        shade.style.opacity = open2 ? "0" : "1";
+        slideTo(app, at(open2 ? 1 : 0), () => {
+          app.style.transform = "";
+          app.classList.remove("is-peeking");
+          if (open2) {
+            if (to === "folders") UI.detailId = null;
+            UI.screen = to;
+            rerender();
+          }
+          endPeek(peek);
+        });
+      }
+    };
+  }
+  bindSwipeRight(app, {
+    canStart: (target, x, edge) => {
+      if (isDesktop.matches || !S.onboarded || locked() || isRecording()) return false;
+      if (peeking || document.querySelector(".overlay") || target.closest(`.bottom-nav, ${FIELDS}`)) return false;
+      if (UI.screen === "detail") return edge || !target.closest(".subrow, .chip-row");
+      if (!TOP_LEVEL.includes(UI.screen) || UI.screen === "notes" && UI.composer.expanded) return false;
+      return edge || !target.closest(ITEMS);
+    },
+    prepare: preparePeek,
+    discard: dropWaiting,
+    start: () => UI.screen === "detail" ? peekBack() : peekMenu()
   });
   isDesktop.addEventListener("change", render);
   systemDark.addEventListener("change", render);

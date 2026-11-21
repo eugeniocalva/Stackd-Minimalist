@@ -1,7 +1,7 @@
 /* Board + Lane picker sheet shared by Move, Copy and "Add to board" (action
    cards, PRD-meetings AC-08.4). */
 
-import { S, lanesOf, validLane, firstLane } from '../store.js';
+import { S, lanesOf, validLane, firstLane, activeLists } from '../store.js';
 import { esc } from '../util.js';
 import { icon } from './icons.js';
 
@@ -25,7 +25,7 @@ export function openMoveCopy({ mode, task = null, listId = null, lane = null, ti
     <div class="chip-group">
       <span class="microlabel">Board</span>
       <div class="chip-row" data-board>
-        ${S.lists.map((l) => `<button class="chip ${l.id === pick.listId ? 'on' : ''}" data-val="${l.id}">${esc(l.name)}</button>`).join('')}
+        ${activeLists().map((l) => `<button class="chip ${l.id === pick.listId ? 'on' : ''}" data-val="${l.id}">${esc(l.name)}</button>`).join('')}
       </div>
     </div>
     <div class="chip-group">

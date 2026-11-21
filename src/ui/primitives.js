@@ -8,17 +8,25 @@ import { icon } from './icons.js';
 /* ── Toast ───────────────────────────────────────────────────────────── */
 
 let toastEl = null, toastTimer = null;
+const TOAST_FADE_MS = 250;   // matches .toast / .toast.leaving in components.css
 
-export function dismissToast() {
+/** Takes the toast away. It fades out (PRD-improvements AC-05.1) unless
+    `now` is set, which is what a newer toast taking its place needs. */
+export function dismissToast({ now = false } = {}) {
   clearTimeout(toastTimer);
-  toastEl?.remove();
+  const el = toastEl;
   toastEl = null;
+  if (!el) return;
+  if (now) { el.remove(); return; }
+  el.classList.add('leaving');
+  setTimeout(() => el.remove(), TOAST_FADE_MS);
 }
 
 /** toast('Archived', { action: { label: 'Undo', onClick } }) — one at a time;
     the countdown pauses while the toast is pressed. */
 export function toast(message, { action = null, ms = 5000 } = {}) {
-  dismissToast();
+  dismissToast({ now: true });
+  document.querySelectorAll('.toast.leaving').forEach((el) => el.remove());
   const el = document.createElement('div');
   el.className = 'toast';
   el.setAttribute('role', 'status');
@@ -28,7 +36,7 @@ export function toast(message, { action = null, ms = 5000 } = {}) {
   toastEl = el;
 
   let remaining = ms, started = Date.now();
-  const start = () => { started = Date.now(); toastTimer = setTimeout(dismissToast, remaining); };
+  const start = () => { started = Date.now(); clearTimeout(toastTimer); toastTimer = setTimeout(() => dismissToast(), remaining); };
   const pause = () => { clearTimeout(toastTimer); remaining = Math.max(1500, remaining - (Date.now() - started)); };
   el.addEventListener('pointerdown', pause);
   el.addEventListener('pointerup', start);
@@ -60,7 +68,11 @@ export function pinToViewport(ov) {
   return () => { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); };
 }
 
-function overlay(innerHTML, { onClose } = {}) {
+export function overlay(innerHTML, { onClose } = {}) {
+  /* a toast that only says something would lie on top of the sheet and take
+     its taps; one with Undo stays, and only its button takes taps
+     (testing report BUG-09) */
+  if (toastEl && !toastEl.querySelector('.toast-action')) dismissToast({ now: true });
   const ov = document.createElement('div');
   ov.className = 'overlay';
   ov.innerHTML = innerHTML;
@@ -82,13 +94,32 @@ export function confirmDialog(title, body, { confirmLabel = 'Confirm', danger = 
         <h2 id="dlg-title">${esc(title)}</h2>
         <p>${esc(body)}</p>
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-cancel>Cancel</button>
-          <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-ok>${esc(confirmLabel)}</button>
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          <button class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
       </div>`, { onClose: (r) => resolve(r === true) });
     ov.querySelector('[data-cancel]').addEventListener('click', () => close(false));
     ov.querySelector('[data-ok]').addEventListener('click', () => close(true));
     ov.querySelector('[data-ok]').focus();
+  });
+}
+
+/** A question with more than one way to go ahead: Cancel plus one button
+    per choice ({ id, label, danger? }). Resolves with the chosen id, or null. */
+export function choiceDialog(title, body, choices) {
+  return new Promise((resolve) => {
+    const { ov, close } = overlay(`
+      <div class="sheet dialog" role="alertdialog" aria-labelledby="dlg-title" aria-describedby="dlg-body">
+        <h2 id="dlg-title">${esc(title)}</h2>
+        <p id="dlg-body">${esc(body)}</p>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          ${choices.map((c) => `<button class="btn ${c.danger ? 'btn-danger' : 'btn-primary'}" data-choice="${esc(c.id)}"><span class="btn-label">${esc(c.label)}</span></button>`).join('')}
+        </div>
+      </div>`, { onClose: (r) => resolve(typeof r === 'string' ? r : null) });
+    ov.querySelector('[data-cancel]').addEventListener('click', () => close(null));
+    ov.querySelectorAll('[data-choice]').forEach((b) => b.addEventListener('click', () => close(b.dataset.choice)));
+    ov.querySelector('[data-cancel]').focus();
   });
 }
 
@@ -102,12 +133,17 @@ export function promptDialog(title, { value = '', placeholder = '', confirmLabel
         <h2 id="dlg-title">${esc(title)}</h2>
         <input class="input" data-field value="${esc(value)}" placeholder="${esc(placeholder)}" aria-label="${esc(title)}" autocomplete="off">
         <div class="dialog-actions">
-          <button class="btn btn-secondary" data-cancel>Cancel</button>
-          <button class="btn btn-primary" data-ok>${esc(confirmLabel)}</button>
+          <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
+          <button class="btn btn-primary" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
       </div>`, { onClose: (r) => resolve(typeof r === 'string' && (r.trim() || allowEmpty) ? r.trim() : null) });
     const input = ov.querySelector('[data-field]');
-    const ok = () => close(input.value);
+    const okBtn = ov.querySelector('[data-ok]');
+    /* nothing to save yet: the button says so, instead of closing without
+       a word (testing report BUG-13) */
+    const sync = () => { okBtn.disabled = !allowEmpty && !input.value.trim(); };
+    input.addEventListener('input', sync); sync();
+    const ok = () => { if (!okBtn.disabled) close(input.value); };
     ov.querySelector('[data-cancel]').addEventListener('click', () => close(null));
     ov.querySelector('[data-ok]').addEventListener('click', ok);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); });
@@ -119,7 +155,7 @@ export function promptDialog(title, { value = '', placeholder = '', confirmLabel
 
 const itemHTML = (it, i) => it.divider
   ? '<div class="menu-divider"></div>'
-  : `<button class="menu-item ${it.danger ? 'danger' : ''}" data-i="${i}" role="menuitemradio" aria-checked="${!!it.checked}">${it.icon ? icon(it.icon) : ''}${
+  : `<button class="menu-item ${it.danger ? 'danger' : ''}" data-i="${i}" ${it.checked === undefined ? 'role="menuitem"' : `role="menuitemradio" aria-checked="${!!it.checked}"`}>${it.icon ? icon(it.icon) : ''}${
     it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ''}${
     it.swatch === 'none' ? '<span class="swatch swatch-none"></span>' : ''}<span>${esc(it.label)}</span>${
     it.checked ? `<span class="menu-check">${icon('check')}</span>` : ''}</button>`;
@@ -156,4 +192,17 @@ export function openMenu(anchorEl, items) {
   back.addEventListener('click', close);
   document.addEventListener('keydown', onKey);
   bind(pop, close);
+}
+
+/* ── File download ───────────────────────────────────────────────────── */
+
+/** Hands a Blob to the browser as a download (web only). */
+export function downloadFile(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.hidden = true;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }

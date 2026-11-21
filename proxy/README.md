@@ -119,3 +119,21 @@ provider is one file in `src/stt/` with `start(blob, mimeType)` and
 `npm test` covers `plans.js` (limits, periods), `pool.js` (reserve, charge,
 release on an in-memory KV) and `schema.js` (validation, date and priority
 rules). No network.
+
+## Accounts and sync (1.6.0)
+
+`/v1/auth/*`, `/v1/account*` and `/v1/sync*` (docs/architecture.md §30, §45)
+answer `503 misconfigured` until the database, the two peppers, the
+document versions and a mail provider are set; the routes above are not
+affected. Setup is listed at the top of `wrangler.toml`. Tests:
+`npm test` runs `test/accounts.mjs` on `node:sqlite` with the real SQL.
+
+Local run of sign-in and sync, with a local database and the mail stub:
+
+```bash
+npx wrangler d1 migrations apply DB --local --config wrangler.dev.toml
+npx wrangler dev --config wrangler.dev.toml --port 8787 --ip 127.0.0.1
+```
+
+The sign-in code is at `http://localhost:8787/v1/dev/mail?to=<email>`
+(localhost and `DEV_MAIL=1` only). Never deploy `wrangler.dev.toml`.

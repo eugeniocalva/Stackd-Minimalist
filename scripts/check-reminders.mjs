@@ -38,6 +38,11 @@ const plan = planReminders([
   task('fired', { reminderFiredAt: 123 }),
 ], lists);
 assert.deepEqual(plan.map((e) => e.taskId), ['soon', 'fired', 'late']);
+// 1.6.0 (PRD-improvements AC-10.7): a card on an archived or deleted board is put away with it
+const away = [...lists, { id: 'arch', name: 'Archived board', status: 'archived' }, { id: 'bin', name: 'Deleted board', status: 'deleted' }, { id: 'live', name: 'Live', status: 'active' }];
+assert.deepEqual(planReminders([
+  task('onArchived', { listId: 'arch' }), task('onDeleted', { listId: 'bin' }), task('onLive', { listId: 'live' }),
+], away).map((e) => e.taskId), ['onLive']);
 assert.equal(plan[0].fireAt, at(2026, 10, 17, 8));
 assert.equal(plan[0].body, 'Due today at 09:00 · Work');
 assert.equal(plan[1].firedAt, 123);

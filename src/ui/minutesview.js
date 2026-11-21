@@ -12,7 +12,7 @@ import { esc } from '../util.js';
 import { icon } from './icons.js';
 import { confirmDialog } from './primitives.js';
 import { summarise, isOnline, isRunning } from '../ai.js';
-import { aiButtonState, openPlanRequired, openAllowanceUsed } from './paywall.js';
+import { aiButtonState, openPlanRequired, openAllowanceUsed, stopForPlan } from './paywall.js';
 
 export const DISCLOSURE = 'The transcript, with the speaker names you gave, is sent to our server and to an AI model provider to write the minutes and find the actions. Nothing is kept there after the result comes back, and nothing is sent until you press this button.';
 
@@ -59,6 +59,7 @@ export function bindSummariseCta(root, m) {
       if (!await confirmDialog('Before the first summary', DISCLOSURE, { confirmLabel: 'Continue' })) return;
       markDisclosed();
     }
+    if (await stopForPlan('summarise')) return;
     if (m.minutes && !await confirmDialog('Regenerate the minutes?', 'The minutes and the actions not yet added to a board are replaced.', { confirmLabel: 'Regenerate' })) return;
     summarise(m.id);
   });

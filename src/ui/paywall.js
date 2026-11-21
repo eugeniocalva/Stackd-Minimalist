@@ -11,10 +11,12 @@ import { esc } from '../util.js';
 import { icon } from './icons.js';
 import { toast, pinToViewport } from './primitives.js';
 import { allowance, errorFor } from '../ai.js';
-import { available, offerings, buy, restore, manageUrl, PAID_TIERS } from '../purchases.js';
+import { available, offerings, buy, restore, manageUrl, PAID_TIERS, platform } from '../purchases.js';
+import { TERMS_URL, PRIVACY_URL } from '../legal.js';
+import * as agesignal from '../agesignal.js';
 
-export const TERMS_URL = 'https://eugeniocalva.github.io/Stackd-Minimalist/terms.html';
-export const PRIVACY_URL = 'https://eugeniocalva.github.io/Stackd-Minimalist/privacy.html';
+/* the store says the user is under 18 (docs/prd-age-signals.md §04, 3) */
+const MINOR_LINE = 'Plans need a parent’s approval, given in your store account.';
 
 const BLURB = {
   plus: 'A 30-minute call most working days',
@@ -34,15 +36,34 @@ export function aiButtonState(step) {
   return { locked: false, hint: `${fmtDuration(p.audioSecondsLeft * 1000)} of audio left` };
 }
 
+/** Before an AI step sends anything: on a device whose plan was never
+    checked, ask the server first (testing report BUG-05; AC-12.6 says a Free
+    user sends nothing). True when the step must not go on: the plan sheet
+    is open, or the plan could not be checked and a message says so. */
+export async function stopForPlan(step) {
+  if (!S.plan.checkedAt) {
+    try { await allowance({ force: true }); }
+    catch (e) { toast(errorFor(e).message); return true; }
+  }
+  if (S.plan.tier === 'free' && S.plan.checkedAt) { rerender(); openPlanRequired({ step }); return true; }
+  return false;
+}
+
 /* ── Plan cards ──────────────────────────────────────────────────────── */
 
 let prices = {};   // tier → store price string, once offerings answered
+
+/* PRD-accounts AC-11.5: the renewal terms sit directly above each button,
+   not only in the paragraph under the cards. */
+const storeName = () => ({ ios: 'App Store', android: 'Google Play' }[platform()] || 'App Store or Google Play');
+export const renewalLine = (price) => `${price} per month, renews automatically every month. Cancel any time in ${storeName()} settings.`;
 
 function cardHTML(tier, current) {
   const price = prices[tier] || PLAN_PRICES[tier];
   const isCurrent = current === tier;
   const action = !available() ? ''
     : isCurrent ? '<span class="tag tag-done">Current plan</span>'
+    : agesignal.isMinor() ? `<span class="hint">${esc(MINOR_LINE)}</span>`
     : `<button type="button" class="btn ${current === 'free' || current === 'tester' ? 'btn-primary' : 'btn-secondary'} btn-sm" data-buy="${tier}">${current === 'free' || current === 'tester' ? 'Subscribe' : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current) ? 'Upgrade' : 'Switch'}</button>`;
   return `
   <div class="plan-card ${isCurrent ? 'is-current' : ''}">
@@ -52,6 +73,7 @@ function cardHTML(tier, current) {
     </div>
     <span class="plan-pool">${esc(poolLine(tier))}</span>
     <span class="hint">${esc(BLURB[tier])}</span>
+    <span class="plan-renew">${esc(renewalLine(price))}</span>
     ${action}
   </div>`;
 }
@@ -131,6 +153,8 @@ export function bindPlanSection(root) {
 /** The native purchase (AC-12.3), then the proxy's view wins (AC-09.2). */
 async function purchase(tier, btn) {
   if (btn) btn.disabled = true;
+  /* the store may not have answered yet: ask now (it may prompt once) */
+  if ((await agesignal.ask())?.age === 'minor') { toast(MINOR_LINE, { ms: 6000 }); rerender(); return; }
   try {
     const r = await buy(tier);
     if (r.cancelled) { if (btn) btn.disabled = false; return; }

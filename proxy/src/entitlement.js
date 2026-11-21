@@ -28,13 +28,13 @@ export function fromSubscriber(sub, now = Date.now()) {
   return { tier: 'free', renewsAt: null };
 }
 
-async function lookup(env, subscriberId, fetchImpl = globalThis.fetch) {
+async function lookup(env, subscriberId, fetchImpl = globalThis.fetch, now = Date.now()) {
   const res = await fetchImpl(RC_API + encodeURIComponent(subscriberId), {
     headers: { Authorization: `Bearer ${env.RC_SECRET_KEY}`, 'Content-Type': 'application/json' },
   });
   if (!res.ok) throw new Error(`RevenueCat answered ${res.status}`);
   const body = await res.json();
-  return fromSubscriber(body?.subscriber);
+  return fromSubscriber(body?.subscriber, now);
 }
 
 /** → { tier, renewsAt }. A RevenueCat failure falls back to the cached
@@ -48,7 +48,7 @@ export async function resolve(env, subscriberId, { fetchImpl = globalThis.fetch,
     try { const c = JSON.parse(cached); if (!c.renewsAt || c.renewsAt > now) return c; } catch { /* refetch */ }
   }
   try {
-    const ent = await lookup(env, subscriberId, fetchImpl);
+    const ent = await lookup(env, subscriberId, fetchImpl, now);
     await env.POOL.put(key, JSON.stringify(ent), { expirationTtl: CACHE_TTL });
     return ent;
   } catch (e) {
