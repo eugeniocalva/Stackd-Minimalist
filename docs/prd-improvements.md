@@ -212,6 +212,9 @@ jumping.*
 ### US-09 — One "+" menu (brief 12)
 - [x] AC-09.1 On mobile, "+" opens the Add menu on every page that shows
       it: a grid of Add task, Add note, Add meeting, Add automation.
+      *(2026-11-21, testing report BUG-07)* The fourth tile is Add board:
+      Add automation only led to a "coming soon" row, and returns when
+      custom rules exist.
       *(2026-11-17)* The four tiles alone, without a sheet around them,
       over the page blurred and washed with its background; they rise one
       after another.

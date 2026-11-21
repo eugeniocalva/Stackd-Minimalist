@@ -4,7 +4,7 @@
    leaving the field saves, Esc reverts. */
 
 import {
-  S, UI, PRIORITY_COLORS, THEMES, PROXY_URL, allTags, tagUseCounts, priorityUseCount,
+  S, UI, PRIORITY_COLORS, THEMES, PROXY_URL, allTags, tagUseCount, tagUseCounts, priorityUseCount,
   setTheme, setDateFormat, addPriority, updatePriority, movePriority, deletePriority,
   addLabel, renameLabel, deleteLabel, setProxyUrl, resetNotices, rerender,
 } from '../store.js';
@@ -241,14 +241,6 @@ export function settingsHTML() {
             <span class="set-sub">Built in · repeating tasks roll to their next date instead</span>
           </div>
           <span class="tag pc pc-green">On</span>
-        </div>
-        <div class="set-row is-disabled" aria-disabled="true">
-          <span class="lrow-icon dashed">${icon('plus', 18)}</span>
-          <div class="set-text">
-            <span class="set-title">New automation</span>
-            <span class="set-sub">Custom rules are coming soon</span>
-          </div>
-          <span class="tag">Soon</span>
         </div>
       </div>
     </div>

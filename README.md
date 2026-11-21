@@ -223,7 +223,7 @@ is enough; HTTPS is required for install + service worker on real devices.
   board stays
 - **Navigation** — mobile: sticky frosted header plus a floating bottom pill
   (Boards · Tasks · Notes · Archive & Bin) and a round **+** that opens the
-  same grid everywhere: Add task, Add note, Add meeting, Add automation.
+  same grid everywhere: Add task, Add note, Add meeting, Add board.
   The title of every top-level page carries a chevron that opens the main
   menu, and so does a swipe to the right, which brings the menu in under
   the finger. On an open card the same swipe takes it back to its board,

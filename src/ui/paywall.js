@@ -36,6 +36,19 @@ export function aiButtonState(step) {
   return { locked: false, hint: `${fmtDuration(p.audioSecondsLeft * 1000)} of audio left` };
 }
 
+/** Before an AI step sends anything: on a device whose plan was never
+    checked, ask the server first (testing report BUG-05; AC-12.6 says a Free
+    user sends nothing). True when the step must not go on: the plan sheet
+    is open, or the plan could not be checked and a message says so. */
+export async function stopForPlan(step) {
+  if (!S.plan.checkedAt) {
+    try { await allowance({ force: true }); }
+    catch (e) { toast(errorFor(e).message); return true; }
+  }
+  if (S.plan.tier === 'free' && S.plan.checkedAt) { rerender(); openPlanRequired({ step }); return true; }
+  return false;
+}
+
 /* ── Plan cards ──────────────────────────────────────────────────────── */
 
 let prices = {};   // tier → store price string, once offerings answered

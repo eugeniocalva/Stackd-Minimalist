@@ -768,6 +768,7 @@
   var tagged = () => [...S.tasks, ...S.notes].filter((x) => !isGone(x));
   var allTags = () => normalizeTags([...S.labels, ...tagged().flatMap((x) => x.tags)]);
   var sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
+  var tagUseCount = (name) => tagged().filter((x) => x.tags.some((t) => sameTag(t, name))).length;
   var noteById = (id) => S.notes.find((n) => n.id === id);
   var activeNotes = () => S.notes.filter((n) => n.status === "active");
   function sortedNotes(sort = S.notesSort) {
@@ -2237,7 +2238,7 @@
       const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
       const draggable = canDrag();
       const sc = scroller();
-      let dragging = false, held = false, ghost = null, raf = 0, scrollV = 0;
+      let dragging = false, held = false, ghost = null, raf = 0, scrollV = 0, lastMove = null;
       const startDrag = () => {
         dragging = true;
         try {
@@ -2291,6 +2292,7 @@
         if (scrollV) {
           if (axis === "x") sc.scrollLeft += scrollV;
           else sc.scrollTop += scrollV;
+          if (lastMove) onDragMove?.(lastMove);
         }
         raf = requestAnimationFrame(autoScroll);
       };
@@ -2309,6 +2311,7 @@
         }
         if (!dragging) return;
         ghost.style.transform = `translate(${ev.clientX - sx}px, ${ev.clientY - sy}px)`;
+        lastMove = ev;
         onDragMove?.(ev);
         if (sc) {
           const r = sc.getBoundingClientRect();
@@ -2339,7 +2342,10 @@
         endDrag();
         if (wasDragging || held) swallowClick();
         if (wasDragging) onDrop?.(ev);
-        else if (!held && !wasArmed && Math.hypot(ev.clientX - sx, ev.clientY - sy) < SLOP) onTap?.(ev);
+        else if (!held && !wasArmed && Math.hypot(ev.clientX - sx, ev.clientY - sy) < SLOP && onTap) {
+          swallowNextClick();
+          onTap(ev);
+        }
       };
       const cancel = () => {
         finish3();
@@ -2350,6 +2356,14 @@
       el.addEventListener("pointerup", up);
       el.addEventListener("pointercancel", cancel);
     });
+  }
+  function swallowNextClick() {
+    const stop = (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+    };
+    document.addEventListener("click", stop, { capture: true, once: true });
+    setTimeout(() => document.removeEventListener("click", stop, { capture: true }), 400);
   }
   var EDGE_PX = 24;
   var START_PX = 8;
@@ -5385,6 +5399,22 @@
     if (step === "summarise") return { locked: false, hint: `1 of ${p.summariesLeft} summar${p.summariesLeft === 1 ? "y" : "ies"} left` };
     return { locked: false, hint: `${fmtDuration(p.audioSecondsLeft * 1e3)} of audio left` };
   }
+  async function stopForPlan(step) {
+    if (!S.plan.checkedAt) {
+      try {
+        await allowance({ force: true });
+      } catch (e) {
+        toast(errorFor(e).message);
+        return true;
+      }
+    }
+    if (S.plan.tier === "free" && S.plan.checkedAt) {
+      rerender();
+      openPlanRequired({ step });
+      return true;
+    }
+    return false;
+  }
   var prices = {};
   var storeName = () => ({ ios: "App Store", android: "Google Play" })[platform2()] || "App Store or Google Play";
   var renewalLine = (price) => `${price} per month, renews automatically every month. Cancel any time in ${storeName()} settings.`;
@@ -5610,6 +5640,7 @@
         if (!await confirmDialog("Before the first summary", DISCLOSURE, { confirmLabel: "Continue" })) return;
         markDisclosed();
       }
+      if (await stopForPlan("summarise")) return;
       if (m.minutes && !await confirmDialog("Regenerate the minutes?", "The minutes and the actions not yet added to a board are replaced.", { confirmLabel: "Regenerate" })) return;
       summarise(m.id);
     });
@@ -6306,14 +6337,6 @@
             <span class="set-sub">Built in · repeating tasks roll to their next date instead</span>
           </div>
           <span class="tag pc pc-green">On</span>
-        </div>
-        <div class="set-row is-disabled" aria-disabled="true">
-          <span class="lrow-icon dashed">${icon("plus", 18)}</span>
-          <div class="set-text">
-            <span class="set-title">New automation</span>
-            <span class="set-sub">Custom rules are coming soon</span>
-          </div>
-          <span class="tag">Soon</span>
         </div>
       </div>
     </div>
@@ -8209,6 +8232,7 @@
         if (!ok) return;
         markDisclosed();
       }
+      if (await stopForPlan("transcribe")) return;
       if (m.transcript && !await confirmDialog("Transcribe again?", "The transcript, the minutes and the actions not yet added to a board are replaced.", { confirmLabel: "Transcribe" })) return;
       stopPlayback();
       transcribe(m.id, { onProgress: (pct) => {
@@ -9150,8 +9174,9 @@
       focusComposer();
     } },
     { id: "meeting", label: "Add meeting", icon: "meeting", run: () => addMeeting() },
-    /* custom rules do not exist yet: the tile leads to the section that will hold them (PRD §07 Q3) */
-    { id: "automation", label: "Add automation", icon: "zap", run: () => openSettings("automations") }
+    /* was "Add automation", which only led to a "coming soon" row (testing
+       report BUG-07); it comes back when custom rules exist */
+    { id: "board", label: "Add board", icon: "board", run: () => newBoardFlow() }
   ];
   function openAddMenu() {
     const { ov, close } = overlay(`

@@ -8,14 +8,15 @@ import { icon } from './icons.js';
 import { openSheet } from './addsheet.js';
 import { openNotes, focusComposer } from './notes.js';
 import { addMeeting } from './meetings.js';
-import { openSettings } from './settings.js';
+import { newBoardFlow } from './sharing.js';
 
 const TILES = [
   { id: 'task', label: 'Add task', icon: 'tasks', run: () => openSheet() },
   { id: 'note', label: 'Add note', icon: 'note', run: () => { openNotes(); focusComposer(); } },
   { id: 'meeting', label: 'Add meeting', icon: 'meeting', run: () => addMeeting() },
-  /* custom rules do not exist yet: the tile leads to the section that will hold them (PRD §07 Q3) */
-  { id: 'automation', label: 'Add automation', icon: 'zap', run: () => openSettings('automations') },
+  /* was "Add automation", which only led to a "coming soon" row (testing
+     report BUG-07); it comes back when custom rules exist */
+  { id: 'board', label: 'Add board', icon: 'board', run: () => newBoardFlow() },
 ];
 
 export function openAddMenu() {

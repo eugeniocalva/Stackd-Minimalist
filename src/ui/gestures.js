@@ -83,7 +83,7 @@ export function bindHold(el, {
     const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
     const draggable = canDrag();
     const sc = scroller();
-    let dragging = false, held = false, ghost = null, raf = 0, scrollV = 0;
+    let dragging = false, held = false, ghost = null, raf = 0, scrollV = 0, lastMove = null;
 
     const startDrag = () => {
       dragging = true;
@@ -121,7 +121,12 @@ export function bindHold(el, {
 
     const autoScroll = () => {
       if (!dragging || !sc) { raf = 0; return; }
-      if (scrollV) { if (axis === 'x') sc.scrollLeft += scrollV; else sc.scrollTop += scrollV; }
+      if (scrollV) {
+        if (axis === 'x') sc.scrollLeft += scrollV; else sc.scrollTop += scrollV;
+        /* the finger rests while the page moves under it: what it is over
+           has changed, though no pointer event says so (testing report BUG-04) */
+        if (lastMove) onDragMove?.(lastMove);
+      }
       raf = requestAnimationFrame(autoScroll);
     };
     const blockScroll = (ev) => { if (dragging) ev.preventDefault(); };
@@ -134,6 +139,7 @@ export function bindHold(el, {
       }
       if (!dragging) return;
       ghost.style.transform = `translate(${ev.clientX - sx}px, ${ev.clientY - sy}px)`;
+      lastMove = ev;
       onDragMove?.(ev);
       if (sc) {
         const r = sc.getBoundingClientRect();
@@ -161,7 +167,14 @@ export function bindHold(el, {
       finish(); endDrag();
       if (wasDragging || held) swallowClick();
       if (wasDragging) onDrop?.(ev);
-      else if (!held && !wasArmed && Math.hypot(ev.clientX - sx, ev.clientY - sy) < SLOP) onTap?.(ev);
+      else if (!held && !wasArmed && Math.hypot(ev.clientX - sx, ev.clientY - sy) < SLOP && onTap) {
+        /* onTap usually draws another screen at once. The click the browser
+           still sends for this press would then land on whatever is now under
+           the finger, a task row for instance, and open it (testing report
+           BUG-01). That click is taken here, wherever it lands. */
+        swallowNextClick();
+        onTap(ev);
+      }
     };
     /* the browser took the pointer (the page started scrolling): never a tap, never a drop */
     const cancel = () => { finish(); endDrag(); };
@@ -170,6 +183,13 @@ export function bindHold(el, {
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', cancel);
   });
+}
+
+/* One click, anywhere, within the time a browser takes to send it after a press. */
+function swallowNextClick() {
+  const stop = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+  document.addEventListener('click', stop, { capture: true, once: true });
+  setTimeout(() => document.removeEventListener('click', stop, { capture: true }), 400);
 }
 
 /** A one-finger swipe to the right that follows the finger (PRD-improvements

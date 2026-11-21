@@ -883,3 +883,38 @@ Changed after the test (architecture §48; the PRD marks each with the date):
   ran from `/Applications/Xcode_27.2.app`.
 - **Also from build 14:** the age-signals plugin compiled and signed with
   Xcode 27; the entitlement step was skipped, as intended.
+
+### Deep testing pass and its pre-release fixes (2026-11-21)
+
+- **Report:** `docs/testing/deep-testing-report-1.6.0.html`: 52 criteria,
+  37 passed, 12 failed, 2 blocked, 1 skipped; 19 bugs (2 high, 6 medium,
+  11 low), each with steps and annotated screenshots.
+- **Fixed from its pre-release list:**
+  - **BUG-01, board switch also opened a task.** `bindHold` takes the click
+    the browser still sends after a tap it handled, wherever it lands.
+  - **BUG-03, label delete did nothing.** `settings.js` now imports
+    `tagUseCount`, which it was calling.
+  - **BUG-04, wrong lane after auto-scroll.** While the page scrolls under
+    a resting finger, `bindHold` reports the last pointer position again
+    on every scroll step.
+  - **BUG-05, upload before the plan check.** `stopForPlan(step)` in
+    `paywall.js` asks for the allowance when the plan was never checked.
+    Free opens the plan sheet; an unreachable service shows its message.
+    Transcribe, Summarise and their Retry go through it.
+  - **BUG-07, "Add automation" placeholder.** The fourth tile is Add
+    board; the "Soon" row left Settings.
+- **Verified** in a clean test profile (Chromium, phone size, touch):
+  - four boards open from the menu without a task opening; a row tap
+    still opens its task;
+  - a card held at the edge after the board scrolls is ringed nowhere and
+    stays in its lane;
+  - the label bin asks "Delete #errand?" and removes it;
+  - network blocked: Transcribe sends one GET /v1/allowance and no upload;
+  - a Free answer opens the plan sheet with no upload, and the button
+    is locked afterwards.
+- **Checks:** `npm run check` passes.
+- **Not done:** BUG-02 (Privacy Policy and Terms placeholders, site not
+  live) is the owner's and the lawyer's. The other 13 bugs are open.
+- **Not verified:** BUG-01 on an iPhone.
+- **Security:** fewer requests than before (a plan check replaces an
+  upload); no new storage or permission.

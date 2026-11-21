@@ -18,7 +18,7 @@ import { icon } from './icons.js';
 import { confirmDialog, toast } from './primitives.js';
 import { buzz } from '../haptics.js';
 import { transcribe, cancelUpload, uploadProgress, isOnline } from '../ai.js';
-import { aiButtonState, openPlanRequired } from './paywall.js';
+import { aiButtonState, openPlanRequired, stopForPlan } from './paywall.js';
 
 const TIMESLICE_MS = 5000;
 const BITRATE = 48_000;                      // mono speech: 30 min ≈ 11 MB
@@ -354,6 +354,7 @@ async function bindSaved(root, m) {
       if (!ok) return;
       markDisclosed();
     }
+    if (await stopForPlan('transcribe')) return;
     if (m.transcript && !await confirmDialog('Transcribe again?', 'The transcript, the minutes and the actions not yet added to a board are replaced.', { confirmLabel: 'Transcribe' })) return;
     stopPlayback();
     transcribe(m.id, { onProgress: (pct) => {
