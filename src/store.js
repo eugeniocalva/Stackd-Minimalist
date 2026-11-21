@@ -6,8 +6,7 @@
 import { uid } from './util.js';
 import {
   daysFrom, nextOccurrence, addDays, daysBetween, reminderInstant,
-  defaultDateFormat, isDateFormat, setDefaultDateFormat, fmtDate, fmtClock,
-} from './dates.js';
+  defaultDateFormat, isDateFormat, setDefaultDateFormat, fmtDate, fmtClock, anchorDayOf } from './dates.js';
 import { reminderKey } from './reminders.js';
 import { sanitize, toText } from './richtext.js';
 
@@ -229,6 +228,7 @@ export function blankTask(listId, title, extra = {}) {
     id: uid(), listId, lane: 'backlog', title, done: false, order: 0,
     priority: 'none', tags: [], subtasks: [],
     start: null, due: null, dueTime: null, recur: 'none', reminder: null, reminderFiredAt: null,
+    recurDay: null,                          // day of the month a monthly / yearly series is set for (BUG-06)
     completedCount: 0, lastCompletedAt: null,
     status: 'active', archivedAt: null, deletedAt: null, origin: null,
     from: null,                              // { meetingId, actionId } when made from an action card (1.5.0)
@@ -524,6 +524,7 @@ export function addTask(draft) {
     lane: draft.lane && lanesOf(draft.listId).some((l) => l.id === draft.lane) ? draft.lane : workLane(draft.listId), order: nextOrder(),
     from: draft.from || null,
   });
+  t.recurDay = anchorDayOf(t.due, t.recur);
   t.done = t.lane === DONE_LANE;
   armReminder(t);
   S.tasks.push(t);
@@ -963,10 +964,13 @@ export function markReminderFired(id, at = Date.now()) {
 export function setSchedule(id, { start = null, due = null, dueTime = null, recur = 'none', reminder = null }) {
   const t = taskById(id); if (!t) return;
   const before = reminderKey(t);
+  const was = { due: t.due, recur: t.recur };
   t.due = due || null;
   t.dueTime = t.due ? (dueTime || null) : null;
   t.start = start && (!t.due || start <= t.due) ? start : null;
   t.recur = t.due ? recur : 'none';
+  /* a new date or rule sets the day again; saving the same ones keeps it */
+  if (t.due !== was.due || t.recur !== was.recur || !t.recurDay) t.recurDay = anchorDayOf(t.due, t.recur);
   t.reminder = t.due ? reminder : null;
   /* saving unchanged dates must not re-fire a reminder that already went off */
   if (reminderKey(t) !== before) armReminder(t);
@@ -985,7 +989,7 @@ export function rollForward(id) {
     start: t.start, due: t.due, subtasks: t.subtasks.map((s) => s.done),
     completedCount: t.completedCount, lastCompletedAt: t.lastCompletedAt, reminderFiredAt: t.reminderFiredAt,
   };
-  const nextDue = nextOccurrence(t.due, t.recur);
+  const nextDue = nextOccurrence(t.due, t.recur, undefined, t.recurDay);
   if (t.start) t.start = addDays(t.start, daysBetween(t.due, nextDue));
   t.due = nextDue;
   armReminder(t);
@@ -1031,6 +1035,7 @@ export function copyTask(id, listId, lane) {
     priority: t.priority, tags: [...t.tags],
     subtasks: t.subtasks.map((s) => ({ id: uid(), title: s.title, done: false })),
     start: t.start, due: t.due, dueTime: t.dueTime, recur: t.recur, reminder: t.reminder,
+    recurDay: t.recurDay ?? null,
   });
   armReminder(copy);
   S.tasks.push(copy);
@@ -1042,6 +1047,17 @@ export function copyTask(id, listId, lane) {
 
 /** A new board, opened at once. Returns it, or null for an empty name.
     id / share: a shared board, made on the server first (PRD-improvements US-12). */
+/** Is there already a board, a lane of this board or a priority with this
+    name, whatever the capitals (testing report BUG-11)? except: the id of
+    the one being renamed. */
+export function nameTaken(kind, name, { listId = null, except = null } = {}) {
+  const n = String(name ?? '').trim().toLowerCase();
+  const pool = kind === 'board' ? S.lists.filter((l) => l.status === 'active')
+    : kind === 'lane' ? (listById(listId)?.lanes || [])
+    : S.priorities;
+  return !!n && pool.some((x) => x.id !== except && x.name.trim().toLowerCase() === n);
+}
+
 export function addList(name, { id = uid(), share = null } = {}) {
   const n = String(name ?? '').trim();
   if (!n) return null;

@@ -157,6 +157,7 @@ function cleanTask(r, i, ctx) {
     recur: due ? pick(r.recur, RECURS, 'none') : 'none',
     reminder: due ? pick(r.reminder, REMINDERS, null) : null,
     reminderFiredAt: time(r.reminderFiredAt),
+    recurDay: due && Number.isInteger(r.recurDay) && r.recurDay >= 1 && r.recurDay <= 31 ? r.recurDay : null,
     completedCount: count(r.completedCount), lastCompletedAt: time(r.lastCompletedAt),
     ...life, origin: life.status === 'active' ? null : origin, from,
     ...stamps(r, ctx.now),

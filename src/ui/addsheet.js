@@ -69,7 +69,7 @@ export function openSheet({ lane, initial = null, fixedList = null, submitLabel 
         <button class="chip" data-addtag>+ Add tag</button>
       </div>
     </div>
-    <button class="btn btn-primary btn-block" data-submit>${esc(submitLabel)}</button>
+    <button class="btn btn-primary btn-block" data-submit ${draft.title.trim() ? '' : 'disabled'}>${esc(submitLabel)}</button>
   </div>`;
   document.body.appendChild(ov);
   const unpin = pinToViewport(ov);
@@ -157,6 +157,8 @@ export function openSheet({ lane, initial = null, fixedList = null, submitLabel 
     addTask(draft);
   };
   q('[data-submit]').addEventListener('click', submit);
+  /* no title, no task: the button waits for one (testing report BUG-13) */
+  q('.sheet-title').addEventListener('input', () => { q('[data-submit]').disabled = !q('.sheet-title').value.trim(); });
   q('.sheet-title').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
   ov.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 }

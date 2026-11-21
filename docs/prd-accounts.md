@@ -154,6 +154,9 @@ agreeing to.*
       can keep using Stack'd on this device without one." The device
       refuses the Age step for the next 24 hours, so changing the year
       does not work. Nothing is sent to the server.
+      *(2026-11-21, testing report BUG-17)* The refusal now reads "No
+      account yet · Accounts open from the year after your 18th birthday",
+      which is also true for someone who turned 18 this year.
 - [ ] AC-02.4 The server stores only that 18+ was confirmed and when;
       the year is never stored or sent.
 - [ ] AC-02.5 **Email.** One field, validated for shape. Under it, the

@@ -94,8 +94,8 @@ export function openSignIn({ mode = null } = {}) {
       const until = account.ageRefusedUntil();
       const year = new Date().getFullYear();
       html = until
-        ? `${head('Accounts are for adults')}
-           <p class="step-text">You can keep using Stack'd on this device without one.</p>
+        ? `${head('No account yet')}
+           <p class="step-text">Accounts open from the year after your 18th birthday. You can keep using Stack'd on this device without one.</p>
            <button type="button" class="btn btn-secondary btn-block" data-close>Close</button>`
         : `${head('What year were you born?')}
            <label class="sr-only" for="birth-year">Year of birth</label>

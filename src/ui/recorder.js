@@ -65,8 +65,17 @@ async function startRecording(m) {
     stream.getTracks().forEach((t) => t.stop());
     toast("This browser can't record audio."); return;
   }
-  await media.persist();
-  await media.begin(key, { meetingId: m.id, mimeType: rec.mimeType || mimeType || 'audio/webm' });
+  /* the recording store can be closed to us (a damaged profile, some
+     private modes): say so instead of doing nothing (testing report BUG-12) */
+  try {
+    await media.persist();
+    await media.begin(key, { meetingId: m.id, mimeType: rec.mimeType || mimeType || 'audio/webm' });
+  } catch (e) {
+    stream.getTracks().forEach((t) => t.stop());
+    svc?.stop?.().catch?.(() => {});
+    toast("Recordings can't be saved on this device right now.");
+    return;
+  }
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
   const analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
   ctx.createMediaStreamSource(stream).connect(analyser);
@@ -172,7 +181,7 @@ function recordingHTML() {
       <span class="rec-clock num" data-clock aria-live="off">00:00 <span class="hint">/ ${fmtDuration(MAX_RECORDING_MS)}</span></span>
       <button type="button" class="stop-btn" data-stop aria-label="Stop recording" aria-pressed="true">${icon('stop', 26)}</button>
     </div>
-    <span class="hint">Recording keeps going if the screen locks</span>
+    <span class="hint">${nativeService() ? 'Recording keeps going if the screen locks' : 'Keep Stack’d open and the screen on while recording'}</span>
   </div>`;
 }
 

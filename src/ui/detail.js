@@ -40,7 +40,7 @@ function subtasksHTML(t, { readOnly = false } = {}) {
         <div class="subrows">
           ${t.subtasks.map((s) => `
           <div class="subrow ${s.done ? 'done' : ''}">
-            <input type="checkbox" aria-label="Toggle complete" class="check sm" ${s.done ? 'checked' : ''} ${readOnly ? 'disabled' : `data-sub="${s.id}"`}>
+            <input type="checkbox" aria-label="${esc(`${s.done ? 'Reopen' : 'Complete'}: ${s.title}`)}" class="check sm" ${s.done ? 'checked' : ''} ${readOnly ? 'disabled' : `data-sub="${s.id}"`}>
             <span class="s-title">${esc(s.title)}</span>
             ${readOnly ? '' : `<button class="s-del" data-subdel="${s.id}" aria-label="Delete subtask">${icon('x', 16)}</button>`}
           </div>`).join('')}
@@ -70,7 +70,7 @@ export function detailHTML() {
     <div class="scroll-area">
       <div class="detail-head">
         <div class="detail-title-row">
-          <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
+          <input type="checkbox" aria-label="${esc(`${t.done ? 'Reopen' : 'Complete'}: ${t.title}`)}" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
           <h1 class="detail-title" data-title tabindex="0" title="Tap to edit">${esc(t.title)}</h1>
         </div>
         ${fromMeetingHTML(t)}
@@ -92,13 +92,13 @@ export function detailHTML() {
         <div class="kv-row kv-stack">
           <span class="kv-label">Priority</span>
           <div class="chip-row" data-priority>
-            ${[{ id: 'none', name: 'None' }, ...[...S.priorities].reverse()].map((p) => `<button class="chip sm ${t.priority === p.id ? `on ${p.color ? `pc pc-${p.color}` : ''}` : ''}" data-val="${p.id}" aria-pressed="${t.priority === p.id}">${esc(p.name)}</button>`).join('')}
+            ${[...S.priorities, { id: 'none', name: 'None' }].map((p) => `<button class="chip sm ${t.priority === p.id ? `on ${p.color ? `pc pc-${p.color}` : ''}` : ''}" data-val="${p.id}" aria-pressed="${t.priority === p.id}">${esc(p.name)}</button>`).join('')}
           </div>
         </div>
         <div class="kv-row kv-stack">
           <span class="kv-label">${icon('tag', 16)}Tags</span>
           <div class="chip-row" data-tags>
-            ${t.tags.map((tag) => `<button class="chip sm on removable" data-remove="${esc(tag)}" aria-label="Remove tag ${esc(tag)}">#${esc(tag)}${icon('x', 14)}</button>`).join('')}
+            ${t.tags.map((tag) => `<button class="chip sm on removable" data-remove="${esc(tag)}" aria-label="Remove tag ${esc(tag)}"><span class="chip-text">#${esc(tag)}</span>${icon('x', 14)}</button>`).join('')}
             <button class="chip sm" data-add-tag>${icon('plus', 14)}${t.tags.length ? 'Add' : 'Add tags…'}</button>
           </div>
         </div>

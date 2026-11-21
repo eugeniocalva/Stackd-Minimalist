@@ -6,7 +6,7 @@
 import {
   S, UI, isDesktop, DONE_LANE, RETENTION_DAYS, TASK_SORTS, isManualSort, priorityById,
   listById, taskById, tasksOf, openCount, sortedTasks, lanesOf, laneName, laneTaskCount, canDeleteLane, laneHeir,
-  reorderTask, moveToLane, addLane, renameLane, reorderLane, deleteLane, commit, rerender,
+  reorderTask, moveToLane, nameTaken, addLane, renameLane, reorderLane, deleteLane, commit, rerender,
 } from '../store.js';
 import { bindHold } from './gestures.js';
 import { sharedChipHTML, bindSharedChip } from './sharing.js';
@@ -110,7 +110,7 @@ export function kanbanHTML({ desktop = false } = {}) {
         ${cards.map((t) => `
           <div class="kcard ${t.done ? 'done-card' : ''}" data-id="${t.id}" tabindex="0" role="group" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
             <div class="kcard-line">
-              <input type="checkbox" aria-label="Toggle complete" class="check sm" ${t.done ? 'checked' : ''} data-id="${t.id}">
+              <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check sm" ${t.done ? 'checked' : ''} data-id="${t.id}">
               <span class="t-title">${esc(t.title)}</span>
               ${t.done || !canReorder() ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
             </div>
@@ -142,7 +142,7 @@ export function mobileListHTML() {
   const ts = visibleTasks(S.currentList);
   const total = tasksOf(S.currentList).length;
   const headCount = UI.query ? `${ts.length} of ${total} task${total === 1 ? '' : 's'}`
-    : S.view === 'kanban' ? `${total} tasks` : `${openCount(S.currentList)} open`;
+    : `${openCount(S.currentList)} open`;   // the same number in both views (testing report BUG-16)
   const field = searchFieldHTML({ placeholder: 'Search tasks' });
   const body = S.view === 'kanban' ? kanbanHTML() : `
     <div class="scroll-area">
@@ -151,14 +151,14 @@ export function mobileListHTML() {
       <span class="hint list-hint">Double-tap to complete · long-press or swipe left to delete</span>
       <div class="card list-card">
         ${ts.map((t) => `
-        <div class="row trow ${t.done ? 'done' : ''}" data-id="${t.id}">
-          <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
+        <div class="row trow ${t.done ? 'done' : ''}" data-id="${t.id}" tabindex="0" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
+          <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
           <div class="t-main">
             <span class="t-title">${esc(t.title)}</span>
             ${t.done ? '' : taskMetaHTML(t)}
           </div>
           ${t.done || !canReorder() ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
-          <button class="swipe-del" data-del aria-label="Delete" tabindex="-1">${icon('trash', 20)}</button>
+          <button class="swipe-del" data-del aria-label="Delete: ${esc(t.title)}" tabindex="-1">${icon('trash', 20)}</button>
         </div>`).join('')}
       </div>`
       : UI.query ? '' : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
@@ -212,7 +212,7 @@ export function desktopTableHTML() {
         ? `${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}` : null;
       return `
       <div class="tgrid tgrid-row ${t.done ? 'done' : ''}" data-id="${t.id}">
-        <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
+        <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
         <span class="t-title">${esc(t.title)}</span>
         ${t.done ? '<span></span><span></span><span></span>' : `
         ${t.due ? dueChipHTML(t) : '<span class="cell-muted">—</span>'}
@@ -284,7 +284,9 @@ export function bindKanban() {
   app.querySelectorAll('.lane:not(.lane-fixed)').forEach(bindLane);
   app.querySelector('[data-lane-new]')?.addEventListener('click', async () => {
     const name = await promptDialog('New lane', { placeholder: 'Lane name', confirmLabel: 'Add' });
-    if (name) addLane(S.currentList, name);
+    if (!name) return;
+    if (nameTaken('lane', name, { listId: S.currentList })) { toast(`There is already a lane called ${name}`); return; }
+    addLane(S.currentList, name);
   });
   app.querySelector('[data-editrules]')?.addEventListener('click', () => openSettings('automations'));
 }
@@ -310,6 +312,7 @@ function editLaneName(laneId) {
     closed = true;
     const name = input.value.trim();
     if (!save || !name || name === lane.name) { input.replaceWith(btn); return; }
+    if (nameTaken('lane', name, { listId, except: laneId })) { input.replaceWith(btn); toast(`There is already a lane called ${name}`); return; }
     const x = app.querySelector('.board')?.scrollLeft || 0;
     renameLane(listId, laneId, name);
     const board = app.querySelector('.board');
@@ -477,7 +480,17 @@ export function bindRowGestures(el, task) {
     onDoubleTap: () => completeTask(task.id, el),
     onLongPress: () => { buzz('MEDIUM'); deleteWithUndo(task.id); },
   });
+  /* the keyboard way in, as on a Kanban card (testing report BUG-08) */
+  el.addEventListener('keydown', (e) => {
+    if (e.target !== el) return;
+    if (e.key === 'Enter') openDetail(task.id);
+    else if (e.key === 'Delete') { e.preventDefault(); deleteWithUndo(task.id); }
+  });
 }
+
+/** What a task's circle does, with the task's name: every circle used to
+    be "Toggle complete" (testing report BUG-08). */
+export const checkLabel = (t) => `${t.done ? 'Reopen' : 'Complete'}: ${t.title}`;
 
 export function openDetail(id) {
   if (!taskById(id)) return;

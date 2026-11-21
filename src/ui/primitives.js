@@ -69,6 +69,10 @@ export function pinToViewport(ov) {
 }
 
 export function overlay(innerHTML, { onClose } = {}) {
+  /* a toast that only says something would lie on top of the sheet and take
+     its taps; one with Undo stays, and only its button takes taps
+     (testing report BUG-09) */
+  if (toastEl && !toastEl.querySelector('.toast-action')) dismissToast({ now: true });
   const ov = document.createElement('div');
   ov.className = 'overlay';
   ov.innerHTML = innerHTML;
@@ -134,7 +138,12 @@ export function promptDialog(title, { value = '', placeholder = '', confirmLabel
         </div>
       </div>`, { onClose: (r) => resolve(typeof r === 'string' && (r.trim() || allowEmpty) ? r.trim() : null) });
     const input = ov.querySelector('[data-field]');
-    const ok = () => close(input.value);
+    const okBtn = ov.querySelector('[data-ok]');
+    /* nothing to save yet: the button says so, instead of closing without
+       a word (testing report BUG-13) */
+    const sync = () => { okBtn.disabled = !allowEmpty && !input.value.trim(); };
+    input.addEventListener('input', sync); sync();
+    const ok = () => { if (!okBtn.disabled) close(input.value); };
     ov.querySelector('[data-cancel]').addEventListener('click', () => close(null));
     ov.querySelector('[data-ok]').addEventListener('click', ok);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); });
@@ -146,7 +155,7 @@ export function promptDialog(title, { value = '', placeholder = '', confirmLabel
 
 const itemHTML = (it, i) => it.divider
   ? '<div class="menu-divider"></div>'
-  : `<button class="menu-item ${it.danger ? 'danger' : ''}" data-i="${i}" role="menuitemradio" aria-checked="${!!it.checked}">${it.icon ? icon(it.icon) : ''}${
+  : `<button class="menu-item ${it.danger ? 'danger' : ''}" data-i="${i}" ${it.checked === undefined ? 'role="menuitem"' : `role="menuitemradio" aria-checked="${!!it.checked}"`}>${it.icon ? icon(it.icon) : ''}${
     it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ''}${
     it.swatch === 'none' ? '<span class="swatch swatch-none"></span>' : ''}<span>${esc(it.label)}</span>${
     it.checked ? `<span class="menu-check">${icon('check')}</span>` : ''}</button>`;

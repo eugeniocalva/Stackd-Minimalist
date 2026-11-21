@@ -558,3 +558,20 @@
 .side-invites .notice { font-size: var(--text-xs); flex-wrap: wrap; }
 .nav-item { position: relative; }
 .nav-dot { position: absolute; top: 12px; right: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-danger-solid); box-shadow: 0 0 0 2px var(--bg-surface); }
+
+/* ── Fixes from the deep testing pass (2026-11-21) ───────────────────── */
+/* BUG-09: a toast never takes a tap meant for what is under it; its Undo does */
+.toast { pointer-events: none; }
+.toast-action { pointer-events: auto; }
+/* BUG-10: a long tag is cut with an ellipsis; its X stays on the card */
+.chip, .tag { max-width: 100%; }
+.chip-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tag { overflow: hidden; }   /* still a flex row (its icon sits beside the text): a tag too long is cut at the card's edge */
+.tag svg { flex: none; }
+/* BUG-15: at least 44 px to the finger, whatever the drawn size */
+.check, .seg, .sortbtn, .search-toggle, .kv-clear, .chip.sm, .page-title, .s-del { position: relative; }
+.check::before { content: ''; position: absolute; inset: -11px; border-radius: 50%; }
+.check.sm::before { inset: -13px; }
+.kv-clear::after, .s-del::after { content: ''; position: absolute; inset: -8px; }
+.seg::after, .sortbtn::after, .search-toggle::after, .chip.sm::after, .page-title::after { content: ''; position: absolute; inset: -7px 0; }
+.segmented { overflow: visible; }

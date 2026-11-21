@@ -49,13 +49,21 @@
     monthly: (d) => addMonths(d, 1),
     yearly: (d) => addYears(d, 1)
   };
-  function nextOccurrence(due, recur, today = todayISO()) {
+  function nextOccurrence(due, recur, today = todayISO(), anchorDay = null) {
     const step = STEP[recur];
     if (!step || !due) return due;
-    let next = step(due);
-    while (next <= today) next = step(next);
+    const anchored = (recur === "monthly" || recur === "yearly") && anchorDay >= 1 && anchorDay <= 31;
+    const next1 = (d) => anchored ? onDay(step(d), anchorDay) : step(d);
+    let next = next1(due);
+    while (next <= today) next = next1(next);
     return next;
   }
+  function onDay(iso, day) {
+    const [y, m] = iso.split("-").map(Number);
+    const last = new Date(y, m, 0).getDate();
+    return toISO(new Date(y, m - 1, Math.min(day, last)));
+  }
+  var anchorDayOf = (due, recur) => due && (recur === "monthly" || recur === "yearly") ? Number(due.split("-")[2]) : null;
   function isOverdue(due, dueTime = null, now2 = /* @__PURE__ */ new Date()) {
     if (!due) return false;
     const end = dueTime ? /* @__PURE__ */ new Date(`${due}T${dueTime}:00`) : /* @__PURE__ */ new Date(`${due}T23:59:59`);
@@ -626,6 +634,8 @@
       recur: "none",
       reminder: null,
       reminderFiredAt: null,
+      recurDay: null,
+      // day of the month a monthly / yearly series is set for (BUG-06)
       completedCount: 0,
       lastCompletedAt: null,
       status: "active",
@@ -922,6 +932,7 @@
       order: nextOrder(),
       from: draft2.from || null
     });
+    t.recurDay = anchorDayOf(t.due, t.recur);
     t.done = t.lane === DONE_LANE;
     armReminder(t);
     S.tasks.push(t);
@@ -1383,10 +1394,12 @@
     const t = taskById(id);
     if (!t) return;
     const before = reminderKey(t);
+    const was = { due: t.due, recur: t.recur };
     t.due = due || null;
     t.dueTime = t.due ? dueTime || null : null;
     t.start = start2 && (!t.due || start2 <= t.due) ? start2 : null;
     t.recur = t.due ? recur : "none";
+    if (t.due !== was.due || t.recur !== was.recur || !t.recurDay) t.recurDay = anchorDayOf(t.due, t.recur);
     t.reminder = t.due ? reminder : null;
     if (reminderKey(t) !== before) armReminder(t);
     touch(t);
@@ -1404,7 +1417,7 @@
       lastCompletedAt: t.lastCompletedAt,
       reminderFiredAt: t.reminderFiredAt
     };
-    const nextDue = nextOccurrence(t.due, t.recur);
+    const nextDue = nextOccurrence(t.due, t.recur, void 0, t.recurDay);
     if (t.start) t.start = addDays(t.start, daysBetween(t.due, nextDue));
     t.due = nextDue;
     armReminder(t);
@@ -1467,12 +1480,18 @@
       due: t.due,
       dueTime: t.dueTime,
       recur: t.recur,
-      reminder: t.reminder
+      reminder: t.reminder,
+      recurDay: t.recurDay ?? null
     });
     armReminder(copy);
     S.tasks.push(copy);
     commit();
     return copy;
+  }
+  function nameTaken(kind, name, { listId = null, except = null } = {}) {
+    const n = String(name ?? "").trim().toLowerCase();
+    const pool = kind === "board" ? S.lists.filter((l) => l.status === "active") : kind === "lane" ? listById(listId)?.lanes || [] : S.priorities;
+    return !!n && pool.some((x) => x.id !== except && x.name.trim().toLowerCase() === n);
   }
   function addList(name, { id = uid(), share = null } = {}) {
     const n = String(name ?? "").trim();
@@ -2520,6 +2539,7 @@
     };
   }
   function overlay(innerHTML, { onClose } = {}) {
+    if (toastEl && !toastEl.querySelector(".toast-action")) dismissToast({ now: true });
     const ov = document.createElement("div");
     ov.className = "overlay";
     ov.innerHTML = innerHTML;
@@ -2584,7 +2604,15 @@
         </div>
       </div>`, { onClose: (r) => resolve(typeof r === "string" && (r.trim() || allowEmpty) ? r.trim() : null) });
       const input = ov.querySelector("[data-field]");
-      const ok = () => close(input.value);
+      const okBtn = ov.querySelector("[data-ok]");
+      const sync = () => {
+        okBtn.disabled = !allowEmpty && !input.value.trim();
+      };
+      input.addEventListener("input", sync);
+      sync();
+      const ok = () => {
+        if (!okBtn.disabled) close(input.value);
+      };
       ov.querySelector("[data-cancel]").addEventListener("click", () => close(null));
       ov.querySelector("[data-ok]").addEventListener("click", ok);
       input.addEventListener("keydown", (e) => {
@@ -2594,7 +2622,7 @@
       input.select();
     });
   }
-  var itemHTML = (it, i) => it.divider ? '<div class="menu-divider"></div>' : `<button class="menu-item ${it.danger ? "danger" : ""}" data-i="${i}" role="menuitemradio" aria-checked="${!!it.checked}">${it.icon ? icon(it.icon) : ""}${it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ""}${it.swatch === "none" ? '<span class="swatch swatch-none"></span>' : ""}<span>${esc(it.label)}</span>${it.checked ? `<span class="menu-check">${icon("check")}</span>` : ""}</button>`;
+  var itemHTML = (it, i) => it.divider ? '<div class="menu-divider"></div>' : `<button class="menu-item ${it.danger ? "danger" : ""}" data-i="${i}" ${it.checked === void 0 ? 'role="menuitem"' : `role="menuitemradio" aria-checked="${!!it.checked}"`}>${it.icon ? icon(it.icon) : ""}${it.swatch ? `<span class="swatch pc-${it.swatch}"></span>` : ""}${it.swatch === "none" ? '<span class="swatch swatch-none"></span>' : ""}<span>${esc(it.label)}</span>${it.checked ? `<span class="menu-check">${icon("check")}</span>` : ""}</button>`;
   function openMenu(anchorEl, items) {
     const bind = (root, close2) => {
       root.querySelectorAll(".menu-item").forEach((b) => b.addEventListener("click", () => {
@@ -2973,7 +3001,7 @@
         <button class="chip" data-addtag>+ Add tag</button>
       </div>
     </div>
-    <button class="btn btn-primary btn-block" data-submit>${esc(submitLabel)}</button>
+    <button class="btn btn-primary btn-block" data-submit ${draft2.title.trim() ? "" : "disabled"}>${esc(submitLabel)}</button>
   </div>`;
     document.body.appendChild(ov);
     const unpin = pinToViewport(ov);
@@ -3086,6 +3114,9 @@
       addTask(draft2);
     };
     q("[data-submit]").addEventListener("click", submit);
+    q(".sheet-title").addEventListener("input", () => {
+      q("[data-submit]").disabled = !q(".sheet-title").value.trim();
+    });
     q(".sheet-title").addEventListener("keydown", (e) => {
       if (e.key === "Enter") submit();
     });
@@ -3623,6 +3654,7 @@
       recur: due ? pick(r.recur, RECURS, "none") : "none",
       reminder: due ? pick(r.reminder, REMINDERS, null) : null,
       reminderFiredAt: time(r.reminderFiredAt),
+      recurDay: due && Number.isInteger(r.recurDay) && r.recurDay >= 1 && r.recurDay <= 31 ? r.recurDay : null,
       completedCount: count(r.completedCount),
       lastCompletedAt: time(r.lastCompletedAt),
       ...life,
@@ -4266,8 +4298,8 @@
       } else if (s === "age") {
         const until = ageRefusedUntil();
         const year = (/* @__PURE__ */ new Date()).getFullYear();
-        html = until ? `${head("Accounts are for adults")}
-           <p class="step-text">You can keep using Stack'd on this device without one.</p>
+        html = until ? `${head("No account yet")}
+           <p class="step-text">Accounts open from the year after your 18th birthday. You can keep using Stack'd on this device without one.</p>
            <button type="button" class="btn btn-secondary btn-block" data-close>Close</button>` : `${head("What year were you born?")}
            <label class="sr-only" for="birth-year">Year of birth</label>
            <select class="input" id="birth-year" data-year>
@@ -4586,6 +4618,10 @@
     if (!kind) return;
     if (kind === "personal") {
       const name2 = await promptDialog("New board", { placeholder: "Board name", confirmLabel: "Create" });
+      if (name2 && nameTaken("board", name2)) {
+        toast(`There is already a board called ${name2}`);
+        return;
+      }
       if (name2) addList(name2);
       return;
     }
@@ -6383,7 +6419,14 @@
     app.querySelectorAll("[data-prio]").forEach((row2) => {
       const id = row2.dataset.prio;
       const p = S.priorities.find((x) => x.id === id);
-      bindName(row2.querySelector("[data-name]"), (name) => updatePriority(id, { name }));
+      bindName(row2.querySelector("[data-name]"), (name) => {
+        if (nameTaken("priority", name, { except: id })) {
+          toast(`There is already a priority called ${name}`);
+          rerender();
+          return;
+        }
+        updatePriority(id, { name });
+      });
       row2.querySelector("[data-color]").addEventListener("click", (e) => openMenu(e.currentTarget, PRIORITY_COLORS.map((c) => ({
         label: COLOR_NAME[c] + (c === p.color ? " ✓" : ""),
         swatch: c,
@@ -6396,7 +6439,13 @@
         deletePriority(id);
       });
     });
-    bindAdd("[data-add-priority]", addPriority);
+    bindAdd("[data-add-priority]", (name) => {
+      if (nameTaken("priority", name)) {
+        toast(`There is already a priority called ${name}`);
+        return;
+      }
+      addPriority(name);
+    });
     app.querySelectorAll("[data-label]").forEach((row2) => {
       const name = row2.dataset.label;
       bindName(row2.querySelector("[data-name]"), async (next) => {
@@ -6647,7 +6696,7 @@
         ${cards.map((t) => `
           <div class="kcard ${t.done ? "done-card" : ""}" data-id="${t.id}" tabindex="0" role="group" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
             <div class="kcard-line">
-              <input type="checkbox" aria-label="Toggle complete" class="check sm" ${t.done ? "checked" : ""} data-id="${t.id}">
+              <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check sm" ${t.done ? "checked" : ""} data-id="${t.id}">
               <span class="t-title">${esc(t.title)}</span>
               ${t.done || !canReorder() ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
             </div>
@@ -6673,7 +6722,7 @@
     const list3 = listById(S.currentList);
     const ts = visibleTasks(S.currentList);
     const total = tasksOf(S.currentList).length;
-    const headCount = UI.query ? `${ts.length} of ${total} task${total === 1 ? "" : "s"}` : S.view === "kanban" ? `${total} tasks` : `${openCount(S.currentList)} open`;
+    const headCount = UI.query ? `${ts.length} of ${total} task${total === 1 ? "" : "s"}` : `${openCount(S.currentList)} open`;
     const field = searchFieldHTML({ placeholder: "Search tasks" });
     const body = S.view === "kanban" ? kanbanHTML() : `
     <div class="scroll-area">
@@ -6682,14 +6731,14 @@
       <span class="hint list-hint">Double-tap to complete · long-press or swipe left to delete</span>
       <div class="card list-card">
         ${ts.map((t) => `
-        <div class="row trow ${t.done ? "done" : ""}" data-id="${t.id}">
-          <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
+        <div class="row trow ${t.done ? "done" : ""}" data-id="${t.id}" tabindex="0" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
+          <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
           <div class="t-main">
             <span class="t-title">${esc(t.title)}</span>
             ${t.done ? "" : taskMetaHTML(t)}
           </div>
           ${t.done || !canReorder() ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
-          <button class="swipe-del" data-del aria-label="Delete" tabindex="-1">${icon("trash", 20)}</button>
+          <button class="swipe-del" data-del aria-label="Delete: ${esc(t.title)}" tabindex="-1">${icon("trash", 20)}</button>
         </div>`).join("")}
       </div>` : UI.query ? "" : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
     </div>`;
@@ -6737,7 +6786,7 @@
       const sub = t.subtasks.length ? `${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}` : null;
       return `
       <div class="tgrid tgrid-row ${t.done ? "done" : ""}" data-id="${t.id}">
-        <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
+        <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
         <span class="t-title">${esc(t.title)}</span>
         ${t.done ? "<span></span><span></span><span></span>" : `
         ${t.due ? dueChipHTML(t) : '<span class="cell-muted">—</span>'}
@@ -6808,7 +6857,12 @@
     app.querySelectorAll(".lane:not(.lane-fixed)").forEach(bindLane);
     app.querySelector("[data-lane-new]")?.addEventListener("click", async () => {
       const name = await promptDialog("New lane", { placeholder: "Lane name", confirmLabel: "Add" });
-      if (name) addLane(S.currentList, name);
+      if (!name) return;
+      if (nameTaken("lane", name, { listId: S.currentList })) {
+        toast(`There is already a lane called ${name}`);
+        return;
+      }
+      addLane(S.currentList, name);
     });
     app.querySelector("[data-editrules]")?.addEventListener("click", () => openSettings("automations"));
   }
@@ -6831,6 +6885,11 @@
       const name = input.value.trim();
       if (!save2 || !name || name === lane.name) {
         input.replaceWith(btn);
+        return;
+      }
+      if (nameTaken("lane", name, { listId, except: laneId })) {
+        input.replaceWith(btn);
+        toast(`There is already a lane called ${name}`);
         return;
       }
       const x = app.querySelector(".board")?.scrollLeft || 0;
@@ -7035,7 +7094,16 @@
         deleteWithUndo(task.id);
       }
     });
+    el.addEventListener("keydown", (e) => {
+      if (e.target !== el) return;
+      if (e.key === "Enter") openDetail(task.id);
+      else if (e.key === "Delete") {
+        e.preventDefault();
+        deleteWithUndo(task.id);
+      }
+    });
   }
+  var checkLabel = (t) => `${t.done ? "Reopen" : "Complete"}: ${t.title}`;
   function openDetail(id) {
     if (!taskById(id)) return;
     UI.detailId = id;
@@ -7145,7 +7213,7 @@
       <button class="icon-btn" data-close aria-label="Done">${icon("x")}</button>
     </div>
     <div class="quickadd">
-      <input class="input" placeholder="New tag" data-tag-input autocapitalize="none">
+      <input class="input" placeholder="New tag" data-tag-input autocapitalize="none" maxlength="30">
       <button class="btn btn-primary" data-tag-add>Add</button>
     </div>
     <div class="chip-group">
@@ -7889,8 +7957,16 @@
       toast("This browser can't record audio.");
       return;
     }
-    await persist();
-    await begin(key, { meetingId: m.id, mimeType: rec.mimeType || mimeType || "audio/webm" });
+    try {
+      await persist();
+      await begin(key, { meetingId: m.id, mimeType: rec.mimeType || mimeType || "audio/webm" });
+    } catch (e) {
+      stream.getTracks().forEach((t) => t.stop());
+      svc?.stop?.().catch?.(() => {
+      });
+      toast("Recordings can't be saved on this device right now.");
+      return;
+    }
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
@@ -8026,7 +8102,7 @@
       <span class="rec-clock num" data-clock aria-live="off">00:00 <span class="hint">/ ${fmtDuration(MAX_RECORDING_MS)}</span></span>
       <button type="button" class="stop-btn" data-stop aria-label="Stop recording" aria-pressed="true">${icon("stop", 26)}</button>
     </div>
-    <span class="hint">Recording keeps going if the screen locks</span>
+    <span class="hint">${nativeService() ? "Recording keeps going if the screen locks" : "Keep Stack’d open and the screen on while recording"}</span>
   </div>`;
   }
   function transcribeHTML(m) {
@@ -9220,7 +9296,7 @@
         <div class="subrows">
           ${t.subtasks.map((s) => `
           <div class="subrow ${s.done ? "done" : ""}">
-            <input type="checkbox" aria-label="Toggle complete" class="check sm" ${s.done ? "checked" : ""} ${readOnly ? "disabled" : `data-sub="${s.id}"`}>
+            <input type="checkbox" aria-label="${esc(`${s.done ? "Reopen" : "Complete"}: ${s.title}`)}" class="check sm" ${s.done ? "checked" : ""} ${readOnly ? "disabled" : `data-sub="${s.id}"`}>
             <span class="s-title">${esc(s.title)}</span>
             ${readOnly ? "" : `<button class="s-del" data-subdel="${s.id}" aria-label="Delete subtask">${icon("x", 16)}</button>`}
           </div>`).join("")}
@@ -9252,7 +9328,7 @@
     <div class="scroll-area">
       <div class="detail-head">
         <div class="detail-title-row">
-          <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
+          <input type="checkbox" aria-label="${esc(`${t.done ? "Reopen" : "Complete"}: ${t.title}`)}" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
           <h1 class="detail-title" data-title tabindex="0" title="Tap to edit">${esc(t.title)}</h1>
         </div>
         ${fromMeetingHTML(t)}
@@ -9274,13 +9350,13 @@
         <div class="kv-row kv-stack">
           <span class="kv-label">Priority</span>
           <div class="chip-row" data-priority>
-            ${[{ id: "none", name: "None" }, ...[...S.priorities].reverse()].map((p) => `<button class="chip sm ${t.priority === p.id ? `on ${p.color ? `pc pc-${p.color}` : ""}` : ""}" data-val="${p.id}" aria-pressed="${t.priority === p.id}">${esc(p.name)}</button>`).join("")}
+            ${[...S.priorities, { id: "none", name: "None" }].map((p) => `<button class="chip sm ${t.priority === p.id ? `on ${p.color ? `pc pc-${p.color}` : ""}` : ""}" data-val="${p.id}" aria-pressed="${t.priority === p.id}">${esc(p.name)}</button>`).join("")}
           </div>
         </div>
         <div class="kv-row kv-stack">
           <span class="kv-label">${icon("tag", 16)}Tags</span>
           <div class="chip-row" data-tags>
-            ${t.tags.map((tag) => `<button class="chip sm on removable" data-remove="${esc(tag)}" aria-label="Remove tag ${esc(tag)}">#${esc(tag)}${icon("x", 14)}</button>`).join("")}
+            ${t.tags.map((tag) => `<button class="chip sm on removable" data-remove="${esc(tag)}" aria-label="Remove tag ${esc(tag)}"><span class="chip-text">#${esc(tag)}</span>${icon("x", 14)}</button>`).join("")}
             <button class="chip sm" data-add-tag>${icon("plus", 14)}${t.tags.length ? "Add" : "Add tags…"}</button>
           </div>
         </div>

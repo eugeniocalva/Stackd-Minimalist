@@ -81,8 +81,8 @@
 .lane-head { display: flex; align-items: center; gap: 6px; padding: 0 var(--space-1); flex: none; }
 .lane-head .lane-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* the name is a button: tap it to rename the lane in place */
-.lane-head button.lane-name { position: relative; text-align: left; padding: 4px 6px; margin: -4px 0 -4px -6px; border-radius: var(--radius-sm); }
-.lane-head button.lane-name::after { content: ''; position: absolute; inset: -8px 0; } /* taller touch target */
+/* 44 px to the finger: padding, because the ellipsis (overflow: hidden) would clip a pseudo-element (testing report BUG-15) */
+.lane-head button.lane-name { position: relative; text-align: left; padding: 13px 6px; margin: -13px 0 -13px -6px; border-radius: var(--radius-sm); }
 .lane-head button.lane-name:hover { background: var(--bg-surface); }
 .lane-head .lane-name-input {
   padding: 4px 6px; margin: -4px 0 -4px -6px; border: none; border-radius: var(--radius-sm);

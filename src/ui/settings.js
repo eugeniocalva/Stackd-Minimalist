@@ -4,7 +4,7 @@
    leaving the field saves, Esc reverts. */
 
 import {
-  S, UI, PRIORITY_COLORS, THEMES, PROXY_URL, allTags, tagUseCount, tagUseCounts, priorityUseCount,
+  S, UI, PRIORITY_COLORS, THEMES, PROXY_URL, allTags, tagUseCount, tagUseCounts, priorityUseCount, nameTaken,
   setTheme, setDateFormat, addPriority, updatePriority, movePriority, deletePriority,
   addLabel, renameLabel, deleteLabel, setProxyUrl, resetNotices, rerender,
 } from '../store.js';
@@ -287,7 +287,10 @@ export function bindSettings() {
   app.querySelectorAll('[data-prio]').forEach((row) => {
     const id = row.dataset.prio;
     const p = S.priorities.find((x) => x.id === id);
-    bindName(row.querySelector('[data-name]'), (name) => updatePriority(id, { name }));
+    bindName(row.querySelector('[data-name]'), (name) => {
+      if (nameTaken('priority', name, { except: id })) { toast(`There is already a priority called ${name}`); rerender(); return; }
+      updatePriority(id, { name });
+    });
     row.querySelector('[data-color]').addEventListener('click', (e) =>
       openMenu(e.currentTarget, PRIORITY_COLORS.map((c) => ({
         label: COLOR_NAME[c] + (c === p.color ? ' ✓' : ''), swatch: c,
@@ -301,7 +304,10 @@ export function bindSettings() {
       deletePriority(id);
     });
   });
-  bindAdd('[data-add-priority]', addPriority);
+  bindAdd('[data-add-priority]', (name) => {
+    if (nameTaken('priority', name)) { toast(`There is already a priority called ${name}`); return; }
+    addPriority(name);
+  });
 
   /* labels */
   app.querySelectorAll('[data-label]').forEach((row) => {

@@ -918,3 +918,52 @@ Changed after the test (architecture §48; the PRD marks each with the date):
 - **Not verified:** BUG-01 on an iPhone.
 - **Security:** fewer requests than before (a plan check replaces an
   upload); no new storage or permission.
+
+### Twelve more fixes from the deep testing pass (2026-11-21)
+
+Every open bug of the report except BUG-02 (legal pages, the owner's) and
+BUG-18 (redraw speed with thousands of tasks, left for later).
+
+- **BUG-06, month-end repeats.** A task keeps `recurDay`, the day of the
+  month its monthly or yearly series was set for; `nextOccurrence` goes
+  back to it after a short month. Set by `addTask` and by `setSchedule`
+  when the date or the rule changes; copied by Copy; kept by import.
+  Tasks made before this have none and behave as before until their date
+  or rule is saved again.
+- **BUG-08, keyboard and names.** A list row takes focus, opens on Enter
+  and deletes on Delete. Circles are "Complete: {title}" or "Reopen:
+  {title}", the swipe button "Delete: {title}". Plain menu actions are
+  `menuitem`, no longer unchecked radio items.
+- **BUG-09, toast over a sheet.** A toast takes no taps except on its
+  button, and one without a button goes when a sheet opens.
+- **BUG-10, long tags.** The tag field stops at 30 characters; a longer
+  tag already stored is cut with an ellipsis, its X still on the card.
+- **BUG-11, same names.** A board, a lane of the same board or a priority
+  with a name already in use is refused with a toast, capitals ignored.
+- **BUG-12, recording store.** When it cannot be opened, Record says
+  "Recordings can't be saved on this device right now."
+- **BUG-13, empty names.** Add task and the name dialogs keep their
+  button disabled until there is a name.
+- **BUG-14, priority order.** The task detail lists priorities as the
+  New task sheet and Settings do, None last.
+- **BUG-15, touch targets.** Circles, the view switch, Sort, Search, the
+  small chips, Clear dates and the page title reach 44 px to the finger;
+  the lane name is 44 px high.
+- **BUG-16, header count.** List and Kanban both say "{n} open".
+- **BUG-17, age wording.** The refusal reads "No account yet · Accounts
+  open from the year after your 18th birthday". The rule is unchanged.
+- **BUG-19, lock-screen line.** Shown in the apps only; the web says
+  "Keep Stack'd open and the screen on while recording".
+- **Verified** in clean test profiles (Chromium, phone size, touch):
+  - 31 Jan → 28 Feb → 31 Mar → 30 Apr → 31 May;
+  - the same count in both views; the new labels; Enter opens a row;
+  - a tap 9 px below a circle completes the task;
+  - duplicate lane, board and priority names refused with their toast;
+  - Archive works straight after Copy;
+  - a 60-character tag stays inside the card with its X in view;
+  - Record with the store failing shows the message and does not start.
+- **Checks:** `npm run check` passes, with eight new month-end and
+  leap-day cases in `check-dates`.
+- **Not verified:** on a phone; with a screen reader.
+- **Security:** no new request, storage key or permission; one new task
+  field, an integer from 1 to 31, checked on import.

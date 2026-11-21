@@ -2,7 +2,7 @@
    question on "New board", the email sheet, the "Shared" mark and the people
    sheet on a board, the invitation cards, and Settings › Shared boards. */
 
-import { addList, listById, rerender } from '../store.js';
+import { addList, listById, rerender, nameTaken } from '../store.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import { overlay, choiceDialog, confirmDialog, promptDialog, toast } from './primitives.js';
@@ -21,6 +21,7 @@ export async function newBoardFlow() {
   if (!kind) return;
   if (kind === 'personal') {
     const name = await promptDialog('New board', { placeholder: 'Board name', confirmLabel: 'Create' });
+    if (name && nameTaken('board', name)) { toast(`There is already a board called ${name}`); return; }
     if (name) addList(name);
     return;
   }
