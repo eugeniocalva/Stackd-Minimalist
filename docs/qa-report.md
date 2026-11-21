@@ -992,3 +992,16 @@ BUG-18 (redraw speed with thousands of tasks, left for later).
   an update: 18 of 19 bugs fixed, BUG-02 open, and a status on every bug.
 - **Security:** the Developer change narrows where meetings can be sent
   without a question; no new request, storage key or permission.
+
+### Builds 16 and 17 (2026-11-21): the certificate limit
+
+- **Build 16** (commit a182c8d) failed at Archive: "Your account has
+  reached the maximum number of certificates". Signing the archive made
+  Xcode request a new Apple Development certificate on every run.
+- **Fix** (commit b9d9d7b): the archive is unsigned
+  (`CODE_SIGNING_ALLOWED=NO`); the export step signs with the
+  cloud-managed distribution certificate, as before.
+- **Build 17** (run 44916355279): Archive, Export and sign, Check the
+  signed .ipa (Apple Distribution, not debuggable) and Upload all passed.
+  It carries every fix from the deep testing pass.
+- The owner also revoked the old development certificates.
