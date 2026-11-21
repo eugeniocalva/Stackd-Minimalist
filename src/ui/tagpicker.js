@@ -18,7 +18,7 @@ export function openTagPicker({ tags, onChange }) {
       <button class="icon-btn" data-close aria-label="Done">${icon('x')}</button>
     </div>
     <div class="quickadd">
-      <input class="input" placeholder="New tag" data-tag-input autocapitalize="none">
+      <input class="input" placeholder="New tag" data-tag-input autocapitalize="none" maxlength="30">
       <button class="btn btn-primary" data-tag-add>Add</button>
     </div>
     <div class="chip-group">

@@ -15,6 +15,7 @@ import { toISO } from './dates.js';
 import { uid } from './util.js';
 import * as media from './media.js';
 import { setTranscript } from './store.js';
+import { authHeaders, signedOut } from './net.js';
 
 export const STEPS = ['transcribe', 'summarise'];
 export const REQUEST_TIMEOUT_MS = 150_000;
@@ -68,6 +69,7 @@ export function setFetch(fn) { fetchImpl = fn; }
 let uploadImpl = (url, formData, { headers, onProgress, signal }) => new Promise((resolve, reject) => {
   const xhr = new XMLHttpRequest();
   xhr.open('POST', url);
+  xhr.withCredentials = true;          // the web session cookie, when signed in (1.6.0)
   Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
   xhr.responseType = 'text';
   xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(Math.round(100 * e.loaded / e.total)); };
@@ -81,13 +83,16 @@ export function setUpload(fn) { uploadImpl = fn; }
 let blobImpl = (key) => media.blob(key);
 export function setBlob(fn) { blobImpl = fn; }
 
-const headersFor = () => ({ 'X-Stackd-App': APP_TOKEN, 'X-Stackd-Subscriber': S.plan.subscriberId });
+/* The anonymous id still goes along: a signed-out device is identified by
+   it, and a signed-in one by its session, which the proxy prefers (AC-08.3). */
+const headersFor = () => ({ 'X-Stackd-App': APP_TOKEN, 'X-Stackd-Subscriber': S.plan.subscriberId, ...authHeaders() });
 
 async function call(path, { method = 'GET', body, signal } = {}) {
   const res = await fetchImpl(proxyUrl() + path, {
     method,
-    headers: { 'Content-Type': 'application/json', 'X-Stackd-App': APP_TOKEN, 'X-Stackd-Subscriber': S.plan.subscriberId },
+    headers: { 'Content-Type': 'application/json', ...headersFor() },
     body: body === undefined ? undefined : JSON.stringify(body),
+    credentials: 'include',
     signal,
   });
   let data = null;
@@ -97,6 +102,7 @@ async function call(path, { method = 'GET', body, signal } = {}) {
     const err = new Error(data?.message || `The service answered ${res.status}.`);
     err.code = data?.code || (res.status === 401 ? 'unauthorized' : 'provider_unavailable');
     err.resetsAt = data?.resetsAt ?? null;
+    if (err.code === 'signed_out') signedOut();
     throw err;
   }
   return data;

@@ -42,6 +42,48 @@
         "127.0.0.1"
       ],
       "port": 8787
+    },
+    {
+      "name": "proxy-accounts",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "proxy",
+        "run",
+        "dev",
+        "--",
+        "--config",
+        "wrangler.dev.toml",
+        "--port",
+        "8787",
+        "--ip",
+        "127.0.0.1"
+      ],
+      "port": 8787
+    },
+    {
+      "name": "stackd-site",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/serve.mjs",
+        "www",
+        "--port",
+        "8126",
+        "--headers"
+      ],
+      "port": 8126
+    },
+    {
+      "name": "stackd-legacy",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/serve.mjs",
+        ".",
+        "--port",
+        "8125",
+        "--legacy"
+      ],
+      "port": 8125
     }
   ]
 }

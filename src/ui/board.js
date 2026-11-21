@@ -4,10 +4,12 @@
    cards between lanes. */
 
 import {
-  S, UI, DONE_LANE, TASK_SORTS, isManualSort, priorityById,
-  listById, taskById, tasksOf, openCount, sortedTasks, lanesOf, laneName, laneTaskCount, canDeleteLane, firstLane,
-  reorderTask, moveToLane, addLane, renameLane, moveLane, deleteLane, commit, rerender,
+  S, UI, isDesktop, DONE_LANE, RETENTION_DAYS, TASK_SORTS, isManualSort, priorityById,
+  listById, taskById, tasksOf, openCount, sortedTasks, lanesOf, laneName, laneTaskCount, canDeleteLane, laneHeir,
+  reorderTask, moveToLane, nameTaken, restoreLane, addLane, renameLane, reorderLane, deleteLane, commit, rerender,
 } from '../store.js';
+import { bindHold } from './gestures.js';
+import { sharedChipHTML, bindSharedChip } from './sharing.js';
 import { fmtDue, fmtTime } from '../dates.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
@@ -15,7 +17,7 @@ import { openSheet } from './addsheet.js';
 import { deleteWithUndo, completeTask } from './actions.js';
 import { buzz } from '../haptics.js';
 import { openSettings } from './settings.js';
-import { openMenu, confirmDialog, promptDialog, toast } from './primitives.js';
+import { confirmDialog, promptDialog, toast } from './primitives.js';
 import { filterTasks } from '../search.js';
 import { queryFor, searchToggleHTML, searchFieldHTML, bindSearch } from './search.js';
 
@@ -24,7 +26,37 @@ export const visibleTasks = (listId) => filterTasks(sortedTasks(listId), UI.quer
 /** Call before rendering a board's header: resets the query when the board changed. */
 export const boardKey = () => queryFor(`list:${S.currentList}`);
 
+/* Long boards (testing report BUG-18). Every action redraws the screen, and
+   with thousands of tasks that took half a second and more. A list, and
+   each Kanban lane, now draws its first PAGE tasks; "Show more" draws the
+   next page. Search, sort, counts and the Done automation still work on
+   every task: only the drawing stops. What was opened stays open until the
+   board, the view, the sort or the search changes. */
+export const PAGE = 100;
+const paging = { key: '', extra: {} };
+function page(slot, items) {
+  const key = `${S.currentList}|${S.view}|${S.sort}|${UI.query}`;
+  if (paging.key !== key) { paging.key = key; paging.extra = {}; }
+  const n = PAGE + (paging.extra[slot] || 0);
+  return { shown: items.length > n ? items.slice(0, n) : items, rest: Math.max(0, items.length - n) };
+}
+const moreHTML = (slot, rest) => (rest
+  ? `<button type="button" class="showmore" data-more-rows="${esc(slot)}">Show ${Math.min(rest, PAGE)} more<span class="hint"> · ${rest} not shown</span></button>`
+  : '');
+
 /* — shared partials — */
+
+/** The title of a top-level page. On mobile it is also the way out: the
+    same chevron as on a board, and pressing it opens the main menu
+    (PRD-improvements AC-06.1). Desktop has the sidebar, so a plain title. */
+export function pageTitleHTML(label, aria = `${label}. Open the menu`) {
+  return isDesktop.matches
+    ? `<h1 class="page-title-text">${esc(label)}</h1>`
+    : `<h1 class="page-title-h"><button class="page-title" data-lists aria-label="${esc(aria)}"><span>${esc(label)}</span>${icon('chevronDown')}</button></h1>`;
+}
+export function bindPageTitle() {
+  app.querySelector('[data-lists]')?.addEventListener('click', () => { UI.screen = 'lists'; rerender(); });
+}
 
 export function viewbarHTML() {
   const short = TASK_SORTS.find(([v]) => v === S.sort)?.[2] || 'Sort';
@@ -79,25 +111,31 @@ export function kanbanHTML({ desktop = false } = {}) {
   const ts = filterTasks(all, UI.query);
   const lanes = lanesOf(S.currentList).map((lane) => {
     const cards = ts.filter((t) => t.lane === lane.id);
+    const paged = page(lane.id, cards);
     const inLane = all.filter((t) => t.lane === lane.id).length;
-    const headCls = lane.id === 'inprogress' ? 'active' : lane.id === DONE_LANE ? 'muted' : '';
+    const isDone = lane.id === DONE_LANE;
+    /* Done is fixed (PRD-improvements US-02): its name is text and it is
+       neither dragged nor removed. The other lanes: tap the name to rename,
+       hold the lane outside its cards to drag it, hold longer for the X. */
     return `
-    <div class="lane" data-lane="${lane.id}">
-      <div class="lane-head ${headCls}">
-        <span class="lane-name">${esc(lane.name)}</span>
+    <div class="lane ${isDone ? 'lane-fixed' : ''}" data-lane="${lane.id}">
+      <div class="lane-head">
+        ${isDone
+          ? `<span class="lane-name">${esc(lane.name)}</span>`
+          : `<button class="lane-name" data-lane-rename="${lane.id}" title="Rename" aria-label="Rename lane ${esc(lane.name)}" aria-keyshortcuts="Delete">${esc(lane.name)}</button>`}
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
-        <button class="lane-menu" data-lane-menu="${lane.id}" aria-label="${esc(lane.name)} lane options" aria-haspopup="menu">${icon('more', 16)}</button>
       </div>
       <div class="lane-cards">
-        ${cards.map((t) => `
-          <div class="kcard ${t.done ? 'done-card' : ''}" data-id="${t.id}">
+        ${paged.shown.map((t) => `
+          <div class="kcard ${t.done ? 'done-card' : ''}" data-id="${t.id}" tabindex="0" role="group" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
             <div class="kcard-line">
-              <input type="checkbox" aria-label="Toggle complete" class="check sm" ${t.done ? 'checked' : ''} data-id="${t.id}">
+              <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check sm" ${t.done ? 'checked' : ''} data-id="${t.id}">
               <span class="t-title">${esc(t.title)}</span>
               ${t.done || !canReorder() ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
             </div>
             ${t.done ? '' : taskMetaHTML(t)}
           </div>`).join('')}
+        ${moreHTML(lane.id, paged.rest)}
         ${lane.id === DONE_LANE && S.lastAuto
           ? `<span class="lane-note">Moved here automatically · ${fmtTime(S.lastAuto)}</span>`
           : `<button class="addcard" data-lane-add="${lane.id}">+ Add card</button>`}
@@ -110,7 +148,7 @@ export function kanbanHTML({ desktop = false } = {}) {
     <span class="txt">Automation${desktop ? ':' : ' on —'} ${desktop ? 'marking a task complete moves its card' : 'completed tasks move'} to <strong>${esc(laneName(S.currentList, DONE_LANE))}</strong></span>
     ${desktop ? '<button class="edit" data-editrules>Edit rules</button>' : ''}
   </div>
-  ${desktop ? '' : '<span class="hint board-hint">Swipe for more lanes · hold a card to move it</span>'}
+  ${desktop ? '' : '<span class="hint board-hint">Hold a card to move it · keep holding to delete</span>'}
   <div class="board ${desktop ? 'cols3' : ''}">${lanes}
     <button class="lane-add" data-lane-new>${icon('plus', 18)}<span>Add lane</span></button>
   </div>`;
@@ -124,7 +162,7 @@ export function mobileListHTML() {
   const ts = visibleTasks(S.currentList);
   const total = tasksOf(S.currentList).length;
   const headCount = UI.query ? `${ts.length} of ${total} task${total === 1 ? '' : 's'}`
-    : S.view === 'kanban' ? `${total} tasks` : `${openCount(S.currentList)} open`;
+    : `${openCount(S.currentList)} open`;   // the same number in both views (testing report BUG-16)
   const field = searchFieldHTML({ placeholder: 'Search tasks' });
   const body = S.view === 'kanban' ? kanbanHTML() : `
     <div class="scroll-area">
@@ -132,16 +170,17 @@ export function mobileListHTML() {
       ${ts.length ? `
       <span class="hint list-hint">Double-tap to complete · long-press or swipe left to delete</span>
       <div class="card list-card">
-        ${ts.map((t) => `
-        <div class="row trow ${t.done ? 'done' : ''}" data-id="${t.id}">
-          <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
+        ${page('list', ts).shown.map((t) => `
+        <div class="row trow ${t.done ? 'done' : ''}" data-id="${t.id}" tabindex="0" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
+          <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
           <div class="t-main">
             <span class="t-title">${esc(t.title)}</span>
             ${t.done ? '' : taskMetaHTML(t)}
           </div>
           ${t.done || !canReorder() ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
-          <button class="swipe-del" data-del aria-label="Delete" tabindex="-1">${icon('trash', 20)}</button>
+          <button class="swipe-del" data-del aria-label="Delete: ${esc(t.title)}" tabindex="-1">${icon('trash', 20)}</button>
         </div>`).join('')}
+        ${moreHTML('list', page('list', ts).rest)}
       </div>`
       : UI.query ? '' : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
     </div>`;
@@ -149,7 +188,7 @@ export function mobileListHTML() {
   <div class="screen">
     <header class="page-head">
       <div class="page-title-row">
-        <button class="page-title" data-lists aria-label="Switch board"><span>${esc(list.name)}</span>${icon('chevronDown')}</button>
+        <span class="title-with-chip">${pageTitleHTML(list.name, `${list.name}. Switch board`)}${sharedChipHTML(list)}</span>
         <span class="head-right"><span class="kicker">${headCount}</span>${searchToggleHTML()}</span>
       </div>
       ${viewbarHTML()}
@@ -163,7 +202,8 @@ export function bindMobileList() {
   bindViewbar();
   bindSearch(app);
   bindScrollShadow();
-  app.querySelector('[data-lists]').addEventListener('click', () => { UI.screen = 'lists'; rerender(); });
+  bindPageTitle();
+  bindSharedChip(app);
   bindChecks();
   app.querySelectorAll('.trow').forEach((row) => {
     const t = taskById(row.dataset.id);
@@ -188,12 +228,12 @@ export function desktopTableHTML() {
     <div class="tgrid tgrid-head">
       <span></span><span>Task</span><span>Due</span><span>Priority</span><span>Subtasks</span>
     </div>
-    ${ts.map((t) => {
+    ${page('table', ts).shown.map((t) => {
       const sub = t.subtasks.length
         ? `${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}` : null;
       return `
       <div class="tgrid tgrid-row ${t.done ? 'done' : ''}" data-id="${t.id}">
-        <input type="checkbox" aria-label="Toggle complete" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
+        <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
         <span class="t-title">${esc(t.title)}</span>
         ${t.done ? '<span></span><span></span><span></span>' : `
         ${t.due ? dueChipHTML(t) : '<span class="cell-muted">—</span>'}
@@ -201,6 +241,7 @@ export function desktopTableHTML() {
         ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
       </div>`;
     }).join('')}
+    ${moreHTML('table', page('table', ts).rest)}
     ${ts.length ? '' : `<p class="empty">${UI.query ? `No tasks match “${esc(UI.query)}”.` : 'No tasks yet. Add one above.'}</p>`}
   </div>
   <span class="hint">${UI.query ? 'Clear the search to reorder' : 'Drag rows to reprioritize'} · double-click a task to complete</span>`;
@@ -237,6 +278,10 @@ export function bindScrollShadow() {
 }
 
 export function bindChecks() {
+  app.querySelectorAll('[data-more-rows]').forEach((b) => b.addEventListener('click', () => {
+    paging.extra[b.dataset.moreRows] = (paging.extra[b.dataset.moreRows] || 0) + PAGE;
+    rerender();
+  }));
   app.querySelectorAll('.check[data-id]').forEach((c) => {
     c.addEventListener('click', (e) => e.stopPropagation());
     c.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -257,44 +302,108 @@ export function bindKanban() {
   });
   app.querySelectorAll('[data-lane-add]').forEach((b) =>
     b.addEventListener('click', () => openSheet({ lane: b.dataset.laneAdd })));
-  app.querySelectorAll('[data-lane-menu]').forEach((b) =>
-    b.addEventListener('click', (e) => openLaneMenu(e.currentTarget, b.dataset.laneMenu)));
+  app.querySelectorAll('[data-lane-rename]').forEach((b) => {
+    b.addEventListener('click', () => editLaneName(b.dataset.laneRename));
+    /* the keyboard way to remove a lane: Delete on its focused name */
+    b.addEventListener('keydown', (e) => { if (e.key === 'Delete') { e.preventDefault(); confirmDeleteLane(b.dataset.laneRename); } });
+  });
+  app.querySelectorAll('.lane:not(.lane-fixed)').forEach(bindLane);
   app.querySelector('[data-lane-new]')?.addEventListener('click', async () => {
     const name = await promptDialog('New lane', { placeholder: 'Lane name', confirmLabel: 'Add' });
-    if (name) addLane(S.currentList, name);
+    if (!name) return;
+    if (nameTaken('lane', name, { listId: S.currentList })) { toast(`There is already a lane called ${name}`); return; }
+    addLane(S.currentList, name);
   });
   app.querySelector('[data-editrules]')?.addEventListener('click', () => openSettings('automations'));
 }
 
-/* Lane header ⋯: rename, move left / right, delete (never Done, never the
-   last other lane). Deleting moves the lane's tasks to the board's first lane. */
-function openLaneMenu(anchor, laneId) {
+/* Rename a lane in place: its name becomes a field. Enter or leaving the
+   field saves, Esc cancels, an empty name keeps the old one. The board stays
+   scrolled where it was, so a far lane does not jump out of view on save. */
+function editLaneName(laneId) {
   const listId = S.currentList;
-  const lanes = lanesOf(listId), i = lanes.findIndex((l) => l.id === laneId), lane = lanes[i];
-  if (!lane) return;
-  const items = [{
-    label: 'Rename', icon: 'text',
-    onClick: async () => {
-      const name = await promptDialog('Rename lane', { value: lane.name, confirmLabel: 'Rename' });
-      if (name) renameLane(listId, laneId, name);
+  const lane = lanesOf(listId).find((l) => l.id === laneId);
+  const btn = [...app.querySelectorAll('[data-lane-rename]')].find((b) => b.dataset.laneRename === laneId);
+  if (!lane || !btn || laneId === DONE_LANE) return;
+  const input = document.createElement('input');
+  input.className = 'lane-name lane-name-input';
+  input.value = lane.name;
+  input.autocomplete = 'off';
+  input.enterKeyHint = 'done';
+  input.setAttribute('aria-label', 'Lane name');
+  btn.replaceWith(input);
+  let closed = false;
+  const finish = (save) => {
+    if (closed) return;
+    closed = true;
+    const name = input.value.trim();
+    if (!save || !name || name === lane.name) { input.replaceWith(btn); return; }
+    if (nameTaken('lane', name, { listId, except: laneId })) { input.replaceWith(btn); toast(`There is already a lane called ${name}`); return; }
+    const x = app.querySelector('.board')?.scrollLeft || 0;
+    renameLane(listId, laneId, name);
+    const board = app.querySelector('.board');
+    if (board) board.scrollLeft = x;
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') finish(true);
+    else if (e.key === 'Escape') { e.stopPropagation(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+  input.focus(); input.select();
+}
+
+/* Lanes (PRD-improvements US-02, owner's review 2026-11-17). Hold a lane
+   outside its cards to lift it and drop it between two others; Done stays
+   last. Hold longer without moving and an X appears in its top right.
+   Removing asks first: the lane's cards go to the leftmost other lane, or
+   to Deleted when only Done would be left. */
+function bindLane(lane) {
+  const board = lane.closest('.board');
+  const laneId = lane.dataset.lane;
+  let target = null;           // the lane the dragged one goes in front of (Done for "at the end")
+  const mark = (el) => {
+    if (target === el) return;
+    target?.classList.remove('lane-drop');
+    target = el; target?.classList.add('lane-drop');
+  };
+  bindHold(lane, {
+    ignore: '.kcard,.addcard,.lane-note,.lane-name-input',
+    ghostClass: 'lane',
+    canDrag: () => !UI.query,
+    scroller: () => board,
+    axis: 'x',
+    onDragMove: (ev) => {
+      const others = [...board.querySelectorAll('.lane')].filter((l) => l !== lane);
+      mark(others.find((l) => { const r = l.getBoundingClientRect(); return ev.clientX < r.left + r.width / 2; })
+        || others.find((l) => l.classList.contains('lane-fixed')) || null);
     },
-  }];
-  if (i > 0) items.push({ label: 'Move left', icon: 'chevronLeft', onClick: () => moveLane(listId, laneId, -1) });
-  if (i < lanes.length - 1) items.push({ label: 'Move right', icon: 'chevronRight', onClick: () => moveLane(listId, laneId, 1) });
-  if (canDeleteLane(listId, laneId)) {
-    items.push({ divider: true }, {
-      label: 'Delete lane', icon: 'trash', danger: true,
-      onClick: async () => {
-        const n = laneTaskCount(listId, laneId);
-        const to = lanes.find((l) => l.id !== laneId && l.id !== DONE_LANE)?.name;
-        const body = n ? `${n} task${n === 1 ? '' : 's'} in ${lane.name} will move to ${to}.` : `${lane.name} is empty.`;
-        if (!await confirmDialog(`Delete ${lane.name}?`, body, { confirmLabel: 'Delete', danger: true })) return;
-        deleteLane(listId, laneId);
-        toast(n ? `Lane deleted · ${n} moved to ${to}` : 'Lane deleted');
-      },
-    });
-  }
-  openMenu(anchor, items);
+    onDragEnd: () => { lane.dataset.dropBefore = target?.dataset.lane || ''; mark(null); },
+    onDrop: () => {
+      const before = lane.dataset.dropBefore; delete lane.dataset.dropBefore;
+      const rest = lanesOf(S.currentList).filter((l) => l.id !== laneId && l.id !== DONE_LANE);
+      const i = rest.findIndex((l) => l.id === before);
+      reorderLane(S.currentList, laneId, i === -1 ? rest.length : i);
+    },
+    armButtons: () => [{ icon: 'x', label: `Remove lane ${laneName(S.currentList, laneId)}`, onClick: () => confirmDeleteLane(laneId) }],
+  });
+}
+
+async function confirmDeleteLane(laneId) {
+  const listId = S.currentList;
+  if (!canDeleteLane(listId, laneId)) return;
+  const name = laneName(listId, laneId);
+  const n = laneTaskCount(listId, laneId);
+  const heir = laneHeir(listId, laneId);
+  const cards = `${n} card${n === 1 ? '' : 's'}`;
+  const body = !n ? `${name} is empty.`
+    : heir ? `Its ${cards} move to ${laneName(listId, heir)}.`
+      : `Its ${cards} move to Deleted, where they stay for ${RETENTION_DAYS} days. Done is the only lane left on this board.`;
+  if (!await confirmDialog(`Remove ${name}?`, body, { confirmLabel: 'Remove', danger: true })) return;
+  buzz('MEDIUM');
+  const r = deleteLane(listId, laneId);
+  if (!r) return;
+  toast(r.moved ? `Lane removed · ${r.moved} moved to ${laneName(listId, r.to)}` : r.binned ? `Lane removed · ${r.binned} moved to Deleted` : 'Lane removed',
+    { action: { label: 'Undo', onClick: () => { if (restoreLane(listId, r.undo)) toast(`${name} is back`); } } });
 }
 
 /* ── Gestures ────────────────────────────────────────────────────────── */
@@ -398,7 +507,17 @@ export function bindRowGestures(el, task) {
     onDoubleTap: () => completeTask(task.id, el),
     onLongPress: () => { buzz('MEDIUM'); deleteWithUndo(task.id); },
   });
+  /* the keyboard way in, as on a Kanban card (testing report BUG-08) */
+  el.addEventListener('keydown', (e) => {
+    if (e.target !== el) return;
+    if (e.key === 'Enter') openDetail(task.id);
+    else if (e.key === 'Delete') { e.preventDefault(); deleteWithUndo(task.id); }
+  });
 }
+
+/** What a task's circle does, with the task's name: every circle used to
+    be "Toggle complete" (testing report BUG-08). */
+export const checkLabel = (t) => `${t.done ? 'Reopen' : 'Complete'}: ${t.title}`;
 
 export function openDetail(id) {
   if (!taskById(id)) return;
@@ -443,86 +562,49 @@ export function bindReorder(dragEl, rowEl, { rowSel, enabled = () => true, onDro
   if (dragEl !== rowEl) dragEl.style.touchAction = 'none';
 }
 
-/* kanban card: tap → detail; mouse-drag or touch hold-drag → move lane.
-   A tap is a release that barely moved; a pointer the browser cancels
-   (the lane or board started scrolling) is never a tap. While dragging, a
-   copy of the card follows the pointer and the board scrolls sideways when
-   the pointer nears its edge, so every lane can be reached. */
-const EDGE = 56;        // px from the board's edge where auto-scroll kicks in
+/* kanban card (PRD-improvements US-03, US-04): tap → detail; mouse-drag or
+   touch hold-drag → move lane; hold longer without moving → the delete
+   badge, which asks before deleting. The press timing, the copy that follows
+   the pointer and the sideways auto-scroll live in gestures.js. A focused
+   card opens with Enter and asks to delete with Delete or Backspace. */
 export function bindCard(card, task) {
-  card.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.check,.grip')) return;
-    let dragging = false, overLane = null, held = false, ghost = null, raf = 0, scrollV = 0;
-    const sx = e.clientX, sy = e.clientY, pid = e.pointerId;
-    const isTouch = e.pointerType === 'touch';
-    const canDrag = !UI.query;      // a filtered board is tap-only (AC-08.2)
-    const board = card.closest('.board');
-    const holdTimer = isTouch && canDrag ? setTimeout(() => { held = true; startDrag(); }, 350) : null;
-    const placeGhost = (x, y) => { if (ghost) ghost.style.transform = `translate(${x - sx}px, ${y - sy}px)`; };
-    const startDrag = () => {
-      dragging = true;
-      try { card.setPointerCapture(pid); } catch {}
-      card.classList.add('dragging');
-      board?.classList.add('is-dragging');
-      const r = card.getBoundingClientRect();
-      ghost = card.cloneNode(true);
-      ghost.className = 'kcard drag-ghost';
-      ghost.style.width = `${r.width}px`;
-      ghost.style.left = `${r.left}px`;
-      ghost.style.top = `${r.top}px`;
-      document.body.appendChild(ghost);
-      buzz('LIGHT');
-    };
-    const autoScroll = () => {
-      if (!dragging || !board) { raf = 0; return; }
-      if (scrollV) board.scrollLeft += scrollV;
-      raf = requestAnimationFrame(autoScroll);
-    };
-    const blockScroll = (ev) => { if (dragging) ev.preventDefault(); };
-    card.addEventListener('touchmove', blockScroll, { passive: false });
-    const move = (ev) => {
-      const dist = Math.hypot(ev.clientX - sx, ev.clientY - sy);
-      if (!dragging && !isTouch && dist > 8 && canDrag) startDrag();
-      if (!dragging) { if (isTouch && dist > 10 && holdTimer) clearTimeout(holdTimer); return; }
-      placeGhost(ev.clientX, ev.clientY);
-      const lane = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.lane');
+  const board = card.closest('.board');
+  let overLane = null, dropLane = null;
+  bindHold(card, {
+    ignore: '.check,.grip',
+    ghostClass: 'kcard',
+    canDrag: () => !UI.query,       // a filtered board does not lift cards (AC-08.2)
+    scroller: () => board,
+    axis: 'x',
+    onTap: () => openDetail(task.id),
+    onDragMove: (ev) => {
+      const lane = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.lane') || null;
       if (overLane && overLane !== lane) overLane.classList.remove('dropover');
       overLane = lane;
       lane?.classList.add('dropover');
-      if (board) {
-        const r = board.getBoundingClientRect();
-        scrollV = ev.clientX > r.right - EDGE ? Math.ceil((ev.clientX - (r.right - EDGE)) / 4)
-          : ev.clientX < r.left + EDGE ? -Math.ceil(((r.left + EDGE) - ev.clientX) / 4) : 0;
-        if (scrollV && !raf) raf = requestAnimationFrame(autoScroll);
-      }
-    };
-    const finish = () => {
-      if (holdTimer) clearTimeout(holdTimer);
-      cancelAnimationFrame(raf); raf = 0;
-      card.removeEventListener('pointermove', move);
-      card.removeEventListener('pointerup', up);
-      card.removeEventListener('pointercancel', cancel);
-      card.removeEventListener('touchmove', blockScroll);
-      card.classList.remove('dragging');
-      board?.classList.remove('is-dragging');
-      ghost?.remove(); ghost = null;
-      overLane?.classList.remove('dropover');
-    };
-    const up = (ev) => {
-      finish();
-      if (dragging && overLane && overLane.dataset.lane !== task.lane) {
-        /* a recurring card dropped on Done rolls forward and snaps back */
-        if (overLane.dataset.lane === 'done' && task.recur !== 'none' && task.due) { rerender(); completeTask(task.id); }
-        else moveToLane(task.id, overLane.dataset.lane);
-      } else if (dragging) {
-        rerender();
-      } else if (!held && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 8) {
-        openDetail(task.id);
-      }
-    };
-    const cancel = () => { finish(); if (dragging) rerender(); };
-    card.addEventListener('pointermove', move);
-    card.addEventListener('pointerup', up);
-    card.addEventListener('pointercancel', cancel);
+    },
+    onDragEnd: () => { overLane?.classList.remove('dropover'); dropLane = overLane; overLane = null; },
+    onDrop: () => {
+      const to = dropLane?.dataset.lane;
+      dropLane = null;
+      if (!to || to === task.lane) return;
+      /* a recurring card dropped on Done rolls forward and stays in its lane */
+      if (to === DONE_LANE && task.recur !== 'none' && task.due) completeTask(task.id);
+      else moveToLane(task.id, to);
+    },
+    armButtons: () => [{ icon: 'x', label: `Delete card: ${task.title}`, onClick: () => confirmDeleteCard(task) }],
   });
+  card.addEventListener('keydown', (e) => {
+    if (e.target !== card) return;
+    if (e.key === 'Enter') openDetail(task.id);
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); confirmDeleteCard(task); }
+  });
+}
+
+async function confirmDeleteCard(task) {
+  const ok = await confirmDialog(`Delete “${task.title}”?`,
+    `It moves to Deleted and is removed for good after ${RETENTION_DAYS} days.`, { confirmLabel: 'Delete', danger: true });
+  if (!ok) return;
+  buzz('MEDIUM');
+  deleteWithUndo(task.id);
 }

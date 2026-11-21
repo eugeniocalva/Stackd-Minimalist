@@ -1,7 +1,30 @@
 /* App chrome: onboarding, mobile Boards menu, mobile bottom nav + FAB,
    desktop shell with sidebar. */
 
-import { S, UI, listById, taskById, noteById, meetingById, openCount, folderCount, activeNotes, activeMeetings, addTask, newList, commit, rerender } from '../store.js';
+import {
+  S, UI, listById, taskById, noteById, meetingById, openCount, folderCount, activeNotes, activeMeetings, activeLists,
+  addTask, addList, reorderList, commit, rerender,
+} from '../store.js';
+import { bindHold } from './gestures.js';
+import { openAddMenu } from './addmenu.js';
+import { askRemoveBoard } from './actions.js';
+import { newBoardFlow, invitesHTML, bindInvites, invitations, sharedChipHTML, bindSharedChip } from './sharing.js';
+import * as account from '../account.js';
+import * as sync from '../sync.js';
+import { syncDot, ago } from './account.js';
+
+/* Who is here and how sync stands, for the menu and the sidebar (AC-05.8). */
+function accountLine() {
+  const a = account.current();
+  if (!a) return { who: 'On this device', sub: 'Not signed in · sync is off' };
+  const s = sync.state();
+  const sub = s.state === 'syncing' ? 'Syncing…'
+    : s.state === 'offline' ? (s.pending ? `Offline · ${s.pending} to sync` : 'Offline')
+    : s.state === 'paused' ? 'Sync paused'
+    : s.lastSyncAt ? `Synced ${ago(s.lastSyncAt)}` : 'Signed in';
+  return { who: a.email, sub };
+}
+const dotHTML = () => (syncDot() ? '<span class="sync-dot" aria-label="Changes waiting to sync"></span>' : '');
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import {
@@ -12,11 +35,38 @@ import { detailHTML, bindDetail } from './detail.js';
 import { foldersHTML, bindFolders, openFolder } from './folders.js';
 import { openSheet } from './addsheet.js';
 import { settingsHTML, bindSettings, openSettings } from './settings.js';
-import { notesHTML, bindNotes, openNotes, focusComposer } from './notes.js';
+import { notesHTML, bindNotes, openNotes } from './notes.js';
 import { noteDetailHTML, bindNoteDetail } from './notedetail.js';
 import { searchFieldHTML, bindSearch } from './search.js';
-import { meetingsHTML, bindMeetings, openMeetings, addMeeting } from './meetings.js';
+import { meetingsHTML, bindMeetings, openMeetings } from './meetings.js';
 import { meetingHTML, bindMeeting } from './meeting.js';
+import { toast, downloadFile, promptDialog } from './primitives.js';
+import { APP_ORIGIN, APP_HOST, isLegacyOrigin } from '../legal.js';
+import { exportFile, exportFileName } from '../backup.js';
+
+/* — the old address (PRD-accounts AC-12.2, AC-12.3) — */
+
+/** On github.io only: the app has moved, and the data stored under this
+    address can only leave as a file. Shown above every screen, installed
+    PWA included; it cannot be dismissed, the address goes away. */
+export function moveBannerHTML() {
+  if (!isLegacyOrigin()) return '';
+  return `
+  <div class="notice move-banner" role="region" aria-label="Stack'd has moved">
+    ${icon('move', 18)}
+    <span><strong>Stack'd has moved to <a href="${APP_ORIGIN}" target="_blank" rel="noopener">${APP_HOST}</a>.</strong>
+      Download your data here, then import it there in Settings. Recordings cannot travel in the file; their transcripts and minutes do.</span>
+    <button class="btn btn-sm btn-secondary" data-download-data>${icon('download', 16)}Download my data</button>
+  </div>`;
+}
+
+export function bindMoveBanner() {
+  app.querySelector('[data-download-data]')?.addEventListener('click', () => {
+    const name = exportFileName();
+    downloadFile(exportFile(), name);
+    toast(`Saved ${name}. Open ${APP_HOST}, then Settings › Import a Stack'd file.`, { ms: 10000 });
+  });
+}
 
 /* — onboarding — */
 
@@ -46,7 +96,77 @@ export function bindOnboarding() {
     b.addEventListener('click', () => { S.onboarded = true; commit(); }));
 }
 
-/* — folders entries (shared by Boards menu and sidebar) — */
+/* — boards in the menu and the sidebar (PRD-improvements US-10) — */
+
+function openBoard(id) { S.currentList = id; UI.screen = 'list'; commit(); }
+
+/* "New board" asks Personal or Shared first (PRD-improvements AC-12.1) */
+const newBoard = () => newBoardFlow();
+
+/* A div that acts as a button: Enter and Space press it. */
+function pressable(el, onPress) {
+  if (!el) return;
+  el.addEventListener('click', onPress);
+  el.addEventListener('keydown', (e) => {
+    if (e.target === el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onPress(); }
+  });
+}
+
+/* Board rows: tap opens; hold (touch) or drag (mouse) moves the board up
+   and down; hold longer shows the buttons that move it one step or remove
+   it. Keyboard: Enter opens, Alt+↑ / Alt+↓ moves, Delete asks to remove. */
+function bindBoardRows(rowSel) {
+  const rows = [...app.querySelectorAll(rowSel)];
+  const ids = rows.map((r) => r.dataset.id);
+  /* the board lands before `ids[at]`, counted without itself; past the end = last */
+  const moveTo = (id, at) => reorderList(id, ids.filter((x) => x !== id)[at] ?? null);
+  const step = (id, dir) => {
+    const to = ids.indexOf(id) + dir;
+    if (to >= 0 && to < ids.length) moveTo(id, to);
+  };
+  rows.forEach((row) => {
+    const id = row.dataset.id, i = ids.indexOf(id);
+    const name = () => listById(id)?.name || 'board';
+    let over = null, after = false, drop = null;
+    const clear = () => over?.classList.remove('dropover', 'dropover-after');
+    bindHold(row, {
+      ghostClass: row.classList.contains('side-item') ? 'side-item' : 'lrow',
+      scroller: () => row.closest('.scroll-area, .sidebar'),
+      axis: 'y',
+      onTap: () => openBoard(id),
+      onDragMove: (ev) => {
+        const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(rowSel);
+        clear();
+        over = target && target !== row ? target : null;
+        if (!over) return;
+        const r = over.getBoundingClientRect();
+        after = ev.clientY > r.top + r.height / 2;
+        over.classList.add(after ? 'dropover-after' : 'dropover');
+      },
+      onDragEnd: () => { clear(); drop = over ? { id: over.dataset.id, after } : null; over = null; },
+      onDrop: () => {
+        if (!drop) return;
+        const rest = ids.filter((x) => x !== id);
+        moveTo(id, rest.indexOf(drop.id) + (drop.after ? 1 : 0));
+        drop = null;
+      },
+      armButtons: () => [
+        ...(i > 0 ? [{ icon: 'chevronUp', label: `Move ${name()} up`, onClick: () => step(id, -1) }] : []),
+        ...(i < ids.length - 1 ? [{ icon: 'chevronDown', label: `Move ${name()} down`, onClick: () => step(id, 1) }] : []),
+        { icon: 'x', label: `Remove board: ${name()}`, onClick: () => askRemoveBoard(id) },
+      ],
+    });
+    row.addEventListener('keydown', (e) => {
+      if (e.target !== row) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openBoard(id); }
+      else if (e.altKey && e.key === 'ArrowUp') { e.preventDefault(); step(id, -1); }
+      else if (e.altKey && e.key === 'ArrowDown') { e.preventDefault(); step(id, 1); }
+      else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); askRemoveBoard(id); }
+    });
+  });
+}
+
+/* — Archive & Bin entries (shared by the main menu and the sidebar) — */
 
 const folderEntries = () => [
   { tab: 'archived', label: 'Archived', icon: 'archive', count: folderCount('archived') },
@@ -61,31 +181,34 @@ function bindFolderLinks() {
   app.querySelector('[data-open-meetings]')?.addEventListener('click', () => openMeetings());
 }
 
-/* — mobile: Boards menu — */
+/* — mobile: the main menu (PRD-improvements US-08). Only the app name is
+   anchored at the top; "Boards" is a section title like the others and
+   scrolls with the list. — */
 
 export function listsMenuHTML() {
   return `
-  <div class="screen">
+  <div class="screen menu-screen ${UI.menuSlide ? 'slide-in' : ''}">
     <header class="page-head">
-      <div class="page-title-row">
-        <h1 class="page-title-text">Boards</h1>
-        <span class="kicker">Stack'd</span>
+      <div class="page-title-row menu-brand-row">
+        <h1 class="kicker menu-brand">Stack'd Minimalist</h1>
       </div>
     </header>
     <div class="scroll-area">
+      ${invitesHTML()}
+      <h2 class="menu-title">Boards</h2>
       <div class="card list-card">
-        ${S.lists.map((l) => `
-        <div class="lrow ${l.id === S.currentList ? 'current' : ''}" data-id="${l.id}">
+        ${activeLists().map((l) => `
+        <div class="lrow ${l.id === S.currentList ? 'current' : ''}" data-id="${l.id}" role="button" tabindex="0" aria-label="${esc(l.name)}, ${openCount(l.id)} open" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Delete">
           <span class="lrow-icon">${icon('board', 18)}</span>
           <span class="lname">${esc(l.name)}</span>
           <span class="lcount num">${openCount(l.id)}</span>
         </div>`).join('')}
-        <div class="lrow newlist" data-newlist>
+        <div class="lrow newlist" data-newlist role="button" tabindex="0">
           <span class="lrow-icon">${icon('plus', 18)}</span>
           <span class="lname">New board…</span>
         </div>
       </div>
-      <span class="section-title list-label">Notes</span>
+      <h2 class="menu-title">Notes</h2>
       <div class="card list-card">
         <div class="lrow" data-open-notes>
           <span class="lrow-icon">${icon('note', 18)}</span>
@@ -98,7 +221,7 @@ export function listsMenuHTML() {
           <span class="lcount num">${activeMeetings().length}</span>
         </div>
       </div>
-      <span class="section-title list-label">Folders</span>
+      <h2 class="menu-title">Archive &amp; Bin</h2>
       <div class="card list-card">
         ${folderEntries().map((f) => `
         <div class="lrow" data-open-folder="${f.tab}">
@@ -111,22 +234,22 @@ export function listsMenuHTML() {
         <div class="lrow" data-open-settings>
           <span class="lrow-icon">${icon('settings', 18)}</span>
           <span class="lname">Settings</span>
+          ${dotHTML()}
           ${icon('chevronRight', 18)}
         </div>
       </div>
-      <span class="hint">Synced 2 min ago · free account</span>
+      <span class="hint">${esc(accountLine().sub)}</span>
     </div>
   </div>`;
 }
 
 export function bindListsMenu() {
+  UI.menuSlide = false;            // the slide belongs to the render that opened the menu
   bindScrollShadow();
-  app.querySelectorAll('.lrow[data-id]').forEach((row) =>
-    row.addEventListener('click', () => {
-      S.currentList = row.dataset.id; UI.screen = 'list'; commit();
-    }));
-  app.querySelector('[data-newlist]').addEventListener('click', newList);
+  bindBoardRows('.lrow[data-id]');
+  pressable(app.querySelector('[data-newlist]'), newBoard);
   bindFolderLinks();
+  bindInvites(app);
 }
 
 /* — mobile: bottom nav pill + FAB (hidden on the detail screen) — */
@@ -135,17 +258,18 @@ export function mobileNavHTML() {
   const item = (screen, label, name) => `
     <button class="nav-item ${UI.screen === screen ? 'active' : ''}" data-nav="${screen}" aria-label="${label}">
       <span class="nav-icon">${icon(name, 24)}</span>
+      ${screen === 'lists' && invitations().length ? '<span class="nav-dot" aria-hidden="true"></span>' : ''}
       <span class="nav-item-indicator"></span>
     </button>`;
   return `
   <nav class="bottom-nav">
     <div class="nav-pill">
-      ${item('lists', 'Boards', 'grid')}
+      ${item('lists', invitations().length ? 'Boards, an invitation is waiting' : 'Boards', 'grid')}
       ${item('list', 'Tasks', 'tasks')}
       ${item('notes', 'Notes', 'note')}
-      ${item('folders', 'Folders', 'folder')}
+      ${item('folders', 'Archive & Bin', 'archive')}
     </div>
-    <button class="nav-fab" data-add aria-label="${UI.screen === 'notes' ? 'New note' : UI.screen === 'meetings' ? 'New meeting' : 'Add task'}">${icon('plus', 28)}</button>
+    <button class="nav-fab" data-add aria-label="Add" aria-haspopup="dialog">${icon('plus', 28)}</button>
   </nav>`;
 }
 
@@ -158,7 +282,8 @@ export function bindMobileNav() {
       if (target === 'notes') { openNotes(); return; }
       UI.screen = target; rerender();
     }));
-  app.querySelector('.nav-fab')?.addEventListener('click', () => (UI.screen === 'notes' ? focusComposer() : UI.screen === 'meetings' ? addMeeting() : openSheet()));
+  /* one "+" everywhere: it opens the Add menu (PRD-improvements US-09) */
+  app.querySelector('.nav-fab')?.addEventListener('click', openAddMenu);
 }
 
 /* — desktop shell — */
@@ -176,6 +301,7 @@ export function desktopHTML() {
     : `
     <header class="main-head">
       <h1 class="page-title-text">${esc(list.name)}</h1>
+      ${sharedChipHTML(list)}
       ${searchFieldHTML({ placeholder: 'Search tasks' })}
       ${viewbarHTML()}
       ${S.view === 'kanban' ? `<button class="btn btn-primary btn-sm" data-add>${icon('plus', 18)}Add task</button>` : ''}
@@ -193,9 +319,10 @@ export function desktopHTML() {
   <div class="shell">
     <aside class="sidebar">
       <div class="brand"><div class="brand-mark"></div><div class="brand-name">STACK'D</div></div>
+      ${invitations().length ? `<div class="side-invites">${invitesHTML()}</div>` : ''}
       <span class="section-title side-label">Boards</span>
-      ${S.lists.map((l) => `
-      <div class="side-item ${onBoard && l.id === S.currentList ? 'active' : ''}" data-id="${l.id}">
+      ${activeLists().map((l) => `
+      <div class="side-item ${onBoard && l.id === S.currentList ? 'active' : ''}" data-id="${l.id}" role="button" tabindex="0" aria-label="${esc(l.name)}, ${openCount(l.id)} open" aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Delete">
         <span class="name">${esc(l.name)}</span>
         <span class="count num">${openCount(l.id)}</span>
       </div>`).join('')}
@@ -210,7 +337,7 @@ export function desktopHTML() {
         <span class="name">Meetings</span>
         <span class="count num">${activeMeetings().length}</span>
       </div>
-      <span class="section-title side-label">Folders</span>
+      <span class="section-title side-label">Archive &amp; Bin</span>
       ${folderEntries().map((f) => `
       <div class="side-item ${inFolders && UI.folder === f.tab ? 'active' : ''}" data-open-folder="${f.tab}">
         ${icon(f.icon, 16)}
@@ -220,10 +347,11 @@ export function desktopHTML() {
       <div class="side-item side-settings ${UI.screen === 'settings' ? 'active' : ''}" data-open-settings>
         ${icon('settings', 16)}
         <span class="name">Settings</span>
+        ${dotHTML()}
       </div>
       <div class="side-user">
-        <span class="who">Alex Rivera</span>
-        <span class="sub">Synced across 3 devices</span>
+        <span class="who">${esc(accountLine().who)}</span>
+        <span class="sub">${esc(accountLine().sub)}</span>
       </div>
     </aside>
     <main class="main">${main}</main>
@@ -231,12 +359,11 @@ export function desktopHTML() {
 }
 
 export function bindDesktop() {
-  app.querySelectorAll('.side-item[data-id]').forEach((el) =>
-    el.addEventListener('click', () => {
-      S.currentList = el.dataset.id; UI.screen = 'list'; commit();
-    }));
-  app.querySelector('[data-newlist]').addEventListener('click', newList);
+  bindBoardRows('.side-item[data-id]');
+  app.querySelector('[data-newlist]').addEventListener('click', newBoard);
   bindFolderLinks();
+  bindInvites(app);
+  bindSharedChip(app);
   if (UI.screen === 'detail') { bindDetail(); return; }
   if (UI.screen === 'folders') { bindFolders(); return; }
   if (UI.screen === 'settings') { bindSettings(); return; }

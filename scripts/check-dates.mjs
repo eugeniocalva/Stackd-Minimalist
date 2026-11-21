@@ -79,6 +79,15 @@ assert.equal(nextOccurrence('2026-10-16', 'weekly', '2026-10-16'), '2026-10-23')
 assert.equal(nextOccurrence('2026-09-25', 'weekly', '2026-10-16'), '2026-10-23'); // 3 weeks overdue → next future Friday
 assert.equal(nextOccurrence('2026-10-16', 'monthly', '2026-10-16'), '2026-11-16');
 assert.equal(nextOccurrence('2026-01-31', 'monthly', '2026-01-31'), '2026-02-28');
+/* a month-end series goes back to its own day after a short month (testing report BUG-06) */
+assert.equal(nextOccurrence('2026-02-28', 'monthly', '2026-02-28', 31), '2026-03-31');
+assert.equal(nextOccurrence('2026-03-31', 'monthly', '2026-03-31', 31), '2026-04-30');
+assert.equal(nextOccurrence('2026-02-28', 'monthly', '2026-02-28', 30), '2026-03-30');
+assert.equal(nextOccurrence('2026-02-28', 'monthly', '2026-02-28'), '2026-03-28', 'no anchor: as before');
+assert.equal(nextOccurrence('2026-02-28', 'monthly', '2026-06-10', 31), '2026-06-30', 'missed periods are skipped, the day is kept');
+assert.equal(nextOccurrence('2028-02-29', 'yearly', '2028-02-29', 29), '2029-02-28');
+assert.equal(nextOccurrence('2029-02-28', 'yearly', '2031-03-01', 29), '2032-02-29', 'a leap-day series finds its day again');
+assert.equal(nextOccurrence('2026-11-20', 'weekly', '2026-11-20', 31), '2026-11-27', 'weekly ignores the anchor');
 assert.equal(nextOccurrence('2026-10-16', 'yearly', '2026-10-16'), '2027-10-16');
 assert.equal(nextOccurrence('2026-10-20', 'daily', '2026-10-16'), '2026-10-21');  // future due: just one step
 assert.equal(nextOccurrence('2026-10-16', 'none', '2026-10-16'), '2026-10-16');

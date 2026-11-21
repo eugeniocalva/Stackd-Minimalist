@@ -1,0 +1,35 @@
+# Local development of accounts and sync ONLY:
+#   npx wrangler d1 migrations apply DB --local --config wrangler.dev.toml
+#   npx wrangler dev --config wrangler.dev.toml --port 8787 --ip 127.0.0.1
+# Then in the app: Settings › Developer › proxy URL http://localhost:8787.
+# The database is a local file under .wrangler/; mail goes to the stub, and
+# GET /v1/dev/mail?to=<email> shows the last message (localhost only).
+# Never deploy this file: the peppers below are public placeholders.
+name = "stackd-proxy-dev"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+preview_urls = false
+
+[[kv_namespaces]]
+binding = "POOL"
+id = "local-pool"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "stackd-dev"
+database_id = "local-dev"
+migrations_dir = "migrations"
+
+[vars]
+ALLOWED_ORIGINS = "http://localhost:8123,http://localhost:8124,http://localhost:8126"
+APP_TOKEN = "stackd-app-2026-10"
+PIN_PEPPER = "local-development-pin-pepper-not-a-secret"
+CODE_PEPPER = "local-development-code-pepper-not-a-secret"
+TERMS_VERSION = "2026-11-16"
+PRIVACY_VERSION = "2026-11-16"
+MAIL_PROVIDER = "stub"
+DEV_MAIL = "1"
+OWNER_FOOTER = "Stack'd (local development)"
+TESTERS = ""

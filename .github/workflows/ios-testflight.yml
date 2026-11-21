@@ -1,9 +1,22 @@
 # iOS build -> App Store Connect / TestFlight, on GitHub's hosted Macs.
 # Adapted from Stack'd Finance's workflow of the same name.
 #
-# Why this exists: there is no Mac on the team, and Apple requires Xcode 26
-# (macOS only) for every upload. GitHub's macos-26 image ships Xcode 26, and
-# macOS runners are free on a public repository.
+# Why this exists: there is no Mac on the team, and Apple requires a recent
+# Xcode (macOS only) for every upload. macOS runners are free on a public
+# repository.
+#
+# Which Xcode: from April 2027 Apple accepts only builds made with the iOS 27
+# SDK (Xcode 27) or later, and warned about it on every upload made with
+# Xcode 26 (ITMS-90725, builds 11 and 12). So:
+# - `runs-on` is GitHub's image that ships Xcode 27;
+# - the newest released Xcode on it is selected, never a beta or a release
+#   candidate (Apple refuses uploads built with those);
+#   the selection follows the image's links to the real app (build 14 got a
+#   beta through a plain-named link);
+# - the job fails at once if the iOS SDK is older than MIN_IOS_SDK.
+# Apple raises this floor every spring. When the warning comes back for the
+# next SDK, change `runs-on` to the image that ships that Xcode and raise
+# MIN_IOS_SDK; nothing else here names a version.
 #
 # MANUAL ONLY (workflow_dispatch). The repository is public, so there is
 # deliberately no push / pull_request trigger: nothing a fork or a pull request
@@ -48,9 +61,12 @@ concurrency:
 
 jobs:
   testflight:
-    runs-on: macos-26
+    # GitHub's Xcode 27 image (macOS 27). It is still labelled "preview" in
+    # actions/runner-images (issue 14404): runs may queue for longer.
+    runs-on: xcode-27
     timeout-minutes: 60
     env:
+      MIN_IOS_SDK: '27'
       TEAM_ID: YA3DTZR26U
       BUNDLE_ID: com.eugeniocalva.stackd
       WORKSPACE: ios/App/App.xcworkspace
@@ -81,10 +97,19 @@ jobs:
           node-version: '24'
           cache: npm
 
-      - name: Select Xcode 26
+      - name: Select the newest released Xcode
         run: |
-          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -n 1)"
+          ls -d /Applications/Xcode_*.app
+          # The real app behind each name: the image links plain names to betas
+          # (build 14 got Xcode_27.3.app -> Xcode_27.3_beta.app), so a filter on
+          # the names alone is not enough.
+          XCODE="$(for x in /Applications/Xcode_*.app; do (cd "$x" && pwd -P); done | grep -Eiv 'beta|_rc|release_candidate|preview' | sort -uV | tail -n 1)"
+          [ -n "$XCODE" ] || { echo "::error::no released Xcode on this image"; exit 1; }
+          sudo xcode-select -s "$XCODE"
           xcodebuild -version
+          SDK="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iOS SDK $SDK"
+          [ "${SDK%%.*}" -ge "$MIN_IOS_SDK" ] || { echo "::error::iOS SDK $SDK is older than $MIN_IOS_SDK, which Apple requires (ITMS-90725). Use an image with a newer Xcode in runs-on."; exit 1; }
 
       - name: Check the secrets are present
         env:
@@ -126,6 +151,73 @@ jobs:
       - name: Sync web assets and plugins (pod install)
         run: npx cap sync ios
 
+      # The keyboard resizes the web view ("resize": "native"), and on iOS 26
+      # it floats with rounded corners: around it the window shows, black by
+      # default (owner's review 2026-11-17). The window and the root view get
+      # the app's background instead. Build 11 took light or dark from the
+      # phone, so a light app on a dark phone still showed dark around the
+      # keyboard (owner's review of build 11): the window now takes the app's
+      # own setting, which src/theme.js sends to the "stackdTheme" handler
+      # ('light' | 'dark' | 'system'; 'system' leaves it to the phone).
+      - name: Window background and theme behind the keyboard
+        run: |
+          F=ios/App/App/AppDelegate.swift
+          grep -q 'didFinishLaunchingWithOptions' "$F" || { echo "::error::AppDelegate.swift has no didFinishLaunchingWithOptions - the Capacitor template changed"; exit 1; }
+          grep -q '^import Capacitor' "$F" || { echo "::error::AppDelegate.swift does not import Capacitor - the Capacitor template changed"; exit 1; }
+          perl -0pi -e 's/^import UIKit\n/import UIKit\nimport WebKit\n/m; s/(didFinishLaunchingWithOptions[^{]*\{\n)/$1        DispatchQueue.main.async { StackdTheme.attach() }   \/\/ Stack\x27d: the app\x27s theme around the keyboard\n/' "$F"
+          cat >> "$F" <<'SWIFT'
+
+          // Stack'd (owner's review of builds 10 and 11): the keyboard resizes the
+          // web view and, on iOS 26, floats with rounded corners, so the window
+          // shows around it. The window gets the app's background, and the app's
+          // light or dark rather than the phone's: theme.js sends its setting to
+          // the "stackdTheme" handler, and is asked for it here in case it was
+          // sent before the handler existed.
+          final class StackdTheme: NSObject, WKScriptMessageHandler {
+              static let shared = StackdTheme()
+              static let background = UIColor { $0.userInterfaceStyle == .dark
+                  ? UIColor(red: 11 / 255.0, green: 15 / 255.0, blue: 25 / 255.0, alpha: 1)
+                  : UIColor(red: 244 / 255.0, green: 247 / 255.0, blue: 249 / 255.0, alpha: 1) }
+
+              static var windows: [UIWindow] {
+                  UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap { $0.windows }
+              }
+
+              static func attach() {
+                  for w in windows {
+                      w.backgroundColor = background
+                      w.rootViewController?.view.backgroundColor = background
+                      guard let web = (w.rootViewController as? CAPBridgeViewController)?.webView else { continue }
+                      let scripts = web.configuration.userContentController
+                      scripts.removeScriptMessageHandler(forName: "stackdTheme")
+                      scripts.add(shared, name: "stackdTheme")
+                      web.evaluateJavaScript("document.documentElement.dataset.themeSetting || ''") { value, _ in
+                          if let setting = value as? String { apply(setting) }
+                      }
+                  }
+              }
+
+              /// 'light' | 'dark' | 'system'; anything else is ignored.
+              static func apply(_ setting: String) {
+                  let style: UIUserInterfaceStyle
+                  switch setting {
+                  case "light": style = .light
+                  case "dark": style = .dark
+                  case "system": style = .unspecified
+                  default: return
+                  }
+                  for w in windows { w.overrideUserInterfaceStyle = style }
+              }
+
+              func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+                  if let setting = message.body as? String { StackdTheme.apply(setting) }
+              }
+          }
+          SWIFT
+          grep -q '^import WebKit' "$F" && grep -q 'StackdTheme.attach()' "$F" && grep -q 'class StackdTheme' "$F" \
+            || { echo "::error::could not add the window theme to AppDelegate.swift"; exit 1; }
+          sed -n '1,/return true/p' "$F"
+
       - name: Check the native plugins landed
         run: |
           grep -q "CapacitorLocalNotifications" ios/App/Podfile \
@@ -136,6 +228,29 @@ jobs:
             || { echo "::error::@capacitor/haptics is missing from the Podfile - long-press would not vibrate"; exit 1; }
           grep -q "StackdRecordingService" ios/App/Podfile \
             || { echo "::error::plugins/recording-service is missing from the Podfile - it is a file: dependency, run npm ci"; exit 1; }
+          grep -q "CapawesomeCapacitorAgeSignals" ios/App/Podfile \
+            || { echo "::error::@capawesome/capacitor-age-signals is missing from the Podfile - the store age signal would not be read"; exit 1; }
+
+      # Apple's Declared Age Range needs the com.apple.developer.declared-age-range
+      # entitlement (docs/prd-age-signals.md, D-7). Signing fails if the App ID
+      # does not have the capability, so it is added only once the owner has
+      # turned the capability on in the developer portal and set the
+      # repository variable IOS_DECLARED_AGE_RANGE to true. Without it the app
+      # still builds; on iOS the store simply gives no age, and the birth-year
+      # question stays.
+      - name: Declared Age Range entitlement (when enabled)
+        if: ${{ vars.IOS_DECLARED_AGE_RANGE == 'true' }}
+        run: |
+          E=ios/App/App/App.entitlements
+          P=ios/App/App.xcodeproj/project.pbxproj
+          [ -f "$E" ] || printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' '<plist version="1.0">' '<dict>' '</dict>' '</plist>' > "$E"
+          /usr/libexec/PlistBuddy -c 'Add :com.apple.developer.declared-age-range bool true' "$E" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c 'Set :com.apple.developer.declared-age-range true' "$E"
+          grep -q 'CODE_SIGN_ENTITLEMENTS' "$P" \
+            || perl -0pi -e 's/(\n(\t+)INFOPLIST_FILE = App\/Info\.plist;)/\n$2CODE_SIGN_ENTITLEMENTS = App\/App.entitlements;$1/g' "$P"
+          [ "$(grep -c 'CODE_SIGN_ENTITLEMENTS = App/App.entitlements;' "$P")" -ge 2 ] \
+            || { echo "::error::could not point the App target at App.entitlements"; exit 1; }
+          cat "$E"
 
       # HTTPS only, no custom encryption: without this key every build waits in
       # TestFlight as "Missing Compliance" until it is answered by hand.
@@ -177,21 +292,22 @@ jobs:
           security default-keychain -s "$KEYCHAIN"
           echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
 
+      # The archive is not signed. Signing it made Xcode ask Apple for a new
+      # Apple Development certificate on every run (each run is a new machine),
+      # until the account reached its limit and build 16 failed with "Your
+      # account has reached the maximum number of certificates". The export
+      # step below signs the app with the cloud-managed distribution
+      # certificate, the only signature a store build needs; "Check the signed
+      # .ipa" then proves it is there.
       - name: Archive
-        env:
-          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
-          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
         run: |
           set -o pipefail
           xcodebuild archive \
             -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath "$ARCHIVE" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$KEY_PATH" \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID" \
-            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             MARKETING_VERSION="$WANT_VERSION" CURRENT_PROJECT_VERSION="$WANT_BUILD" | tail -n 200
 
       - name: Check the archive

@@ -12,7 +12,7 @@ import { fmtDateOrRelative } from '../dates.js';
 import { firstLine, isEmpty } from '../richtext.js';
 import { esc, app, uid } from '../util.js';
 import { icon } from './icons.js';
-import { bindScrollShadow, bindReorder } from './board.js';
+import { bindScrollShadow, bindReorder, pageTitleHTML, bindPageTitle } from './board.js';
 import { toast } from './primitives.js';
 import { editorHTML, bindEditor, colorBarHTML, colorName } from './noteeditor.js';
 import { openNote } from './notedetail.js';
@@ -52,7 +52,7 @@ function collapse() {
   if (UI.screen === 'notes') rerender();
 }
 
-/** FAB on the Notes screen (AC-01.3). */
+/** "Add note" in the + menu (AC-01.3): the composer opens with the caret in it. */
 export function focusComposer() {
   expand('body');
   app.querySelector('[data-editor]')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -164,7 +164,7 @@ export function notesHTML() {
   <div class="screen notes-screen">
     <header class="page-head">
       <div class="page-title-row">
-        <h1 class="page-title-text">Notes</h1>
+        ${pageTitleHTML('Notes')}
         <span class="head-right"><span class="kicker">${kicker}</span>${searchToggleHTML()}</span>
       </div>
       ${sortbarHTML()}
@@ -185,6 +185,7 @@ export function notesHTML() {
 
 export function bindNotes() {
   bindScrollShadow();
+  bindPageTitle();
   const host = app.querySelector('[data-composer-host]');
   editor = bindEditor(host, {
     mode: 'composer',

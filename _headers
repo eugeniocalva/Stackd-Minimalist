@@ -1,0 +1,14 @@
+# Response headers for the web app on Cloudflare (https://app.stackdplatform.com).
+# docs/architecture.md §30. Copied into the site by `npm run build -- --site`.
+# The phone apps and a copy opened from disk never receive these; they are
+# covered by scripts/check-origins.mjs instead.
+#
+# script-src 'self': index.html has no inline script (src/pretheme.js,
+# src/filefallback.js). style-src keeps 'unsafe-inline' for style attributes
+# and the <style> block of the legal pages. connect-src names the proxy; any
+# new origin must be added here and to scripts/check-origins.mjs.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' https://minimalist-api.stackdplatform.com; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  Strict-Transport-Security: max-age=31536000; includeSubDomains

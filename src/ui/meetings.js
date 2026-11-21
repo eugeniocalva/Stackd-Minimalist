@@ -10,7 +10,7 @@ import {
 import { fmtDateOrRelative, fmtDuration } from '../dates.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
-import { bindScrollShadow } from './board.js';
+import { bindScrollShadow, pageTitleHTML, bindPageTitle } from './board.js';
 import { filterMeetings } from '../search.js';
 import { queryFor, searchOpen, searchToggleHTML, searchFieldHTML, bindSearch } from './search.js';
 import { openMeeting } from './meeting.js';
@@ -20,7 +20,7 @@ export function openMeetings() {
   rerender();
 }
 
-/** The + FAB on the Meetings screen (AC-01.4). */
+/** "Add meeting" in the + menu, and the desktop button (AC-01.4). */
 export function addMeeting() { newMeeting(); }
 
 /* ── Markup ──────────────────────────────────────────────────────────── */
@@ -99,7 +99,7 @@ export function meetingsHTML() {
   <div class="screen meetings-screen">
     <header class="page-head">
       <div class="page-title-row">
-        <h1 class="page-title-text">Meetings</h1>
+        ${pageTitleHTML('Meetings')}
         <span class="head-right"><span class="kicker">${kicker}</span>${searchToggleHTML()}</span>
       </div>
       ${sortbarHTML()}
@@ -114,6 +114,7 @@ export function meetingsHTML() {
 
 export function bindMeetings() {
   bindScrollShadow();
+  bindPageTitle();
   bindSortbar();
   bindSearch(app);
   app.querySelectorAll('.mrow').forEach((row) => {

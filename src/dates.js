@@ -48,13 +48,28 @@ const STEP = {
 /** Next due date after completing a recurring task: one period from the
     current due date, repeated until it lands strictly after today, so an
     overdue weekly task jumps to the next future week (PRD Q6). */
-export function nextOccurrence(due, recur, today = todayISO()) {
+export function nextOccurrence(due, recur, today = todayISO(), anchorDay = null) {
   const step = STEP[recur];
   if (!step || !due) return due;
-  let next = step(due);
-  while (next <= today) next = step(next);
+  /* a month-end task (the 29th to 31st) is clamped in a short month and must
+     go back to its own day afterwards: 31 Jan → 28 Feb → 31 Mar, not 28 Mar
+     (testing report BUG-06). anchorDay is the day the series was set for. */
+  const anchored = (recur === 'monthly' || recur === 'yearly') && anchorDay >= 1 && anchorDay <= 31;
+  const next1 = (d) => (anchored ? onDay(step(d), anchorDay) : step(d));
+  let next = next1(due);
+  while (next <= today) next = next1(next);
   return next;
 }
+
+/** The same month with another day of the month, clamped to its length. */
+export function onDay(iso, day) {
+  const [y, m] = iso.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return toISO(new Date(y, m - 1, Math.min(day, last)));
+}
+
+/** The day a monthly or yearly series is anchored to, from its due date. */
+export const anchorDayOf = (due, recur) => (due && (recur === 'monthly' || recur === 'yearly') ? Number(due.split('-')[2]) : null);
 
 /** Past the due date, or past the due time when one is set. */
 export function isOverdue(due, dueTime = null, now = new Date()) {

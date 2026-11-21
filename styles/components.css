@@ -106,6 +106,7 @@
   letter-spacing: -0.025em; line-height: 1.15; color: var(--text-primary);
 }
 /* line-height 1.3 + overflow clip: the ellipsis still clips sideways, but descenders (g, p, y) are no longer cut */
+.page-title-h { display: flex; min-width: 0; margin: 0; font: inherit; letter-spacing: inherit; }
 .page-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.3; padding-bottom: 1px; }
 .page-title svg { color: var(--text-tertiary); flex: none; width: 20px; height: 20px; }
 
@@ -223,6 +224,38 @@
   .sheet-handle { display: none; }
 }
 
+/* ── Add menu: the "+" grid (PRD-improvements US-09) ─────────────────── */
+/* No sheet (owner's review 2026-11-17): the tiles float over the page,
+   which is blurred and washed with its own background, just above the "+"
+   they came from. Each rises a beat after the one before. */
+.overlay.add-overlay {
+  background: color-mix(in srgb, var(--bg-base) 50%, transparent);
+  backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2);
+}
+.add-menu { width: 100%; max-width: 440px; padding: 0 var(--gutter) calc(var(--safe-bottom) + 104px); }
+.add-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.add-overlay .add-tile {
+  background: var(--bg-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-float);
+  animation: tileIn 0.34s var(--ease-spring) both; animation-delay: calc(var(--i, 0) * 45ms);
+}
+.add-overlay .add-tile:hover { background: var(--bg-surface-dim); }
+.add-overlay .add-tile-icon { background: var(--bg-surface-sunken); }
+@keyframes tileIn { from { opacity: 0; transform: translateY(18px) scale(0.92); } }
+.add-tile {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2);
+  min-height: 96px; padding: var(--space-4) var(--space-2); border-radius: var(--radius-lg);
+  background: var(--bg-surface-sunken); color: var(--text-primary);
+  font-size: var(--text-sm); font-weight: 700;
+  transition: transform var(--dur-quick) var(--ease-spring), background-color var(--dur-quick) ease;
+}
+.add-tile:hover { background: var(--bg-surface-dim); }
+.add-tile:active { transform: scale(0.97); }
+.add-tile-icon {
+  width: 36px; height: 36px; border-radius: var(--radius-md);
+  background: var(--bg-surface); color: var(--text-primary);
+  display: flex; align-items: center; justify-content: center;
+}
+
 /* ── Toast ───────────────────────────────────────────────────────────── */
 .toast {
   position: fixed; left: 50%; bottom: calc(96px + var(--safe-bottom)); z-index: calc(var(--z-modal-backdrop) + 10);
@@ -231,8 +264,11 @@
   padding: 12px 18px; border-radius: var(--radius-full);
   background: var(--color-primary); color: var(--text-on-primary);
   font-size: var(--text-sm); font-weight: 600; box-shadow: var(--shadow-float);
-  animation: toastIn 0.3s var(--ease-spring);
+  /* fades in and out over 250ms (PRD-improvements AC-05.1; TOAST_FADE_MS in primitives.js) */
+  animation: toastIn 0.25s ease;
+  transition: opacity 0.25s ease, transform 0.25s ease;
 }
+.toast.leaving { opacity: 0; transform: translate(-50%, 8px); pointer-events: none; }
 .toast-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .toast-action {
   flex: none; min-height: 32px; padding: 0 12px; margin: -4px -8px -4px 0; border-radius: var(--radius-full);
@@ -267,6 +303,10 @@
 .dialog .input { width: 100%; }
 .dialog-actions { display: flex; gap: 10px; margin-top: var(--space-2); }
 .dialog-actions .btn { flex: 1; }
+/* the label centred on its capital letters, whatever ascent and descent the
+   platform reads from the font: iOS and Chrome place Manrope differently
+   (owner's review 2026-11-17, AC-04.4) */
+.btn-label { display: block; text-box: trim-both cap alphabetic; }
 .btn-danger { background: var(--color-danger-solid); color: var(--text-on-danger); }
 
 /* ── Notice (folder disclaimer) ──────────────────────────────────────── */
@@ -278,6 +318,17 @@
 .notice > svg { width: 18px; height: 18px; flex: none; }
 .notice > span { flex: 1; min-width: 180px; }
 .notice .btn { margin-left: auto; color: var(--color-warning-text); }
+/* the move banner on the old address: a strip above every screen (1.6.0) */
+.move-banner { flex: none; margin: 0; border-radius: 0; padding: var(--space-2) var(--space-4); gap: var(--space-2); font-size: var(--text-xs); }
+.move-banner > svg { display: none; }
+.move-banner a { color: inherit; text-underline-offset: 3px; }
+.move-banner .btn { flex: none; width: 100%; min-height: 36px; background: var(--bg-surface); }
+.move-banner .btn svg { width: 16px; height: 16px; }
+@media (min-width: 900px) {
+  .move-banner { padding: var(--space-3) var(--space-4); gap: var(--space-3); font-size: var(--text-sm); }
+  .move-banner > svg { display: block; }
+  .move-banner .btn { width: auto; min-height: 40px; }
+}
 
 /* ── Field rows (detail) ─────────────────────────────────────────────── */
 .kv-label { display: inline-flex; align-items: center; gap: 8px; }
@@ -453,3 +504,79 @@
 .tag-btn { cursor: pointer; transition: background-color var(--dur-quick) ease, color var(--dur-quick) ease; }
 .tag-btn:hover { background: var(--bg-surface-dim); color: var(--text-primary); }
 @media (max-width: 899px) { .notes-bar.searching .sortwrap { display: none; } }
+
+/* ── Accounts (1.6.0, architecture §33): step sheet, PIN pad, lock screen ─ */
+.steps-sheet { gap: var(--space-3); }
+.steps-head { display: flex; align-items: center; justify-content: space-between; margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2)) 0; }
+.steps-sheet h2 { font-size: var(--text-xl); font-weight: 800; }
+.steps-sheet h2:focus { outline: none; }   /* focused by the code for screen readers, not a control */
+.step-text { color: var(--text-secondary); font-size: var(--text-sm); }
+.step-error { color: var(--color-danger-text); font-size: var(--text-sm); font-weight: 600; min-height: 1.2em; }
+.step-error:empty { display: none; }
+.steps-sheet select.input { appearance: auto; }
+.code-input { font-size: var(--text-2xl); letter-spacing: 0.4em; text-align: center; font-variant-numeric: tabular-nums; }
+
+.pinpad { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; }
+.pin-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.pin-dots { display: flex; gap: 18px; padding: var(--space-2) 0; }
+.pin-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--text-tertiary); transition: background-color var(--dur-quick) ease, border-color var(--dur-quick) ease; }
+.pin-dot.on { background: var(--text-primary); border-color: var(--text-primary); }
+.pin-error { color: var(--color-danger-text); font-size: var(--text-sm); font-weight: 600; text-align: center; min-height: 1.3em; }
+.pin-keys { display: grid; grid-template-columns: repeat(3, 64px); gap: 14px 22px; }
+.pin-key {
+  width: 64px; height: 64px; border-radius: 50%; background: var(--bg-surface-sunken); color: var(--text-primary);
+  font-family: var(--font-family-display); font-size: var(--text-2xl); font-weight: 700;
+  display: flex; align-items: center; justify-content: center; transition: transform var(--dur-quick) var(--ease-spring), background-color var(--dur-quick) ease;
+}
+.pin-key:active { transform: scale(0.92); background: var(--bg-surface-dim); }
+.pin-key:disabled { opacity: 0.4; }
+.pin-del { background: transparent; }
+.pinpad.shake .pin-dots { animation: pinShake 0.35s ease; }
+@keyframes pinShake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+
+.lock-screen { align-items: center; justify-content: center; padding: var(--space-6) var(--gutter); overflow-y: auto; }
+.lock-card { width: 100%; max-width: 360px; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); text-align: center; }
+.lock-icon { width: 48px; height: 48px; border-radius: 50%; background: var(--bg-surface-sunken); display: flex; align-items: center; justify-content: center; }
+.lock-title { font-size: var(--text-2xl); font-weight: 800; }
+.lock-card .btn-ghost { min-height: 44px; }
+
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-accent); flex: none; }
+.set-under { margin: calc(-1 * var(--space-2)) 0 var(--space-5); min-height: 44px; }
+
+/* ── Shared boards (PRD-improvements US-12) ──────────────────────────── */
+.shared-chip { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 2px 10px; cursor: pointer; flex: none; }
+.shared-chip::after { content: ''; position: absolute; inset: -8px 0; }
+.shared-chip { position: relative; }
+.shared-chip svg { width: 12px; height: 12px; }
+.title-with-chip { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.share-emails { width: 100%; resize: vertical; min-height: 80px; font-family: inherit; }
+.invite-card { margin-bottom: var(--space-3); align-items: center; }
+.invite-actions { display: flex; gap: var(--space-2); margin-left: auto; flex: none; }
+.invite-card .btn { color: inherit; }
+.invite-card .btn-primary { color: var(--text-on-primary); }
+.side-invites { margin: 0 var(--space-1) var(--space-3); }
+.side-invites .notice { font-size: var(--text-xs); flex-wrap: wrap; }
+.nav-item { position: relative; }
+.nav-dot { position: absolute; top: 12px; right: 14px; width: 8px; height: 8px; border-radius: 50%; background: var(--color-danger-solid); box-shadow: 0 0 0 2px var(--bg-surface); }
+
+/* ── Fixes from the deep testing pass (2026-11-21) ───────────────────── */
+/* BUG-09: a toast never takes a tap meant for what is under it; its Undo does */
+.toast { pointer-events: none; }
+.toast-action { pointer-events: auto; }
+/* BUG-10: a long tag is cut with an ellipsis; its X stays on the card */
+.chip, .tag { max-width: 100%; }
+.chip-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tag { overflow: hidden; }   /* still a flex row (its icon sits beside the text): a tag too long is cut at the card's edge */
+.tag svg { flex: none; }
+/* BUG-15: at least 44 px to the finger, whatever the drawn size */
+.check, .seg, .sortbtn, .search-toggle, .kv-clear, .chip.sm, .page-title, .s-del { position: relative; }
+.check::before { content: ''; position: absolute; inset: -11px; border-radius: 50%; }
+.check.sm::before { inset: -13px; }
+.kv-clear::after, .s-del::after { content: ''; position: absolute; inset: -8px; }
+.seg::after, .sortbtn::after, .search-toggle::after, .chip.sm::after, .page-title::after { content: ''; position: absolute; inset: -7px 0; }
+.segmented { overflow: visible; }
+
+/* A dialog with a text field: in the upper part of the screen, clear of the
+   keyboard from the first frame (owner's review of build 17) */
+.overlay.overlay-top { justify-content: flex-start; padding-top: calc(var(--safe-top) + 12vh); }
+.overlay.overlay-top .sheet { width: calc(100% - 32px); border-radius: 28px; border-bottom: 1px solid var(--color-border); animation: fadeIn 0.18s ease; }

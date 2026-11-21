@@ -1070,7 +1070,7 @@ Stackd Minimalist/
 │  └─ screens.css              + meetings list, meeting detail blocks (≤ 120 lines)
 ├─ proxy/                      NEW  Cloudflare Worker
 │  ├─ package.json, wrangler.toml, README.md
-│  ├─ src/index.js             router, auth, CORS (GitHub Pages origin + capacitor://localhost + http://localhost)
+│  ├─ src/index.js             router, auth, CORS (GitHub Pages origin + capacitor://localhost + https://localhost)
 │  ├─ src/plans.js             tier limits, tester limits, period maths (pure, shared with the client checks)
 │  ├─ src/entitlement.js       RevenueCat lookup + KV cache + webhook handler
 │  ├─ src/pool.js              reservation / charge / release on KV
@@ -1535,7 +1535,7 @@ without a hole; release (22) last.
 | Store review rejects the subscription screens | AC-12.9 checklist in `paywall.js`: price, period, renewal text, terms and privacy links, Restore visible; no mention of other platforms' prices; the web variant never says "buy". |
 | Provider prices or quality change after the benchmark | One adapter interface; tier limits and model id are config; §11 of the PRD is re-run with the benchmark's numbers before 1.5.0 ships. |
 | Claude returns something outside the schema (dates, priorities) | Structured output with a strict schema on the proxy; dates re-validated as ISO within −30…+365 days of the meeting; priorities validated against the list sent; invalid items dropped, never shown. |
-| CORS / origin drift between GitHub Pages, `capacitor://localhost` (iOS), `http://localhost` (Android) and `file://` | Allow-list in `proxy/src/index.js` from config; `file://` sends a `null` origin, so the bundle's AI buttons explain they need http(s) (AC-11.5). |
+| CORS / origin drift between GitHub Pages, `capacitor://localhost` (iOS), `https://localhost` (Android, Capacitor 6 and later; `http://localhost` before) and `file://` | Allow-list in `proxy/src/index.js` from config; `file://` sends a `null` origin, so the bundle's AI buttons explain they need http(s) (AC-11.5). |
 | `.docx` unzip without a dependency | Minimal reader behind one function; size cap ~120 lines or switch to `fflate`; both tested in `check-transcript.mjs` with a real Teams export. |
 | Three swipe behaviours drift (task rows, action cards, future note rows) | One `bindSwipe()`; task regression walk in Phase 17. |
 | Service-worker shell drift with twelve new files | `check-shell.mjs`; VERSION bump in Phase 22. |
@@ -2449,3 +2449,469 @@ The proxy's `npm test` gains the Phase 24 and Phase 26 cases listed in
 §34, run against `node:sqlite` through a thin D1-shaped adapter so the
 SQL in `db.js` is the SQL that is tested; `proxy.yml` runs it before the
 migrations and the deploy.
+
+---
+
+# Part V — Improvements and shared boards (1.6.0, `docs/prd-improvements.md`)
+
+Implements `docs/prd-improvements.md`. Structural code only. Phases 31
+to 33 touch the device only and are built before Phase 24; phases 34 and
+35 sit on top of Part IV's sync.
+
+## 38. Approach
+
+- **The render stays whole-screen.** The view jump of US-01 is fixed
+  where it is caused: `render()` in `app.js` records the scroll offsets
+  of the screen it is about to replace and puts them back when the new
+  screen has the same key. No screen keeps its own scroll code.
+- **The origin lane lives in memory.** A `Map` in `store.js`, never
+  saved, never exported, never synced (AC-01.3).
+- **One hold gesture.** `src/ui/gestures.js` owns press timing for
+  Kanban cards and board rows: hold to lift, hold longer for the delete
+  badge. `bindCard` and the board rows are thin callers.
+- **A board carries its cards.** Archiving or deleting a board sets a
+  status on the board record only. Its cards keep their own status and
+  become invisible because every "live" selector also requires a live
+  board (AC-10.4, 10.7).
+- **Sharing is a second sync space, not a second sync.** A shared board
+  and its tasks are stored once on the server under the board's space,
+  and each member's device runs the same push / pull loop against that
+  space with its own cursor (§41).
+
+## 39. Data Schema additions
+
+### On the device (`stackd-v2`, no migration beyond defaults)
+
+```
+list   + status: 'active' | 'archived' | 'deleted'   (missing = 'active')
+       + archivedAt: number | null
+       + deletedAt:  number | null
+       lanes: the lane with id 'done' is always last (withSettings moves it)
+       + share: null | { spaceId, role: 'owner' | 'member', ownerEmail,
+                         members: [{ email, role, state: 'active' | 'pending' }] }
+                                                   (Phase 35; device copy of server truth)
+S      + invites: [{ id, boardName, ownerEmail, expiresAt }]   (Phase 35)
+```
+
+Not persisted: `doneOrigin: Map<taskId, { listId, lane }>` in `store.js`.
+
+### Transient UI state additions (`UI`)
+
+```
+menuSlide: boolean      // the next render of 'lists' animates in from the left
+folderKind: + 'boards'
+```
+
+### In D1 (`proxy/migrations/0002_sharing.sql`, Phase 34)
+
+```sql
+CREATE TABLE spaces (
+  id TEXT PRIMARY KEY,             -- equals the board id
+  owner_id TEXT NOT NULL REFERENCES users(id),
+  rev INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE space_members (
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  user_id TEXT NOT NULL REFERENCES users(id),
+  role TEXT NOT NULL CHECK (role IN ('owner','member')),
+  joined_at INTEGER NOT NULL,
+  PRIMARY KEY (space_id, user_id)
+);
+CREATE TABLE invites (
+  id TEXT PRIMARY KEY,
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  email_hash TEXT NOT NULL,        -- keyed hash, as login_codes
+  board_name TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  UNIQUE (space_id, email_hash)
+);
+CREATE TABLE space_records (
+  space_id TEXT NOT NULL REFERENCES spaces(id),
+  kind TEXT NOT NULL CHECK (kind IN ('board','task')),
+  id TEXT NOT NULL,
+  rev INTEGER NOT NULL,
+  changed_at INTEGER NOT NULL,
+  changed_by TEXT NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0,
+  data TEXT,
+  PRIMARY KEY (space_id, kind, id)
+);
+CREATE INDEX space_records_rev ON space_records (space_id, rev);
+```
+
+### Invariants (tested in `check-store.mjs`, `check-sync.mjs`, `proxy/test`)
+
+- `lanesOf(id).at(-1).id === 'done'` for every board after load.
+- `renameLane` and `moveLane` refuse the Done lane; `moveLane` never
+  swaps a lane with Done.
+- At least one board has `status === 'active'`.
+- `tasksOf`, `openCount`, `planReminders` and `allTags` ignore cards
+  whose board is not active.
+- `doneOrigin` is absent from `save()`, `exportRecords()` and the wire.
+- A space's records are readable and writable only by rows in
+  `space_members`; a removed member's next request gets `gone`.
+- A shared board's tasks never appear in the owner's personal records.
+
+## 40. File & Folder Structure (delta)
+
+```
+src/
+  store.js            + doneOrigin, activeLists, folderBoards, reorderList,
+                        archiveList, softDeleteList, restoreList, deleteListForever
+  ui/
+    gestures.js       NEW  hold-to-lift, hold-longer delete badge, swipe-to-menu
+    addmenu.js        NEW  the "+" grid
+    board.js          Done lane locked; pageTitleHTML / bindPageTitle; bindCard on gestures.js
+    shell.js          menu header, Archive & Bin, board rows on gestures.js
+    folders.js        two pages, Boards kind
+    primitives.js     toast fade; choiceDialog; overlay exported
+    sharing.js        NEW (Phase 35)  new-board chooser, people sheet, invitations
+  share.js            NEW (Phase 35)  calls to /v1/spaces, device copy of members
+proxy/
+  migrations/0002_sharing.sql   NEW (Phase 34)
+  src/spaces.js                 NEW (Phase 34)
+```
+
+## 41. Core Interfaces & Types (additions)
+
+```js
+/* gestures.js */
+bindHold(el, {
+  ignore,                 // selector: presses on these start nothing
+  canDrag(), canArm(),    // () => boolean
+  onTap(),                // release without hold or movement
+  onDragStart(), onDragMove(ev), onDrop(), onDragEnd(),
+  scroller, axis,         // element auto-scrolled near its edge, 'x' | 'y'
+  deleteLabel(),          // accessible name of the badge
+  onDelete(),             // badge pressed
+})
+disarm()                  // removes the badge, if any
+bindSwipeRight(root, { canStart(target, x, edge), start() → { move(p), settle(open) } })   // §48
+slideTo(el, transform, done)
+
+/* store.js */
+activeLists(): List[]
+folderBoards(status): List[]
+reorderList(id, beforeId | null)
+archiveList(id) / softDeleteList(id): prev | null
+restoreList(id) / deleteListForever(id)
+
+/* primitives.js */
+choiceDialog(title, body, [{ id, label, danger? }]): Promise<id | null>
+```
+
+### Endpoints (Phase 34), all behind `identify()`
+
+```
+POST   /v1/spaces                { boardName, emails[] }           → { id, shared }  (the server makes the id)
+GET    /v1/spaces                                                  → { spaces[], invites[] }
+POST   /v1/spaces/:id/invite     { emails[] }                      → 204 (same for known and unknown)
+POST   /v1/spaces/:id/remove     { email }                         → 204   (owner)
+POST   /v1/spaces/:id/leave                                        → 204   (member)
+DELETE /v1/spaces/:id                                              → 204   (owner)
+POST   /v1/invites/:id/accept | decline                            → 204
+POST   /v1/sync                  { cursor, changes, spaces: { [id]: { cursor, changes } } }
+                                 → { changes, cursor, spaces: { [id]: { changes, cursor } | { gone: true } } }
+```
+
+The space id is the board's id on every device, and the server makes it
+(`s_` and 16 random characters); a client never chooses one, so a space
+cannot be opened under a board that already exists (security review of
+2026-11-16, docs/qa-report.md). A device attaches a space only to a board
+it created through `createShared` or pulled from that space, never to a
+personal board. A space card that arrives before its board (the board on
+a later page, or never sent) waits in `spaces[id].held` until the board
+comes, so it never falls back to a personal board. The outcome table of §30 applies per space with
+`spaces.rev` as the counter. Limits: 10 members per space, 20 pending invitations per space,
+20 invitations per account per day.
+
+## 42. Component Inventory (additions)
+
+| Component | Where | Notes |
+|---|---|---|
+| Delete badge | `.hold-del` in `gestures.js` | 24 px circle, `::after` hit area 44 px, primary colour, focusable button |
+| Lane drop mark | `.lane.dropover` | inset ring + tint, 150 ms |
+| Page title with chevron | `pageTitleHTML(label)` | mobile only; desktop keeps the plain `h1` |
+| Add menu | `addmenu.js` | sheet with a 2 × 2 grid of tiles |
+| Choice dialog | `primitives.js` | Cancel plus two or more actions |
+| Board row | `.lrow[data-id]`, `.side-item[data-id]` | `role="button"`, hold gestures, Delete key |
+| Shared mark | `sharing.js` | chip next to the board title, opens the people sheet |
+
+## 43. Implementation Phases (the roadmap, continued)
+
+### Phase 31 — Kanban · M (~5 h) — US-01 to US-05
+- `app.js` scroll keeping; `store.js` `doneOrigin`, Done pinned and
+  locked; `gestures.js` `bindHold`; `bindCard` rewritten on it; drop
+  mark; toast fade.
+- **Done when:** AC-01.x to AC-05.x pass at 375 px and 1280 px.
+
+### Phase 32 — Navigation and the Add menu · M (~5 h) — US-06 to US-09
+- `pageTitleHTML`; Archive & Bin; `folders.js` as two pages;
+  `bindMenuSwipe`; menu header; `addmenu.js`; `sw.js` SHELL.
+- **Done when:** AC-06.x to AC-09.x pass.
+
+### Phase 33 — Boards · M (~5 h) — US-10
+- Board status and selectors; board rows on `bindHold`; `choiceDialog`;
+  Boards kind in the two pages; purge; `backup.js` keeps board status;
+  reminders ignore non-active boards.
+- **Done when:** AC-10.x pass; `check-store.mjs` and `check-backup.mjs`
+  cover board status, restore and purge.
+
+### Phase 34 — Shared boards on the server · L (~9 h) — US-12
+- After Phase 26. Migration `0002`; `spaces.js`; `/v1/sync` gains the
+  `spaces` map; invitation hashing and limits; retention of expired
+  invitations.
+- **Done when:** a scripted owner and member create, accept, edit both
+  ways, remove and leave; a non-member gets `gone`.
+
+### Phase 35 — Shared boards in the app · L (~9 h) — US-12, AC-11.1
+- New-board chooser; `share.js`; people sheet; invitations card and
+  dot; Settings › Shared boards; 30 s pull while visible; Terms and
+  Privacy wording.
+- **Done when:** AC-12.x pass with two accounts on two devices.
+
+## 44. Checks added to `npm run check`
+
+| Script | Covers |
+|---|---|
+| `scripts/check-store.mjs` (extended) | origin lane within a session and after a reload; Done pinned, not renamable, not movable; board reorder, archive, delete, restore, purge after 30 days, last board kept; live selectors skip non-active boards. |
+| `scripts/check-backup.mjs` (extended) | a board's status and dates survive export and import; a file with no active board is refused. |
+| `scripts/check-reminders.mjs` (extended) | no reminder is planned for a card on a non-active board. |
+| `scripts/check-shell.mjs` (unchanged) | fails until `gestures.js` and `addmenu.js` are in SHELL. |
+
+---
+
+## 45. As built: phases 24 to 28 (2026-11-16)
+
+Where the build departs from Part IV, and what it still waits for.
+
+**Departures**
+- *Hashes are hex `TEXT`, not `BLOB`* (`proxy/migrations/0001_accounts.sql`),
+  so a row reads the same in D1 and in the `node:sqlite` adapter the tests
+  use (`proxy/test/d1.mjs`).
+- *Register, sign-in and reset send the email with the ticket.* The ticket
+  row only knows the email's keyed hash; the server checks both agree.
+  The ticket survives a wrong PIN, so the user can try again or go on to
+  reset within its ten minutes; the PIN's own count of five still applies.
+- *A used code says so*: new error code `code_used` beside `code_wrong` and
+  `code_expired` (AC-02.6). A missing ticket is `ticket_expired`.
+- *Two paths into the sheet*: "Create an account" asks the age first
+  (AC-02.1); "I have an account" starts at the email (AC-04.1). After the
+  code, a new email on the sign-in path gets the age step before its PIN,
+  and a known email on the create path goes to "Enter your PIN". Only
+  `adult: true` is ever sent.
+- *Age boundary*: "younger than 18 on 1 January of this year" is read
+  strictly from the year alone: born in or before `year − 19`.
+- *An empty account takes the device's data, samples included*
+  (`mergePlan` has no `fresh` case). A second device with untouched
+  samples then downloads instead of adding its own, which is what AC-06.1
+  is for.
+- *Incoming records are cleaned like an imported file*: `backup.cleanRemote`
+  runs every pulled record through the import validators before
+  `store.applyRemote`, so a record written by another device (or anyone
+  holding the session) cannot carry markup or values the views do not
+  expect.
+- *Plan on the account*: `pool.getUsed` / `reserve` take the account's
+  legacy ids and add their usage this period; the charge goes to the
+  account's own pool. A tester account is flagged in `users.tester`.
+- *`X-Stackd-Client`* names the platform on every request (`web`, `ios`,
+  `android`); the session answer sets the cookie for `web` only.
+
+**Local development**: `proxy/wrangler.dev.toml` (never deployed: public
+placeholder peppers) with a local D1 file and the mail stub; launch
+configuration `proxy-accounts`; `GET /v1/dev/mail?to=` shows the stub's
+last message, served only with `DEV_MAIL=1` on localhost. Point the app at
+`http://localhost:8787` in Settings › Developer.
+
+**Still waiting**
+- *Owner*: the EU D1 database, the two peppers, the mail provider (only
+  the stub exists; `mailReady` is false otherwise and every account route
+  answers `misconfigured`), `TERMS_VERSION` / `PRIVACY_VERSION` /
+  `OWNER_FOOTER` in `[vars]` matching `src/legal.js`, then uncommenting
+  the D1 block and the cron trigger in `wrangler.toml`.
+- *Shells*: a secure-storage plugin for Capacitor 8 exposing
+  `get / set / remove` as `Capacitor.Plugins.SecureStorage`, and a
+  biometric plugin exposing `isAvailable / verify` as
+  `Capacitor.Plugins.Biometric`. Until both are chosen and added,
+  `secure.available()` is false in the shells and they offer no sign-in
+  ("Sign-in arrives in the next update"); the biometric switch is hidden.
+  `NSFaceIDUsageDescription` and `USE_BIOMETRIC` come with that plugin.
+- *Phase 29*: the rewritten `privacy.html` / `terms.html`,
+  `account-deletion.html`, renewal terms on every plan card.
+- *Not built*: PC biometrics through WebAuthn (Should), the "Do not sync
+  meetings" switch (Should), the "Recording is on the device that made
+  it" line on a meeting without its audio (AC-05.3).
+
+---
+
+## 46. As built: phases 34 and 35, shared boards (2026-11-16)
+
+Departures from §38 to §43:
+- *Record kinds in a space are `list` and `task`* (not `board`), the same
+  kinds as personal sync, so one wire form and one cleaner serve both.
+- *Membership rides on every sync answer* (`shared: { spaces, invites }`)
+  instead of a separate `GET /v1/spaces` per poll; `GET /v1/spaces`
+  remains for an explicit refresh.
+- *A shared board is never archived or deleted through sync*: the server
+  refuses a board record with a status other than active (`not_allowed`).
+  The owner's "Delete for everyone" deletes the space; that device keeps
+  the board as a personal one in Deleted, with its cards, for 30 days. A
+  member's remove action is "Leave".
+- *Only new boards are shared.* "New board" asks Personal or Shared and a
+  shared one is created on the server before it exists on the device, so
+  it never enters the personal records and nothing has to move.
+- *Pending invitations keep the invited address* (`invites.email`) so the
+  owner can see and withdraw them; the row goes when the invitation is
+  answered, withdrawn or 30 days old. Phase 29's privacy text must say so.
+- *A refused change (`not_allowed`, e.g. a member's rename) resets that
+  space's cursor to 0*, so the next sync pulls the server's version back
+  and the device stops resending it.
+- *Unknown priority levels on another person's card are kept* by letting
+  the cleaner accept the card's own priority id; the views show none.
+- *Deleting an account deletes the spaces it owns* (for every member), its
+  memberships, the invitations it sent and those sent to its email.
+
+Tests: `proxy/test/sharing.mjs` (create, invite, accept, who may change
+what, isolation, the ten-person limit, decline, withdraw, remove, leave,
+delete, expiry, account deletion) and the shared-board part of
+`scripts/check-sync.mjs` (the app's engine against the Worker with a
+second person over HTTP).
+
+Not built: email to the invited person (Could), opening an archived board
+read-only (Could), members inviting others (open question, now: owner only).
+
+---
+
+## 47. As built: phase 29, the legal surface (2026-11-16, draft)
+
+- `privacy.html` and `terms.html` rewritten for accounts, sync and shared
+  boards; effective 2026-11-16, which is now `TERMS_VERSION` /
+  `PRIVACY_VERSION` in `src/legal.js` (and in `proxy/wrangler.dev.toml`).
+  Re-date both pages and the constants, and set the same values in the
+  Worker's `[vars]`, on the day they are published: every account is
+  asked to accept again when they change.
+- `account-deletion.html` is new and is now a required page of the site
+  build (`scripts/build-www.mjs --site`); its URL (`DELETION_URL`) is the
+  one for Google Play (AC-10.5).
+- Each plan card shows the price per month, "renews automatically every
+  month" and where to cancel, directly above its button (AC-11.5).
+- Settings › Meetings & AI says what changes when signed in and links to
+  the policy; Settings › Account links to both documents (AC-11.4).
+- **Placeholders.** The pages carry `[OWNER: …]` where only the owner can
+  write: legal name, postal address, the email provider and its region,
+  the supervisory authority, and the copyright agent line.
+  `check-origins.mjs` lists them on every run and fails once `VERSION` in
+  `sw.js` is 1.6.0 or later, so no release ships them.
+- Promises the pages make that the owner must keep: answering a deletion
+  request by email within 30 days; reading copyright complaints at
+  hi@stackdplatform.com.
+- Not legal advice: a lawyer reads both pages before publishing (PRD §06).
+
+## 48. As built: the owner's review of 2026-11-17
+
+The owner tested TestFlight build 10 against `docs/prd-improvements.md`
+and the accounts flow. What changed, and where:
+
+- **Lanes without a menu** (US-02, AC-02.2 and AC-02.5 to 02.7).
+  `board.js` drops the lane "⋯" and `openLaneMenu`. `bindLane` puts
+  `bindHold` on each lane except Done, ignoring presses on cards, "+ Add
+  card" and the rename field. A drag marks the lane it will go in front of
+  (`.lane-drop`, a bar in the gap) and drops with `reorderLane(listId,
+  laneId, index)`, which keeps Done last. The long hold arms an X;
+  `confirmDeleteLane` names where the cards go (`laneHeir`). Delete on a
+  focused lane name is the keyboard way.
+  - `bindHold` swallows the click that follows a drag or a hold, so a
+    lane lifted by its name does not open rename.
+  - **Store.** `canDeleteLane` allows any lane but Done. `deleteLane`
+    returns `{ moved, binned, to }`. With no heir, active cards go to
+    Deleted with their origin.
+  - **`workLane(listId)`** gives the first lane that is not Done, and adds
+    a Backlog to a board that has only Done. `addTask`, reopening,
+    `restoreTask`, `moveToLane`, `moveTask` and `copyTask` fall back to it
+    instead of `firstLane`, which on such a board would have been Done.
+- **Swipes that follow the finger** (AC-07.1, AC-07.3, AC-04.7).
+  `gestures.js` replaces `bindMenuSwipe` with `bindSwipeRight`. It
+  decides the direction after 12 px. Then it stops the page scrolling
+  (non-passive `touchmove`) and reports progress until release, where a
+  third of the width, or a flick over 0.5 px/ms, completes.
+  - `app.js` draws what the swipe reveals as an inert `.peek` layer from
+    the screen's own markup (`screenHTML()` through `asScreen()`).
+  - **Menu:** the menu slides over the page with `.peek-dim`.
+  - **Open card:** `#app` itself slides right (`.is-peeking`) over its
+    board, which moves in from 24% to the left, unshaded as it comes.
+  - On completion the real screen renders under the same pixels and the
+    layer goes.
+  - **Smoother, after build 11** (the owner: it stutters while dragging,
+    and two bottom bars show). Measured in the preview: the swipe built
+    its layer when it was recognised, 19 ms in one touch event, and the
+    moving layer carried two frosted elements and the bottom bar.
+    - **Built ahead.** `bindSwipeRight` takes `prepare` and `discard`.
+      `prepare` runs just after a finger lands where a swipe may start,
+      and `app.js` builds the layers hidden (`.peek-waiting`). The
+      recognising event now takes 2 ms. The layers live for that touch
+      only, and `draw()` drops them too.
+    - **Nothing frosted moves.** `.page-head` loses its backdrop blur
+      inside `.peek` and inside `#app.is-peeking`. The blur would be
+      worked out again on every frame.
+    - **Fades are layers.** The menu's dim and the board's shade
+      (`.peek-shade`, which replaces a pseudo-element driven by a custom
+      property) are elements with `will-change: opacity`, so a frame
+      repaints nothing.
+    - **The bottom bar stays.** The menu layer has no bar and sits under
+      the real one (z-index one below `--z-nav`, its dim two below). The
+      Boards tab lights up as the menu settles. Under an open card the
+      board's bar is a layer of its own (`.peek-nav`) that does not move
+      with the board.
+    - **Claimed sooner.** The swipe starts after 8 px, mostly sideways,
+      under the 10 pt at which iOS starts to scroll the page, so the page
+      cannot scroll under it. If the page is already scrolling (the event
+      cannot be cancelled), there is no swipe.
+    - A second finger no longer orphans a running swipe.
+  - **Where a swipe starts:** not on `.row, .kcard, .lane, .board, .card,
+    .set-row, .lrow, .chip-row` or a field; always from the left 24 px.
+- **The "+" grid** (AC-09.1): no sheet. The overlay gets `.add-overlay`
+  (the page blurred and washed at 50% of its background), and the tiles
+  rise in turn (`--i`, 45 ms apart).
+- **New task** (AC-09.2): the Board row comes right under the title, so
+  the keyboard does not hide it. It preselects the last board, or the first
+  active one when that is gone.
+- **The iPhone keyboard** (AC-09.4). With `"resize": "native"` the web view
+  shrinks, and around iOS 26's floating keyboard the window shows through,
+  black by default.
+  - `ios-testflight.yml` patches the generated `AppDelegate.swift` so that
+    every window and its root view get the app background (#f4f7f9, or
+    #0b0f19 in dark mode). The step fails if the patch does not land.
+  - **Build 11** chose light or dark from the phone, so a light app on a
+    phone in dark mode still showed #0b0f19 around the keyboard (the
+    owner's screenshot, sampled). The keyboard itself stayed dark too:
+    `applyTheme` returned early at launch, because `pretheme.js` had
+    already set `data-theme`, so `Keyboard.setStyle` never ran.
+  - **Now** the step appends a `StackdTheme` class to
+    `AppDelegate.swift`, a `WKScriptMessageHandler` named
+    `stackdTheme`, attached once the app has launched. `applyTheme` posts
+    the setting to it (`'light' | 'dark' | 'system'`), apart from the
+    `data-theme` check, and also writes it to `data-theme-setting`, which
+    the handler reads when it attaches in case the post came first. It
+    sets every window's `overrideUserInterfaceStyle` to light, dark or
+    unspecified. That makes the background and the keyboard follow the
+    app's theme, not the phone's.
+  - `'system'` is sent as such, not resolved. Forcing the resolved theme
+    on the window would also fix the web view's `prefers-color-scheme`,
+    and the app could no longer follow the phone.
+  - Any other message is ignored.
+  - Not checked on a device yet.
+- **Dialog buttons** (AC-04.4): the label is a block `<span class="btn-label">`
+  trimmed to its capital letters (`text-box: trim-both cap alphabetic`).
+  It centres the same way whatever ascent and descent a platform reads from
+  Manrope. Where `text-box` is not supported, it is as before.
+- **The card's X** sits halfway down the card (AC-04.2).
+- **Sign-in in the apps.** New board › Shared › Sign in opened the sheet
+  on a device that cannot keep a session (no secure-storage plugin), which
+  is how build 10 showed it. `openSignIn` now checks `availability()`
+  first, and `newBoardFlow` skips the Personal / Shared question where
+  there can be no account. The birth-year step focuses its question, not
+  the year list, so iOS does not open the wheel at once.
+- **Removed:** the "Hold a board to move it" hint in the main menu.
+

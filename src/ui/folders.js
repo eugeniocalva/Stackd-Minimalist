@@ -1,20 +1,23 @@
-/* Folders screen: Archived and Deleted tabs, each with a Tasks ∕ Notes ∕
-   Meetings switch (PRD-notes AC-05.2, PRD-meetings AC-10.2). Deleted keeps items for RETENTION_DAYS, then
-   purgeDeleted() drops them (run on boot and whenever this tab opens).
-   Tapping a row opens the item read-only. */
+/* Archive & Bin (PRD-improvements US-06, US-10): two pages, Archived and
+   Deleted, each with a Tasks ∕ Notes ∕ Meetings ∕ Boards switch (PRD-notes
+   AC-05.2, PRD-meetings AC-10.2). Like every top-level page, the title
+   carries the chevron that opens the main menu. Deleted keeps items for
+   RETENTION_DAYS, then purgeDeleted() drops them (run on boot and whenever
+   that page opens). Tapping a row opens the item read-only; a board has no
+   read-only view, it is restored to be looked at. */
 
 import {
-  UI, RETENTION_DAYS, listById, laneName, noteTitle, meetingTitle, folderTasks, folderNotes, folderMeetings, purgeDeleted,
-  deleteForever, deleteNoteForever, deleteMeetingForever, emptyDeleted, rerender,
+  UI, RETENTION_DAYS, listById, laneName, noteTitle, meetingTitle, folderTasks, folderNotes, folderMeetings, folderBoards,
+  boardCardCount, purgeDeleted, deleteForever, deleteNoteForever, deleteMeetingForever, deleteListForever, emptyDeleted, rerender,
 } from '../store.js';
 import { fmtRelative, daysLeft } from '../dates.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
-import { taskMetaHTML, bindScrollShadow, openDetail } from './board.js';
+import { taskMetaHTML, bindScrollShadow, openDetail, pageTitleHTML, bindPageTitle } from './board.js';
 import { confirmDialog } from './primitives.js';
 import {
   restoreWithToast, deleteWithUndo, restoreNoteWithToast, deleteNoteWithUndo,
-  restoreMeetingWithToast, deleteMeetingWithUndo,
+  restoreMeetingWithToast, deleteMeetingWithUndo, restoreBoardWithToast, removeBoardWithUndo,
 } from './actions.js';
 import { noteMetaHTML } from './notes.js';
 import { openNote } from './notedetail.js';
@@ -23,7 +26,7 @@ import { meetingChipsHTML } from './meetings.js';
 import { fmtBytes } from '../media.js';
 import { openMeeting } from './meeting.js';
 
-/** tab: 'archived' | 'deleted'; kind (optional): 'tasks' | 'notes' | 'meetings' */
+/** tab: 'archived' | 'deleted' (the page); kind (optional): 'tasks' | 'notes' | 'meetings' | 'boards' */
 export function openFolder(tab, kind) {
   if (tab === 'deleted') purgeDeleted();
   UI.screen = 'folders';
@@ -34,8 +37,9 @@ export function openFolder(tab, kind) {
 
 function originLabel(t) {
   const o = t.origin || t;
-  const board = listById(o.listId)?.name || 'Deleted board';
-  return `${board} · ${laneName(o.listId, o.lane)}`;
+  const board = listById(o.listId);
+  const name = !board ? 'Deleted board' : board.status === 'active' ? board.name : `${board.name} (${board.status})`;
+  return `${name} · ${laneName(o.listId, o.lane)}`;
 }
 
 function whenLabel(x, tab) {
@@ -87,35 +91,47 @@ function meetingRowHTML(m, tab) {
   </div>`;
 }
 
+/** A board that was put away with its cards inside (AC-10.4). */
+function boardRowHTML(l, tab) {
+  const n = boardCardCount(l.id);
+  return `
+  <div class="row frow brow" data-board="${l.id}">
+    <div class="t-main">
+      <span class="t-title">${esc(l.name)}</span>
+      <span class="frow-origin">Board · ${n} card${n === 1 ? '' : 's'} inside · ${whenLabel(l, tab)}</span>
+      ${actionsHTML('board', l.id, tab)}
+    </div>
+  </div>`;
+}
+
+const KINDS = { tasks: 'tasks', notes: 'notes', meetings: 'meetings', boards: 'boards' };
+
 export function foldersHTML() {
-  const tab = UI.folder, kind = UI.folderKind;
-  const tasks = folderTasks(tab), notes = folderNotes(tab), meetings = folderMeetings(tab);
-  const total = (t) => folderTasks(t).length + folderNotes(t).length + folderMeetings(t).length;
+  const tab = UI.folder, kind = KINDS[UI.folderKind] || 'tasks';
+  const tasks = folderTasks(tab), notes = folderNotes(tab), meetings = folderMeetings(tab), boards = folderBoards(tab);
+  const total = tasks.length + notes.length + meetings.length + boards.length;
   const rows = kind === 'notes' ? notes.map((n) => noteRowHTML(n, tab))
     : kind === 'meetings' ? meetings.map((m) => meetingRowHTML(m, tab))
+    : kind === 'boards' ? boards.map((l) => boardRowHTML(l, tab))
     : tasks.map((t) => taskRowHTML(t, tab));
-  const disclaimer = `Tasks, notes and meetings stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
-  const what = kind === 'notes' ? 'notes' : kind === 'meetings' ? 'meetings' : 'tasks';
+  const disclaimer = `Tasks, notes, meetings and boards stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
   const empty = tab === 'archived'
-    ? `Nothing archived yet. Archive ${what} you are done with but want to keep.`
-    : (kind === 'tasks' ? 'Nothing in Deleted.' : `No deleted ${what}.`);
+    ? `Nothing archived yet. Archive ${kind} you are done with but want to keep.`
+    : (kind === 'tasks' ? 'Nothing in Deleted.' : `No deleted ${kind}.`);
   const seg = (k, label, n) =>
     `<button class="seg ${kind === k ? 'active' : ''}" data-kind="${k}" role="tab" aria-selected="${kind === k}">${label} · ${n}</button>`;
   return `
   <div class="screen">
     <header class="page-head">
       <div class="page-title-row">
-        <h1 class="page-title-text">Folders</h1>
-        <span class="kicker">${rows.length} ${tab}</span>
-      </div>
-      <div class="segmented" role="tablist" aria-label="Folder">
-        <button class="seg ${tab === 'archived' ? 'active' : ''}" data-tab="archived" role="tab" aria-selected="${tab === 'archived'}">Archived · ${total('archived')}</button>
-        <button class="seg ${tab === 'deleted' ? 'active' : ''}" data-tab="deleted" role="tab" aria-selected="${tab === 'deleted'}">Deleted · ${total('deleted')}</button>
+        ${pageTitleHTML(tab === 'archived' ? 'Archived' : 'Deleted')}
+        <span class="kicker">${rows.length} ${rows.length === 1 ? kind.slice(0, -1) : kind}</span>
       </div>
       <div class="segmented solid folder-kind" role="tablist" aria-label="Kind">
         ${seg('tasks', 'Tasks', tasks.length)}
         ${seg('notes', 'Notes', notes.length)}
         ${seg('meetings', 'Meetings', meetings.length)}
+        ${seg('boards', 'Boards', boards.length)}
       </div>
     </header>
     <div class="scroll-area">
@@ -123,7 +139,7 @@ export function foldersHTML() {
       <div class="notice">
         ${icon('trash', 18)}
         <span>${disclaimer}</span>
-        ${total('deleted') ? '<button class="btn btn-sm btn-ghost danger" data-empty>Empty folder</button>' : ''}
+        ${total ? '<button class="btn btn-sm btn-ghost danger" data-empty>Empty Deleted</button>' : ''}
       </div>` : ''}
       ${rows.length ? `<div class="card list-card">${rows.join('')}</div>` : `<p class="empty">${empty}</p>`}
     </div>
@@ -132,14 +148,13 @@ export function foldersHTML() {
 
 export function bindFolders() {
   bindScrollShadow();
-  app.querySelectorAll('[data-tab]').forEach((b) =>
-    b.addEventListener('click', () => openFolder(b.dataset.tab)));
+  bindPageTitle();
   app.querySelectorAll('[data-kind]').forEach((b) =>
     b.addEventListener('click', () => { UI.folderKind = b.dataset.kind; rerender(); }));
   /* the title is the keyboard target; a tap anywhere else on the row works too */
   app.querySelectorAll('.frow').forEach((row) =>
     row.addEventListener('click', (e) => {
-      if (e.target.closest('.frow-actions')) return;
+      if (e.target.closest('.frow-actions') || row.dataset.board) return;
       if (row.dataset.note) openNote(row.dataset.note);
       else if (row.dataset.meeting) openMeeting(row.dataset.meeting);
       else openDetail(row.dataset.id);
@@ -150,6 +165,8 @@ export function bindFolders() {
     b.addEventListener('click', () => restoreNoteWithToast(b.dataset.restoreNote)));
   app.querySelectorAll('[data-restore-meeting]').forEach((b) =>
     b.addEventListener('click', () => restoreMeetingWithToast(b.dataset.restoreMeeting)));
+  app.querySelectorAll('[data-restore-board]').forEach((b) =>
+    b.addEventListener('click', () => restoreBoardWithToast(b.dataset.restoreBoard)));
   const confirmForever = (what) =>
     confirmDialog('Delete forever?', `This ${what} cannot be recovered afterwards.`, { confirmLabel: 'Delete forever', danger: true });
   app.querySelectorAll('[data-delete-task]').forEach((b) =>
@@ -170,8 +187,15 @@ export function bindFolders() {
       if (UI.folder === 'archived') { deleteMeetingWithUndo(id); return; }
       if (await confirmForever('meeting')) deleteMeetingForever(id);
     }));
+  app.querySelectorAll('[data-delete-board]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const id = b.dataset.deleteBoard;
+      if (UI.folder === 'archived') { removeBoardWithUndo(id, 'delete'); return; }
+      const n = boardCardCount(id);
+      if (await confirmForever(n ? `board and its ${n} card${n === 1 ? '' : 's'}` : 'board')) deleteListForever(id);
+    }));
   app.querySelector('[data-empty]')?.addEventListener('click', async () => {
-    if (await confirmDialog('Empty the Deleted folder?', 'Every task, note and meeting in it is removed permanently.', { confirmLabel: 'Empty folder', danger: true })) {
+    if (await confirmDialog('Empty Deleted?', 'Every task, note, meeting and board in it is removed permanently.', { confirmLabel: 'Empty Deleted', danger: true })) {
       emptyDeleted();
     }
   });

@@ -20,10 +20,34 @@ preview_urls = false
 binding = "POOL"
 id = "5db8ec1359f04d0281e126e1d0948147"
 
+# Accounts and sync (1.6.0, docs/architecture.md Part IV). Off until the owner
+# creates the database: every /v1/auth, /v1/account and /v1/sync route answers
+# 503 'misconfigured' while DB, the two peppers, the document versions or mail
+# are missing, and the 1.5.0 routes are unaffected. To turn it on:
+#   npx wrangler d1 create stackd --jurisdiction=eu      # EU only; cannot be changed later
+#   paste the id below and uncomment the block and the trigger
+#   npx wrangler d1 migrations apply DB --remote
+#   npx wrangler secret put PIN_PEPPER                   # 32+ random characters
+#   npx wrangler secret put CODE_PEPPER                  # 32+ random characters, different
+#   set TERMS_VERSION, PRIVACY_VERSION, OWNER_FOOTER and MAIL_PROVIDER in [vars]
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "stackd"
+# database_id = "REPLACE_WITH_D1_DATABASE_ID"
+# migrations_dir = "migrations"
+#
+# [triggers]
+# crons = ["17 3 * * *"]   # the daily clean-up (src/retention.js)
+
 [vars]
-# Origins the web app is served from; the shells send capacitor:// (iOS)
-# and http://localhost (Android). Comma-separated.
-ALLOWED_ORIGINS = "https://eugeniocalva.github.io,capacitor://localhost,ionic://localhost,http://localhost,http://localhost:8123,http://localhost:8124"
+# Origins the web app is served from: the new address (1.6.0) and the old
+# GitHub Pages one, which keeps working for one release (PRD-accounts
+# AC-12.2). The shells send capacitor://localhost (iOS) and
+# https://localhost (Android: Capacitor 6 and later; http://localhost is
+# what builds before 6 sent). Comma-separated. No localhost ports: a
+# local server runs the Worker from wrangler.dev.toml, which lists its own
+# (security review of 2026-11-16, docs/qa-report.md).
+ALLOWED_ORIGINS = "https://app.stackdplatform.com,https://eugeniocalva.github.io,capacitor://localhost,ionic://localhost,https://localhost,http://localhost"
 # Minutes model (PRD-meetings Q15: the Phase 16 benchmark picks between the
 # small and mid tiers; the mid tier is the fallback).
 SUMMARY_MODEL = "claude-sonnet-5-5"

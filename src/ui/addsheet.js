@@ -1,6 +1,6 @@
 /* Add-task sheet. Rendered outside #app so re-renders never remove it. */
 
-import { S, addTask, allTags as tagPool, laneName } from '../store.js';
+import { S, addTask, allTags as tagPool, laneName, activeLists } from '../store.js';
 import { daysFrom, fmtDue, RECUR_OPTIONS } from '../dates.js';
 import { openSchedule } from './schedule.js';
 import { esc } from '../util.js';
@@ -18,6 +18,8 @@ export function openSheet({ lane, initial = null, fixedList = null, submitLabel 
     ...(initial ? { title: initial.title || '', due: initial.due || null, priority: initial.priority || 'none', tags: [...(initial.tags || [])] } : {}),
   };
   if (!S.priorities.some((p) => p.id === draft.priority)) draft.priority = 'none';
+  /* opened away from a board: the board last open, if it is still there */
+  if (!fixedList && !activeLists().some((l) => l.id === draft.listId)) draft.listId = activeLists()[0]?.id;
   const allTags = tagPool();
   const dueOpts = [
     { label: 'Today', value: daysFrom(0) },
@@ -34,6 +36,13 @@ export function openSheet({ lane, initial = null, fixedList = null, submitLabel 
       <button class="icon-btn" data-close aria-label="Close">${icon('x')}</button>
     </div>
     <input class="input sheet-title" placeholder="What needs doing?" value="${esc(draft.title)}" autofocus>
+    <!-- first, so the keyboard never hides which board the task goes to (owner's review 2026-11-17, AC-09.2) -->
+    <div class="chip-group">
+      <span class="microlabel">Board</span>
+      <div class="chip-row" data-list>
+        ${(fixedList ? S.lists.filter((l) => l.id === fixedList) : activeLists()).map((l) => `<button class="chip ${l.id === draft.listId ? 'on' : ''}" data-val="${l.id}" ${fixedList ? 'disabled aria-disabled="true"' : ''}>${esc(l.name)}${fixedList && lane ? ` · ${esc(laneName(l.id, lane))}` : ''}</button>`).join('')}
+      </div>
+    </div>
     <div class="chip-group">
       <span class="microlabel">Due</span>
       <div class="chip-row" data-due>
@@ -60,13 +69,7 @@ export function openSheet({ lane, initial = null, fixedList = null, submitLabel 
         <button class="chip" data-addtag>+ Add tag</button>
       </div>
     </div>
-    <div class="chip-group">
-      <span class="microlabel">Board</span>
-      <div class="chip-row" data-list>
-        ${(fixedList ? S.lists.filter((l) => l.id === fixedList) : S.lists).map((l) => `<button class="chip ${l.id === draft.listId ? 'on' : ''}" data-val="${l.id}" ${fixedList ? 'disabled aria-disabled="true"' : ''}>${esc(l.name)}${fixedList && lane ? ` · ${esc(laneName(l.id, lane))}` : ''}</button>`).join('')}
-      </div>
-    </div>
-    <button class="btn btn-primary btn-block" data-submit>${esc(submitLabel)}</button>
+    <button class="btn btn-primary btn-block" data-submit ${draft.title.trim() ? '' : 'disabled'}>${esc(submitLabel)}</button>
   </div>`;
   document.body.appendChild(ov);
   const unpin = pinToViewport(ov);
@@ -75,6 +78,7 @@ export function openSheet({ lane, initial = null, fixedList = null, submitLabel 
   ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
   q('[data-close]').addEventListener('click', close);
   q('.sheet-title').focus();
+  q('[data-list] .chip.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 
   const selectOne = (rowSel, chip) => {
     ov.querySelectorAll(`${rowSel} .chip`).forEach((c) => c.classList.remove('on'));
@@ -153,6 +157,8 @@ export function openSheet({ lane, initial = null, fixedList = null, submitLabel 
     addTask(draft);
   };
   q('[data-submit]').addEventListener('click', submit);
+  /* no title, no task: the button waits for one (testing report BUG-13) */
+  q('.sheet-title').addEventListener('input', () => { q('[data-submit]').disabled = !q('.sheet-title').value.trim(); });
   q('.sheet-title').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
   ov.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 }

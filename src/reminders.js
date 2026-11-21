@@ -56,8 +56,10 @@ export function reminderText(task, boardName, readAt) {
     Text is phrased for the fire time; dueForWeb re-phrases what it fires. */
 export function planReminders(tasks, lists = []) {
   const boards = new Map(lists.map((l) => [l.id, l.name]));
+  /* a card on an archived or deleted board is put away with it (PRD-improvements AC-10.7) */
+  const away = new Set(lists.filter((l) => l.status === 'archived' || l.status === 'deleted').map((l) => l.id));
   return tasks
-    .filter((t) => t.status === 'active' && !t.done && t.due && t.reminder !== null && t.reminder !== undefined)
+    .filter((t) => t.status === 'active' && !away.has(t.listId) && !t.done && t.due && t.reminder !== null && t.reminder !== undefined)
     .map((t) => {
       const fireAt = reminderInstant(t.due, t.dueTime, t.reminder);
       if (fireAt === null) return null;
