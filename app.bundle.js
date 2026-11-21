@@ -2424,9 +2424,21 @@
     let s = null;
     const sideways = (target) => {
       for (let n = target; n && n !== root; n = n.parentElement) {
-        if (n.scrollWidth > n.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(n).overflowX)) return true;
+        if (n.scrollWidth > n.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(n).overflowX)) return n;
       }
-      return false;
+      return null;
+    };
+    const hold = (el) => {
+      if (el) {
+        el.dataset.swipeLock = el.style.overflowX;
+        el.style.overflowX = "hidden";
+      }
+    };
+    const free = (el) => {
+      if (el && "swipeLock" in el.dataset) {
+        el.style.overflowX = el.dataset.swipeLock;
+        delete el.dataset.swipeLock;
+      }
     };
     root.addEventListener("touchstart", (e) => {
       if (s?.live) return;
@@ -2434,8 +2446,9 @@
       if (e.touches.length !== 1) return;
       const t = e.touches[0];
       const edge = t.clientX <= EDGE_PX;
-      if (!canStart(e.target, t.clientX, edge) || !edge && sideways(e.target)) return;
-      const touch3 = s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0 };
+      const scroller = sideways(e.target);
+      if (!canStart(e.target, t.clientX, edge) || !edge && scroller) return;
+      const touch3 = s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0, scroller };
       if (prepare) setTimeout(() => {
         if (s === touch3 && !touch3.live) prepare();
       }, 0);
@@ -2461,12 +2474,13 @@
           drop();
           return;
         }
-        if (dx < START_PX || dx <= Math.abs(dy)) return;
+        if (dx < (s.scroller ? 1 : START_PX) || dx <= Math.abs(dy)) return;
         s.live = start2();
         if (!s.live) {
           drop();
           return;
         }
+        hold(s.scroller);
         s.x = t.clientX - 1;
       }
       e.preventDefault();
@@ -2482,6 +2496,7 @@
         return;
       }
       const live = s.live, p = (s.last[0] - s.x) / window.innerWidth, v = s.v;
+      free(s.scroller);
       s = null;
       live?.settle(!cancelled2 && (p > 1 / 3 || v > 0.5 && p > 0.08));
     };
@@ -2637,6 +2652,7 @@
           <button class="btn btn-primary" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
       </div>`, { onClose: (r) => resolve(typeof r === "string" && (r.trim() || allowEmpty) ? r.trim() : null) });
+      ov.classList.add("overlay-top");
       const input = ov.querySelector("[data-field]");
       const okBtn = ov.querySelector("[data-ok]");
       const sync = () => {

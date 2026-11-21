@@ -1005,3 +1005,30 @@ BUG-18 (redraw speed with thousands of tasks, left for later).
   signed .ipa (Apple Distribution, not debuggable) and Upload all passed.
   It carries every fix from the deep testing pass.
 - The owner also revoked the old development certificates.
+
+### Owner's review of build 17 (2026-11-21)
+
+- **Confirmed on the iPhone:** board switching (BUG-01) and the keyboard
+  surround with its theme.
+- **Seen:**
+  - swiping right sometimes moved the Kanban lanes along with the menu;
+  - in the menu that slides in, the counters sat against the card's right
+    edge;
+  - Add board showed the keyboard first and the name dialog a moment later.
+- **Fixes:**
+  - **Lanes moving.** The lanes rubber-banded at the first lane. `.board`
+    has `overscroll-behavior-x: none`; a swipe from the left edge inside a
+    scroller is claimed on its first move; and while a swipe runs
+    `bindSwipeRight` switches that scroller's sideways scrolling off.
+  - **Counters.** Not reproduced in Chromium, where the sliding menu
+    measures the same as the real one. `contain: layout paint style`, added
+    to the sliding layer after the build where it looked right, is removed.
+    **A guess until seen on the iPhone.**
+  - **Name dialog.** Dialogs with a text field open in the upper part of
+    the screen (`.overlay-top`), clear of the keyboard from the first frame.
+- **Verified in the test browser:** an edge swipe over the lanes opens the
+  menu with the board locked and unlocked afterwards; a swipe inside the
+  lanes still scrolls them and opens no menu; the name dialog sits at
+  101 to 311 px of 839.
+- **Checks:** `npm run check` passes.
+- **Not verified:** all three on the iPhone.

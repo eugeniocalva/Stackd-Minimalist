@@ -137,6 +137,11 @@ export function promptDialog(title, { value = '', placeholder = '', confirmLabel
           <button class="btn btn-primary" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
       </div>`, { onClose: (r) => resolve(typeof r === 'string' && (r.trim() || allowEmpty) ? r.trim() : null) });
+    /* a dialog with a field sits in the upper part of the screen: at the
+       bottom it was behind the keyboard until the page had resized, so the
+       keyboard showed first and the dialog a moment later (owner's review
+       of build 17) */
+    ov.classList.add('overlay-top');
     const input = ov.querySelector('[data-field]');
     const okBtn = ov.querySelector('[data-ok]');
     /* nothing to save yet: the button says so, instead of closing without

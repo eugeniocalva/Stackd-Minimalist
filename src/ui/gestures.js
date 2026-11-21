@@ -214,20 +214,27 @@ export const EDGE_PX = 24;
 const START_PX = 8;
 export function bindSwipeRight(root, { canStart, start, prepare = null, discard = null }) {
   let s = null;
+  /* the sideways scroller a touch starts in (a chip row, the lanes), or null */
   const sideways = (target) => {
     for (let n = target; n && n !== root; n = n.parentElement) {
-      if (n.scrollWidth > n.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(n).overflowX)) return true;
+      if (n.scrollWidth > n.clientWidth + 1 && /auto|scroll/.test(getComputedStyle(n).overflowX)) return n;
     }
-    return false;
+    return null;
   };
+  /* While a swipe runs, the scroller it started in must not move as well:
+     on the iPhone the lanes rubber-banded along with the menu (owner's
+     review of build 17). Its scrolling is switched off for the swipe. */
+  const hold = (el) => { if (el) { el.dataset.swipeLock = el.style.overflowX; el.style.overflowX = 'hidden'; } };
+  const free = (el) => { if (el && 'swipeLock' in el.dataset) { el.style.overflowX = el.dataset.swipeLock; delete el.dataset.swipeLock; } };
   root.addEventListener('touchstart', (e) => {
     if (s?.live) return;                    // a second finger does not end the swipe under the first
     drop();
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
     const edge = t.clientX <= EDGE_PX;
-    if (!canStart(e.target, t.clientX, edge) || (!edge && sideways(e.target))) return;
-    const touch = s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0 };
+    const scroller = sideways(e.target);
+    if (!canStart(e.target, t.clientX, edge) || (!edge && scroller)) return;
+    const touch = s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0, scroller };
     if (prepare) setTimeout(() => { if (s === touch && !touch.live) prepare(); }, 0);
   }, { passive: true });
   const drop = () => { if (s && !s.live) discard?.(); s = null; };
@@ -239,9 +246,12 @@ export function bindSwipeRight(root, { canStart, start, prepare = null, discard 
       if (!e.cancelable) { drop(); return; }                                      // the page is already scrolling
       if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { drop(); return; }   // a vertical scroll
       if (dx < -10) { drop(); return; }                                           // the other way
-      if (dx < START_PX || dx <= Math.abs(dy)) return;
+      /* from the edge, inside a scroller: claimed on the first move to the
+         right, before the scroller can take it */
+      if (dx < (s.scroller ? 1 : START_PX) || dx <= Math.abs(dy)) return;
       s.live = start();
       if (!s.live) { drop(); return; }
+      hold(s.scroller);
       s.x = t.clientX - 1;                                                         // no jump at the start
     }
     e.preventDefault();
@@ -254,6 +264,7 @@ export function bindSwipeRight(root, { canStart, start, prepare = null, discard 
     if (!s) return;
     if (!s.live) { drop(); return; }
     const live = s.live, p = (s.last[0] - s.x) / window.innerWidth, v = s.v;
+    free(s.scroller);
     s = null;
     live?.settle(!cancelled && (p > 1 / 3 || (v > 0.5 && p > 0.08)));
   };

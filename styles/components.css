@@ -575,3 +575,8 @@
 .kv-clear::after, .s-del::after { content: ''; position: absolute; inset: -8px; }
 .seg::after, .sortbtn::after, .search-toggle::after, .chip.sm::after, .page-title::after { content: ''; position: absolute; inset: -7px 0; }
 .segmented { overflow: visible; }
+
+/* A dialog with a text field: in the upper part of the screen, clear of the
+   keyboard from the first frame (owner's review of build 17) */
+.overlay.overlay-top { justify-content: flex-start; padding-top: calc(var(--safe-top) + 12vh); }
+.overlay.overlay-top .sheet { width: calc(100% - 32px); border-radius: 28px; border-bottom: 1px solid var(--color-border); animation: fadeIn 0.18s ease; }

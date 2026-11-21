@@ -64,6 +64,7 @@
 .board {
   flex: 1; display: flex; gap: var(--space-3); min-height: 0; overflow-x: auto;
   padding: 0 var(--gutter) var(--nav-clearance); scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: none;   /* no rubber band at the first lane: it moved the lanes along with the menu swipe */
 }
 .board::-webkit-scrollbar { display: none; }
 .lane {
@@ -190,7 +191,7 @@
 .peek {
   position: fixed; inset: 0; display: flex; flex-direction: column; overflow: hidden;
   padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
-  background: var(--bg-base); pointer-events: none; will-change: transform; contain: layout paint style;
+  background: var(--bg-base); pointer-events: none; will-change: transform;
 }
 /* Kept cheap for the phone (owner's review of build 11):
    - built ahead and hidden until the swipe starts (.peek-waiting);
