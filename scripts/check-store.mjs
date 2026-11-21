@@ -292,7 +292,16 @@ assert.equal(find('In QA archived').origin.lane, review.id);
 assert.equal(store.laneTaskCount('work', review.id), 1);
 assert.equal(store.deleteLane('work', 'done'), null, 'Done cannot be deleted');
 assert.equal(store.canDeleteLane('work', review.id), true);
-assert.deepEqual(store.deleteLane('work', review.id), { moved: 1, binned: 0, to: 'backlog' }, 'one active task moved to the leftmost lane');
+const lanesBefore = store.lanesOf('work').map((l) => l.id);
+const inReview = store.S.tasks.filter((t) => t.listId === 'work' && t.lane === review.id).map((t) => t.id);
+const removed = store.deleteLane('work', review.id);
+assert.deepEqual({ moved: removed.moved, binned: removed.binned, to: removed.to }, { moved: 1, binned: 0, to: 'backlog' }, 'one active task moved to the leftmost lane');
+/* Undo: the lane back in its place, its tasks back in it */
+assert.equal(store.restoreLane('work', removed.undo), true);
+assert.deepEqual(store.lanesOf('work').map((l) => l.id), lanesBefore, 'the lane is back where it was');
+assert.deepEqual(store.S.tasks.filter((t) => t.listId === 'work' && t.lane === review.id).map((t) => t.id), inReview, 'and so are its tasks');
+assert.equal(store.restoreLane('work', removed.undo), false, 'a second Undo does nothing');
+store.deleteLane('work', review.id);
 assert.deepEqual(wk.lanes.map((l) => l.id), ['backlog', 'inprogress', 'done']);
 assert.equal(find('In QA').lane, 'backlog');
 assert.equal(find('In QA archived').origin.lane, 'backlog', 'origins pointing at the lane move too');
@@ -305,7 +314,12 @@ assert.equal(find('In QA').lane, 'backlog', 'moving to a lane the board no longe
 assert.equal(store.canDeleteLane('work', 'backlog'), true);
 assert.equal(store.laneHeir('work', 'backlog'), null);
 const binnedN = S.tasks.filter((x) => x.listId === 'work' && x.lane === 'backlog' && x.status === 'active').length;
-assert.deepEqual(store.deleteLane('work', 'backlog'), { moved: 0, binned: binnedN, to: null });
+const last = store.deleteLane('work', 'backlog');
+assert.deepEqual({ moved: last.moved, binned: last.binned, to: last.to }, { moved: 0, binned: binnedN, to: null });
+/* Undo brings the binned cards back out of Deleted */
+assert.equal(store.restoreLane('work', last.undo), true);
+assert.equal(store.S.tasks.filter((t) => t.listId === 'work' && t.lane === 'backlog' && t.status === 'active').length, binnedN, 'binned cards are active again');
+assert.deepEqual(store.deleteLane('work', 'backlog').binned, binnedN);
 assert.deepEqual(wk.lanes.map((l) => l.id), ['done'], 'only Done is left');
 assert.equal(find('In QA').status, 'deleted', 'its cards went to Deleted');
 const fresh = store.addTask({ listId: 'work', title: 'After the last lane', priority: 'none', tags: [] });

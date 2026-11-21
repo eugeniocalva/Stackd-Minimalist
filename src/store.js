@@ -132,7 +132,17 @@ export const isDesktop = window.matchMedia('(min-width: 900px)');
 function read(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
 }
-export function save() { localStorage.setItem(STORE_KEY, JSON.stringify(S)); }
+/* A full storage (about 5 MB, some 10,000 tasks) must not stop the app
+   without a word (testing report BUG-18): the change stays in memory, and
+   the hook says once that it could not be saved. */
+let saveFailed = () => {};
+let saveBroken = false;
+export function setSaveFailed(fn) { saveFailed = fn; }
+const write = () => localStorage.setItem(STORE_KEY, JSON.stringify(S));   // throws when storage refuses
+export function save() {
+  try { write(); saveBroken = false; }
+  catch (e) { if (!saveBroken) { saveBroken = true; saveFailed(e); } }
+}
 
 let renderer = () => {};
 let afterCommit = () => {};
@@ -1215,10 +1225,15 @@ export function deleteLane(listId, laneId) {
   const list = listById(listId);
   if (!list || !canDeleteLane(listId, laneId)) return null;
   const to = laneHeir(listId, laneId);
+  /* what Undo needs: the lane and its place, and every task it touches as it was */
+  const undo = { lane: { ...list.lanes.find((l) => l.id === laneId) }, index: list.lanes.findIndex((l) => l.id === laneId), tasks: [] };
   list.lanes = list.lanes.filter((l) => l.id !== laneId);
   let moved = 0, binned = 0;
   const now = Date.now();
   S.tasks.forEach((t) => {
+    if (t.listId === listId && (t.lane === laneId || (t.origin?.listId === listId && t.origin.lane === laneId))) {
+      undo.tasks.push({ id: t.id, lane: t.lane, status: t.status, deletedAt: t.deletedAt, archivedAt: t.archivedAt, origin: t.origin ? { ...t.origin } : null });
+    }
     if (t.listId === listId && t.lane === laneId) {
       if (to) { t.lane = to; if (t.status === 'active') moved += 1; }
       else if (t.status === 'active') {
@@ -1230,7 +1245,26 @@ export function deleteLane(listId, laneId) {
     if (to && t.origin?.listId === listId && t.origin.lane === laneId) t.origin.lane = to;
   });
   commit();
-  return { moved, binned, to };
+  return { moved, binned, to, undo };
+}
+
+/** Undo of deleteLane: the lane back in its place (Done stays last) and its
+    tasks as they were. A task changed since (moved on, restored, purged) is
+    left alone. False when the board or the lane's name is gone or taken. */
+export function restoreLane(listId, undo) {
+  const list = listById(listId);
+  if (!list || !undo?.lane || list.lanes.some((l) => l.id === undo.lane.id)) return false;
+  const done = list.lanes.findIndex((l) => l.id === DONE_LANE);
+  const at = Math.min(undo.index, done === -1 ? list.lanes.length : done);
+  list.lanes.splice(Math.max(0, at), 0, { ...undo.lane });
+  undo.tasks.forEach((u) => {
+    const t = taskById(u.id);
+    if (!t || t.listId !== listId) return;
+    Object.assign(t, { lane: u.lane, status: u.status, deletedAt: u.deletedAt, archivedAt: u.archivedAt, origin: u.origin ? { ...u.origin } : null });
+    touch(t);
+  });
+  commit();
+  return true;
 }
 
 /** Drag and drop: the lane goes to position `index` among the board's
@@ -1491,7 +1525,7 @@ export function replaceRecords({ lists, tasks, notes, meetings, settings }) {
   withSettings(S);
   if (!isLive(listById(S.currentList))) S.currentList = activeLists()[0].id;
   doneOrigin.clear();
-  try { save(); } catch (e) {
+  try { write(); } catch (e) {
     Object.assign(S, before);
     withSettings(S);
     throw e;

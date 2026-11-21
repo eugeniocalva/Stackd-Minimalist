@@ -4,7 +4,7 @@
 
 import './src/boot.js'; // first: tells index.html's file:// fallback the modules started
 import {
-  S, UI, isDesktop, setRenderer, setAfterCommit, rerender, commit, purgeDeleted, taskById,
+  S, UI, isDesktop, setRenderer, setAfterCommit, setSaveFailed, rerender, commit, purgeDeleted, taskById,
   setMediaRemover, meetingById, setRecording,
 } from './src/store.js';
 import { initReminders, syncReminders } from './src/notify.js';
@@ -134,6 +134,7 @@ function draw() {
 setRenderer(render);
 /* after every commit: native reminders in step, and sync within 2 s of an edit (AC-05.4) */
 setAfterCommit(() => { syncReminders(); sync.request('edit'); });
+setSaveFailed(() => toast("Stack'd has run out of space on this device. Empty Deleted or remove old tasks; new changes are not saved until then.", { ms: 12000 }));
 
 /* Accounts (1.6.0). Signed out, none of this sends anything (AC-01.2). */
 account.init();

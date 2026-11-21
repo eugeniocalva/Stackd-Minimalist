@@ -534,3 +534,7 @@ button.tseg-time:hover, button.tseg-time:focus-visible { color: var(--color-acce
 .tseg.playing { box-shadow: inset 3px 0 0 var(--color-accent); padding-left: var(--space-3); margin-left: calc(-1 * var(--space-3)); border-radius: var(--radius-sm); }
 .tseg-text[contenteditable]:focus { outline: none; box-shadow: 0 0 0 3px var(--color-border); border-radius: var(--radius-sm); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* "Show more" at the end of a long list or lane (testing report BUG-18) */
+.showmore { display: block; width: 100%; min-height: 44px; padding: 10px 6px; text-align: center; font-size: var(--text-sm); font-weight: 700; color: var(--text-secondary); border-radius: var(--radius-sm); }
+.showmore:hover { background: var(--bg-surface-sunken); }

@@ -343,8 +343,18 @@ export function bindSettings() {
   app.querySelector('[data-reset-notices]')?.addEventListener('click', () => { resetNotices(); toast('The notices will show again'); });
   const url = app.querySelector('[data-proxy-url]');
   if (url) {
-    const save = () => {
-      if (url.value.trim() === (S.ai.proxyUrl || '')) return;
+    let asking = false;
+    const save = async () => {
+      if (asking || url.value.trim() === (S.ai.proxyUrl || '')) return;
+      /* recordings, transcripts and the subscriber id go to this address:
+         one that is neither ours nor this computer is asked about first */
+      let host = '';
+      try { host = new URL(url.value.trim()).hostname; } catch { /* setProxyUrl refuses it below */ }
+      const known = !host || host === 'localhost' || host === 'stackdplatform.com' || host.endsWith('.stackdplatform.com');
+      asking = !known;
+      const refused = !known && !await confirmDialog(`Send your meetings to ${host}?`, 'Recordings and transcripts would go to this address instead of the Stack\'d service, with your subscriber id. Only use an address you run yourself.', { confirmLabel: 'Use it', danger: true });
+      asking = false;
+      if (refused) { url.value = S.ai.proxyUrl || ''; return; }
       if (!setProxyUrl(url.value)) { toast('Use an https:// address (or http://localhost)'); url.value = S.ai.proxyUrl || ''; return; }
       toast(S.ai.proxyUrl ? 'Proxy URL set' : 'Proxy URL reset to the default');
     };

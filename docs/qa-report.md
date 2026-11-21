@@ -967,3 +967,28 @@ BUG-18 (redraw speed with thousands of tasks, left for later).
 - **Not verified:** on a phone; with a screen reader.
 - **Security:** no new request, storage key or permission; one new task
   field, an integer from 1 to 31, checked on import.
+
+### Third batch after the deep testing pass (2026-11-21)
+
+- **BUG-18, long boards.** A list, the desktop table and each Kanban lane
+  draw 100 tasks at a time (`PAGE` in `board.js`) with "Show 100 more".
+  Search, sort, counts and the Done automation still work on every task.
+  With 5,000 tasks: a redraw 17 ms (was 518), a saved change 24 ms (was
+  616), opening the Kanban 51 ms (was 543).
+  - A full storage no longer stops the app without a word: `save()`
+    catches the error and a message says changes are not being saved.
+    Import still gets the error, so it can refuse the file as before.
+- **Subtask delete** shows "Subtask deleted · Undo".
+- **Lane removal** has Undo: `deleteLane` returns what `restoreLane` needs
+  to put the lane back in its place with its cards, including cards that
+  went to Deleted. New cases in `check-store`.
+- **Developer address.** An address that is neither `stackdplatform.com`
+  nor `localhost` is asked about first ("Send your meetings to {host}?").
+- **Verified** in a clean test profile: both Undos restore the earlier
+  state; localhost and our own address save without a question, two
+  other hosts (one a look-alike) ask, Cancel keeps the old address.
+- **Checks:** `npm run check` passes.
+- **Report:** `docs/testing/deep-testing-report-1.6.0.html` now opens with
+  an update: 18 of 19 bugs fixed, BUG-02 open, and a status on every bug.
+- **Security:** the Developer change narrows where meetings can be sent
+  without a question; no new request, storage key or permission.

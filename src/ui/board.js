@@ -6,7 +6,7 @@
 import {
   S, UI, isDesktop, DONE_LANE, RETENTION_DAYS, TASK_SORTS, isManualSort, priorityById,
   listById, taskById, tasksOf, openCount, sortedTasks, lanesOf, laneName, laneTaskCount, canDeleteLane, laneHeir,
-  reorderTask, moveToLane, nameTaken, addLane, renameLane, reorderLane, deleteLane, commit, rerender,
+  reorderTask, moveToLane, nameTaken, restoreLane, addLane, renameLane, reorderLane, deleteLane, commit, rerender,
 } from '../store.js';
 import { bindHold } from './gestures.js';
 import { sharedChipHTML, bindSharedChip } from './sharing.js';
@@ -25,6 +25,24 @@ import { queryFor, searchToggleHTML, searchFieldHTML, bindSearch } from './searc
 export const visibleTasks = (listId) => filterTasks(sortedTasks(listId), UI.query);
 /** Call before rendering a board's header: resets the query when the board changed. */
 export const boardKey = () => queryFor(`list:${S.currentList}`);
+
+/* Long boards (testing report BUG-18). Every action redraws the screen, and
+   with thousands of tasks that took half a second and more. A list, and
+   each Kanban lane, now draws its first PAGE tasks; "Show more" draws the
+   next page. Search, sort, counts and the Done automation still work on
+   every task: only the drawing stops. What was opened stays open until the
+   board, the view, the sort or the search changes. */
+export const PAGE = 100;
+const paging = { key: '', extra: {} };
+function page(slot, items) {
+  const key = `${S.currentList}|${S.view}|${S.sort}|${UI.query}`;
+  if (paging.key !== key) { paging.key = key; paging.extra = {}; }
+  const n = PAGE + (paging.extra[slot] || 0);
+  return { shown: items.length > n ? items.slice(0, n) : items, rest: Math.max(0, items.length - n) };
+}
+const moreHTML = (slot, rest) => (rest
+  ? `<button type="button" class="showmore" data-more-rows="${esc(slot)}">Show ${Math.min(rest, PAGE)} more<span class="hint"> · ${rest} not shown</span></button>`
+  : '');
 
 /* — shared partials — */
 
@@ -93,6 +111,7 @@ export function kanbanHTML({ desktop = false } = {}) {
   const ts = filterTasks(all, UI.query);
   const lanes = lanesOf(S.currentList).map((lane) => {
     const cards = ts.filter((t) => t.lane === lane.id);
+    const paged = page(lane.id, cards);
     const inLane = all.filter((t) => t.lane === lane.id).length;
     const isDone = lane.id === DONE_LANE;
     /* Done is fixed (PRD-improvements US-02): its name is text and it is
@@ -107,7 +126,7 @@ export function kanbanHTML({ desktop = false } = {}) {
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
       </div>
       <div class="lane-cards">
-        ${cards.map((t) => `
+        ${paged.shown.map((t) => `
           <div class="kcard ${t.done ? 'done-card' : ''}" data-id="${t.id}" tabindex="0" role="group" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
             <div class="kcard-line">
               <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check sm" ${t.done ? 'checked' : ''} data-id="${t.id}">
@@ -116,6 +135,7 @@ export function kanbanHTML({ desktop = false } = {}) {
             </div>
             ${t.done ? '' : taskMetaHTML(t)}
           </div>`).join('')}
+        ${moreHTML(lane.id, paged.rest)}
         ${lane.id === DONE_LANE && S.lastAuto
           ? `<span class="lane-note">Moved here automatically · ${fmtTime(S.lastAuto)}</span>`
           : `<button class="addcard" data-lane-add="${lane.id}">+ Add card</button>`}
@@ -150,7 +170,7 @@ export function mobileListHTML() {
       ${ts.length ? `
       <span class="hint list-hint">Double-tap to complete · long-press or swipe left to delete</span>
       <div class="card list-card">
-        ${ts.map((t) => `
+        ${page('list', ts).shown.map((t) => `
         <div class="row trow ${t.done ? 'done' : ''}" data-id="${t.id}" tabindex="0" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
           <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
           <div class="t-main">
@@ -160,6 +180,7 @@ export function mobileListHTML() {
           ${t.done || !canReorder() ? '' : `<span class="grip" aria-hidden="true">${icon('grip')}</span>`}
           <button class="swipe-del" data-del aria-label="Delete: ${esc(t.title)}" tabindex="-1">${icon('trash', 20)}</button>
         </div>`).join('')}
+        ${moreHTML('list', page('list', ts).rest)}
       </div>`
       : UI.query ? '' : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
     </div>`;
@@ -207,7 +228,7 @@ export function desktopTableHTML() {
     <div class="tgrid tgrid-head">
       <span></span><span>Task</span><span>Due</span><span>Priority</span><span>Subtasks</span>
     </div>
-    ${ts.map((t) => {
+    ${page('table', ts).shown.map((t) => {
       const sub = t.subtasks.length
         ? `${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}` : null;
       return `
@@ -220,6 +241,7 @@ export function desktopTableHTML() {
         ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
       </div>`;
     }).join('')}
+    ${moreHTML('table', page('table', ts).rest)}
     ${ts.length ? '' : `<p class="empty">${UI.query ? `No tasks match “${esc(UI.query)}”.` : 'No tasks yet. Add one above.'}</p>`}
   </div>
   <span class="hint">${UI.query ? 'Clear the search to reorder' : 'Drag rows to reprioritize'} · double-click a task to complete</span>`;
@@ -256,6 +278,10 @@ export function bindScrollShadow() {
 }
 
 export function bindChecks() {
+  app.querySelectorAll('[data-more-rows]').forEach((b) => b.addEventListener('click', () => {
+    paging.extra[b.dataset.moreRows] = (paging.extra[b.dataset.moreRows] || 0) + PAGE;
+    rerender();
+  }));
   app.querySelectorAll('.check[data-id]').forEach((c) => {
     c.addEventListener('click', (e) => e.stopPropagation());
     c.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -376,7 +402,8 @@ async function confirmDeleteLane(laneId) {
   buzz('MEDIUM');
   const r = deleteLane(listId, laneId);
   if (!r) return;
-  toast(r.moved ? `Lane removed · ${r.moved} moved to ${laneName(listId, r.to)}` : r.binned ? `Lane removed · ${r.binned} moved to Deleted` : 'Lane removed');
+  toast(r.moved ? `Lane removed · ${r.moved} moved to ${laneName(listId, r.to)}` : r.binned ? `Lane removed · ${r.binned} moved to Deleted` : 'Lane removed',
+    { action: { label: 'Undo', onClick: () => { if (restoreLane(listId, r.undo)) toast(`${name} is back`); } } });
 }
 
 /* ── Gestures ────────────────────────────────────────────────────────── */

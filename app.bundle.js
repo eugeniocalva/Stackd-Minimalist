@@ -524,8 +524,23 @@
       return null;
     }
   }
+  var saveFailed = () => {
+  };
+  var saveBroken = false;
+  function setSaveFailed(fn) {
+    saveFailed = fn;
+  }
+  var write = () => localStorage.setItem(STORE_KEY, JSON.stringify(S));
   function save() {
-    localStorage.setItem(STORE_KEY, JSON.stringify(S));
+    try {
+      write();
+      saveBroken = false;
+    } catch (e) {
+      if (!saveBroken) {
+        saveBroken = true;
+        saveFailed(e);
+      }
+    }
   }
   var renderer = () => {
   };
@@ -1611,10 +1626,14 @@
     const list3 = listById(listId);
     if (!list3 || !canDeleteLane(listId, laneId)) return null;
     const to = laneHeir(listId, laneId);
+    const undo = { lane: { ...list3.lanes.find((l) => l.id === laneId) }, index: list3.lanes.findIndex((l) => l.id === laneId), tasks: [] };
     list3.lanes = list3.lanes.filter((l) => l.id !== laneId);
     let moved = 0, binned = 0;
     const now2 = Date.now();
     S.tasks.forEach((t) => {
+      if (t.listId === listId && (t.lane === laneId || t.origin?.listId === listId && t.origin.lane === laneId)) {
+        undo.tasks.push({ id: t.id, lane: t.lane, status: t.status, deletedAt: t.deletedAt, archivedAt: t.archivedAt, origin: t.origin ? { ...t.origin } : null });
+      }
       if (t.listId === listId && t.lane === laneId) {
         if (to) {
           t.lane = to;
@@ -1632,7 +1651,22 @@
       if (to && t.origin?.listId === listId && t.origin.lane === laneId) t.origin.lane = to;
     });
     commit();
-    return { moved, binned, to };
+    return { moved, binned, to, undo };
+  }
+  function restoreLane(listId, undo) {
+    const list3 = listById(listId);
+    if (!list3 || !undo?.lane || list3.lanes.some((l) => l.id === undo.lane.id)) return false;
+    const done2 = list3.lanes.findIndex((l) => l.id === DONE_LANE);
+    const at = Math.min(undo.index, done2 === -1 ? list3.lanes.length : done2);
+    list3.lanes.splice(Math.max(0, at), 0, { ...undo.lane });
+    undo.tasks.forEach((u) => {
+      const t = taskById(u.id);
+      if (!t || t.listId !== listId) return;
+      Object.assign(t, { lane: u.lane, status: u.status, deletedAt: u.deletedAt, archivedAt: u.archivedAt, origin: u.origin ? { ...u.origin } : null });
+      touch(t);
+    });
+    commit();
+    return true;
   }
   function reorderLane(listId, laneId, index) {
     const list3 = listById(listId);
@@ -1886,7 +1920,7 @@
     if (!isLive(listById(S.currentList))) S.currentList = activeLists()[0].id;
     doneOrigin.clear();
     try {
-      save();
+      write();
     } catch (e) {
       Object.assign(S, before);
       withSettings(S);
@@ -3331,14 +3365,14 @@
       return null;
     }
   }
-  function write(next, { quiet = false } = {}) {
+  function write2(next, { quiet = false } = {}) {
     state = next;
     if (next) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(next));
     else localStorage.removeItem(ACCOUNT_KEY);
     if (!quiet) listeners.forEach((fn) => fn(state));
   }
   function patch(fields, { quiet = false } = {}) {
-    if (state) write({ ...state, ...fields }, { quiet });
+    if (state) write2({ ...state, ...fields }, { quiet });
   }
   var signedIn = () => !!state;
   var current = () => state;
@@ -3387,7 +3421,7 @@
       if (!await set(TOKEN_KEY, answer3.token)) throw Object.assign(new Error("This device cannot keep a session safely."), { code: "misconfigured" });
       setBearer(answer3.token);
     }
-    write({
+    write2({
       userId: a.id,
       email: a.email,
       sessionId: answer3.sessionId,
@@ -3469,7 +3503,7 @@
     const was = state;
     setBearer(null);
     remove(TOKEN_KEY);
-    write(null);
+    write2(null);
     forgetHooks.forEach((fn) => fn({ keepData, reason: reason2, was }));
   }
 
@@ -6487,8 +6521,22 @@
     });
     const url = app.querySelector("[data-proxy-url]");
     if (url) {
-      const save2 = () => {
-        if (url.value.trim() === (S.ai.proxyUrl || "")) return;
+      let asking = false;
+      const save2 = async () => {
+        if (asking || url.value.trim() === (S.ai.proxyUrl || "")) return;
+        let host = "";
+        try {
+          host = new URL(url.value.trim()).hostname;
+        } catch {
+        }
+        const known = !host || host === "localhost" || host === "stackdplatform.com" || host.endsWith(".stackdplatform.com");
+        asking = !known;
+        const refused = !known && !await confirmDialog(`Send your meetings to ${host}?`, "Recordings and transcripts would go to this address instead of the Stack'd service, with your subscriber id. Only use an address you run yourself.", { confirmLabel: "Use it", danger: true });
+        asking = false;
+        if (refused) {
+          url.value = S.ai.proxyUrl || "";
+          return;
+        }
         if (!setProxyUrl(url.value)) {
           toast("Use an https:// address (or http://localhost)");
           url.value = S.ai.proxyUrl || "";
@@ -6630,6 +6678,18 @@
   // src/ui/board.js
   var visibleTasks = (listId) => filterTasks(sortedTasks(listId), UI.query);
   var boardKey = () => queryFor(`list:${S.currentList}`);
+  var PAGE = 100;
+  var paging = { key: "", extra: {} };
+  function page(slot2, items) {
+    const key = `${S.currentList}|${S.view}|${S.sort}|${UI.query}`;
+    if (paging.key !== key) {
+      paging.key = key;
+      paging.extra = {};
+    }
+    const n = PAGE + (paging.extra[slot2] || 0);
+    return { shown: items.length > n ? items.slice(0, n) : items, rest: Math.max(0, items.length - n) };
+  }
+  var moreHTML = (slot2, rest) => rest ? `<button type="button" class="showmore" data-more-rows="${esc(slot2)}">Show ${Math.min(rest, PAGE)} more<span class="hint"> · ${rest} not shown</span></button>` : "";
   function pageTitleHTML(label, aria = `${label}. Open the menu`) {
     return isDesktop.matches ? `<h1 class="page-title-text">${esc(label)}</h1>` : `<h1 class="page-title-h"><button class="page-title" data-lists aria-label="${esc(aria)}"><span>${esc(label)}</span>${icon("chevronDown")}</button></h1>`;
   }
@@ -6684,6 +6744,7 @@
     const ts = filterTasks(all, UI.query);
     const lanes = lanesOf(S.currentList).map((lane) => {
       const cards = ts.filter((t) => t.lane === lane.id);
+      const paged = page(lane.id, cards);
       const inLane = all.filter((t) => t.lane === lane.id).length;
       const isDone = lane.id === DONE_LANE;
       return `
@@ -6693,7 +6754,7 @@
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
       </div>
       <div class="lane-cards">
-        ${cards.map((t) => `
+        ${paged.shown.map((t) => `
           <div class="kcard ${t.done ? "done-card" : ""}" data-id="${t.id}" tabindex="0" role="group" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
             <div class="kcard-line">
               <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check sm" ${t.done ? "checked" : ""} data-id="${t.id}">
@@ -6702,6 +6763,7 @@
             </div>
             ${t.done ? "" : taskMetaHTML(t)}
           </div>`).join("")}
+        ${moreHTML(lane.id, paged.rest)}
         ${lane.id === DONE_LANE && S.lastAuto ? `<span class="lane-note">Moved here automatically · ${fmtTime(S.lastAuto)}</span>` : `<button class="addcard" data-lane-add="${lane.id}">+ Add card</button>`}
       </div>
     </div>`;
@@ -6730,7 +6792,7 @@
       ${ts.length ? `
       <span class="hint list-hint">Double-tap to complete · long-press or swipe left to delete</span>
       <div class="card list-card">
-        ${ts.map((t) => `
+        ${page("list", ts).shown.map((t) => `
         <div class="row trow ${t.done ? "done" : ""}" data-id="${t.id}" tabindex="0" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
           <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
           <div class="t-main">
@@ -6740,6 +6802,7 @@
           ${t.done || !canReorder() ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
           <button class="swipe-del" data-del aria-label="Delete: ${esc(t.title)}" tabindex="-1">${icon("trash", 20)}</button>
         </div>`).join("")}
+        ${moreHTML("list", page("list", ts).rest)}
       </div>` : UI.query ? "" : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
     </div>`;
     return `
@@ -6782,7 +6845,7 @@
     <div class="tgrid tgrid-head">
       <span></span><span>Task</span><span>Due</span><span>Priority</span><span>Subtasks</span>
     </div>
-    ${ts.map((t) => {
+    ${page("table", ts).shown.map((t) => {
       const sub = t.subtasks.length ? `${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}` : null;
       return `
       <div class="tgrid tgrid-row ${t.done ? "done" : ""}" data-id="${t.id}">
@@ -6794,6 +6857,7 @@
         ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
       </div>`;
     }).join("")}
+    ${moreHTML("table", page("table", ts).rest)}
     ${ts.length ? "" : `<p class="empty">${UI.query ? `No tasks match “${esc(UI.query)}”.` : "No tasks yet. Add one above."}</p>`}
   </div>
   <span class="hint">${UI.query ? "Clear the search to reorder" : "Drag rows to reprioritize"} · double-click a task to complete</span>`;
@@ -6825,6 +6889,10 @@
     area.addEventListener("scroll", () => head.classList.toggle("is-scrolled", area.scrollTop > 2), { passive: true });
   }
   function bindChecks() {
+    app.querySelectorAll("[data-more-rows]").forEach((b) => b.addEventListener("click", () => {
+      paging.extra[b.dataset.moreRows] = (paging.extra[b.dataset.moreRows] || 0) + PAGE;
+      rerender();
+    }));
     app.querySelectorAll(".check[data-id]").forEach((c) => {
       c.addEventListener("click", (e) => e.stopPropagation());
       c.addEventListener("pointerdown", (e) => e.stopPropagation());
@@ -6957,7 +7025,12 @@
     buzz("MEDIUM");
     const r = deleteLane(listId, laneId);
     if (!r) return;
-    toast(r.moved ? `Lane removed · ${r.moved} moved to ${laneName(listId, r.to)}` : r.binned ? `Lane removed · ${r.binned} moved to Deleted` : "Lane removed");
+    toast(
+      r.moved ? `Lane removed · ${r.moved} moved to ${laneName(listId, r.to)}` : r.binned ? `Lane removed · ${r.binned} moved to Deleted` : "Lane removed",
+      { action: { label: "Undo", onClick: () => {
+        if (restoreLane(listId, r.undo)) toast(`${name} is back`);
+      } } }
+    );
   }
   var openRow = null;
   var openSide = null;
@@ -9475,8 +9548,16 @@
       commit();
     }));
     app.querySelectorAll("[data-subdel]").forEach((b) => b.addEventListener("click", () => {
-      t.subtasks = t.subtasks.filter((s) => s.id !== b.dataset.subdel);
+      const at = t.subtasks.findIndex((s) => s.id === b.dataset.subdel);
+      if (at === -1) return;
+      const [gone] = t.subtasks.splice(at, 1);
       commit();
+      toast("Subtask deleted", { action: { label: "Undo", onClick: () => {
+        const now2 = taskById(t.id);
+        if (!now2 || now2.subtasks.some((s) => s.id === gone.id)) return;
+        now2.subtasks.splice(Math.min(at, now2.subtasks.length), 0, gone);
+        commit();
+      } } });
     }));
     const input = app.querySelector(".addsub-input");
     input.addEventListener("keydown", (e) => {
@@ -10249,6 +10330,7 @@
     syncReminders();
     request2("edit");
   });
+  setSaveFailed(() => toast("Stack'd has run out of space on this device. Empty Deleted or remove old tasks; new changes are not saved until then.", { ms: 12e3 }));
   init();
   init2();
   setBlocked(() => locked());

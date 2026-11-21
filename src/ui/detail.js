@@ -214,8 +214,16 @@ export function bindDetail() {
     }));
   app.querySelectorAll('[data-subdel]').forEach((b) =>
     b.addEventListener('click', () => {
-      t.subtasks = t.subtasks.filter((s) => s.id !== b.dataset.subdel);
+      const at = t.subtasks.findIndex((s) => s.id === b.dataset.subdel);
+      if (at === -1) return;
+      const [gone] = t.subtasks.splice(at, 1);
       commit();
+      toast('Subtask deleted', { action: { label: 'Undo', onClick: () => {
+        const now = taskById(t.id);
+        if (!now || now.subtasks.some((s) => s.id === gone.id)) return;
+        now.subtasks.splice(Math.min(at, now.subtasks.length), 0, gone);
+        commit();
+      } } });
     }));
   const input = app.querySelector('.addsub-input');
   input.addEventListener('keydown', (e) => {
