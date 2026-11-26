@@ -17,8 +17,8 @@ import { esc, app } from '../util.js';
 import { icon } from './icons.js';
 import { bindScrollShadow } from './board.js';
 import { confirmDialog, openMenu } from './primitives.js';
-import { canImport, importFile } from '../backup.js';
-import { isLegacyOrigin, PRIVACY_URL } from '../legal.js';
+import { PRIVACY_URL } from '../legal.js';
+import { dataSectionHTML, bindDataSection, settingsPageHTML, bindSettingsPage } from './data.js';
 import { accountSectionHTML, bindAccountSection } from './account.js';
 import { sharedSectionHTML, bindSharedSection } from './sharing.js';
 import * as account from '../account.js';
@@ -32,6 +32,7 @@ const sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
 /** section: 'account' | 'appearance' | 'dates' | 'priorities' | 'labels' | 'plan' | 'ai' | 'data' | 'automations' */
 export function openSettings(section) {
   UI.screen = 'settings';
+  UI.settingsPage = null;   // Settings itself, not a page under it (ui/data.js)
   rerender();
   if (section) app.querySelector(`#settings-${section}`)?.scrollIntoView({ block: 'start' });
 }
@@ -80,50 +81,12 @@ const addRowHTML = (attr, label) => `
     <input class="set-input" ${attr} placeholder="${label}" maxlength="32" autocomplete="off" aria-label="${label}">
   </div>`;
 
-/* Your data (PRD-accounts AC-12.2): the way in for a file made by "Download
-   my data". Signed-out devices only: with an account, the account is the
-   copy. Not on the old address, which is for leaving. */
-const showImport = () => canImport() && !isLegacyOrigin();
-
-function dataSectionHTML() {
-  if (!showImport()) return '';
-  return `
-      <span class="section-title list-label" id="settings-data">Your data</span>
-      <div class="card list-card">
-        <div class="set-row set-wrap">
-          <span class="lrow-icon">${icon('upload', 18)}</span>
-          <div class="set-text">
-            <span class="set-title">Import a Stack'd file</span>
-            <span class="set-sub set-long">Brings in the boards, tasks, notes and meetings from a file made with Download my data.</span>
-          </div>
-          <button class="btn btn-sm btn-secondary" data-import>Choose file</button>
-          <input type="file" class="visually-hidden-input" data-import-file accept=".json,application/json" tabindex="-1" aria-hidden="true">
-        </div>
-      </div>
-      <p class="hint set-hint">The file replaces what is on this device. Recordings are not in the file; transcripts, minutes and actions are.</p>`;
-}
-
-const countLine = (c) => [plural(c.boards, 'board'), plural(c.tasks, 'task'), plural(c.notes, 'note'), plural(c.meetings, 'meeting')].join(', ');
-
-async function runImport(file) {
-  try {
-    const done = await importFile(file, {
-      confirm: ({ counts, current, recordingsLost }) => confirmDialog(
-        'Replace what is on this device?',
-        `The file has ${countLine(counts)}. They replace the ${countLine(current)} on this device, which cannot be undone.${
-          recordingsLost ? ` ${plural(recordingsLost, 'recording')} on this device will be deleted with ${recordingsLost === 1 ? 'its meeting' : 'their meetings'}.` : ''}`,
-        { confirmLabel: 'Replace', danger: true },
-      ),
-    });
-    if (done) toast(`Imported ${countLine(done.counts)}`);
-  } catch (e) {
-    toast(e?.code ? e.message : 'The file could not be imported. Nothing was changed.', { ms: 8000 });
-  }
-}
 
 /* — screen — */
 
 export function settingsHTML() {
+  const page = settingsPageHTML();   // Backup or Remembered imports, drawn in place of Settings
+  if (page) return page;
   const labels = allTags().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   const n = S.priorities.length;
   return `
@@ -274,6 +237,7 @@ function bindAdd(selector, add) {
 }
 
 export function bindSettings() {
+  if (bindSettingsPage()) return;
   bindScrollShadow();
   bindAccountSection(app);
   bindSharedSection(app);
@@ -327,12 +291,8 @@ export function bindSettings() {
   });
   bindAdd('[data-add-label]', addLabel);
 
-  /* Your data: Import a Stack'd file */
-  const pick = app.querySelector('[data-import-file]');
-  if (pick) {
-    app.querySelector('[data-import]').addEventListener('click', () => pick.click());
-    pick.addEventListener('change', () => { const file = pick.files[0]; pick.value = ''; if (file) runImport(file); });
-  }
+  /* Data (PRD 1.7.0 §06): Import and export, Backup, Remembered imports */
+  bindDataSection();
 
   /* Plan (PRD-meetings US-12) and Meetings & AI (AC-11.1) */
   bindPlanSection(app);

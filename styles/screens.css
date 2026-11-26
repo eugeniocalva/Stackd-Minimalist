@@ -412,6 +412,21 @@ button.lrow-icon:active { transform: scale(0.9); }
    second lines and controls, 12 for labels, toggles and footnotes; two
    weights, 700 and 400 (PRD 1.7.0 §04 B2). */
 .settings-screen .tag { font-size: var(--text-xs); }
+/* Settings › Data (PRD 1.7.0 §06). A row that opens a page or a sheet is a
+   button: the whole row is the target, with a chevron at its end. */
+.set-nav { width: 100%; text-align: left; cursor: pointer; color: inherit; }
+.set-nav > svg:last-child { color: var(--text-tertiary); flex: none; }
+.set-nav:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: var(--radius-sm); }
+/* A page under Settings (Backup, Remembered imports): the Settings rhythm,
+   its own title, and 24px between a footnote and the next card, since
+   these pages have no section labels to make that gap. */
+.sub-title { font-family: var(--font-family-display); font-weight: 800; font-size: var(--text-2xl); line-height: 1.25; letter-spacing: -0.02em; margin: var(--space-2) var(--space-1) 0; outline: none; }
+.sub-empty { margin: 0 var(--space-1); font-size: var(--text-sm); color: var(--text-secondary); }
+.settings-screen .scroll-area > .set-hint + .card { margin-top: var(--space-6); }
+/* The Import and export sheet: one line of text and a column of equal buttons */
+.sheet-text { margin: 0; font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; }
+.sheet-stack { display: flex; flex-direction: column; gap: var(--space-2); }
+.sheet-note { display: block; }
 .settings-screen .set-input::placeholder { font-weight: 400; }
 .lrow > svg:last-child { color: var(--text-tertiary); flex: none; }
 .side-settings { margin-top: auto; }

@@ -180,10 +180,10 @@
   }
   function reminderText(task, boardName, readAt) {
     const at = task.dueTime ? ` at ${task.dueTime}` : "";
-    const when = new Date(readAt);
-    const days = daysBetween(toISO(when), task.due);
+    const when2 = new Date(readAt);
+    const days = daysBetween(toISO(when2), task.due);
     const day = days === 0 ? "today" : days === 1 ? "tomorrow" : days === -1 ? "yesterday" : fmtDateLong(task.due);
-    const line = isOverdue(task.due, task.dueTime, when) ? `Overdue, was due ${day}${at}` : `Due ${day}${at}`;
+    const line = isOverdue(task.due, task.dueTime, when2) ? `Overdue, was due ${day}${at}` : `Due ${day}${at}`;
     return { title: task.title, body: boardName ? `${line} · ${boardName}` : line };
   }
   function planReminders(tasks, lists = []) {
@@ -491,6 +491,10 @@
     // 'tasks' | 'notes' | 'meetings' | 'boards' — segment inside a folder
     menuSlide: false,
     // the next render of the main menu slides in from the left (swipe)
+    settingsPage: null,
+    // a page under Settings: 'backup' | 'remembered' (ui/data.js); null is Settings itself
+    settingsScroll: null,
+    // { area, main }: where Settings was scrolled when such a page was opened, to come back to
     detailId: null,
     // task id on 'detail', note id on 'note', meeting id on 'meeting'
     transcriptAll: false,
@@ -572,6 +576,7 @@
     state3.theme ??= "system";
     state3.priorities ??= defaultPriorities();
     state3.labels ??= [];
+    state3.lastFileBackupAt ??= null;
     state3.notes ??= [];
     state3.notesSort ??= "created-desc";
     if (state3.sort === "due") state3.sort = "due-asc";
@@ -854,14 +859,14 @@
       const i = S.priorities.findIndex((x) => x.id === p);
       return i === -1 ? 0 : n - i;
     };
-    const when = (t) => `${t.due} ${t.dueTime || "24:00"}`;
+    const when2 = (t) => `${t.due} ${t.dueTime || "24:00"}`;
     const [field, dir] = S.sort === "manual" ? [null, 1] : [S.sort.split("-")[0], S.sort.endsWith("asc") ? 1 : -1];
     const ts = tasksOf(listId).slice();
     ts.sort((a, b) => {
       if (a.done !== b.done) return a.done ? 1 : -1;
       if (field === "due") {
         if (!!a.due !== !!b.due) return a.due ? -1 : 1;
-        if (a.due && when(a) !== when(b)) return (when(a) < when(b) ? -1 : 1) * dir;
+        if (a.due && when2(a) !== when2(b)) return (when2(a) < when2(b) ? -1 : 1) * dir;
       } else if (field === "priority") {
         const ra = rank(a.priority), rb = rank(b.priority);
         if (!!ra !== !!rb) return ra ? -1 : 1;
@@ -1366,6 +1371,10 @@
     dropMedia(S.meetings.filter((m) => m.id === id));
     S.meetings = S.meetings.filter((m) => m.id !== id);
     commit();
+  }
+  function noteFileBackup(at = Date.now()) {
+    S.lastFileBackupAt = at;
+    save();
   }
   function setTitle(id, title) {
     const t = taskById(id);
@@ -2216,6 +2225,10 @@
     note: '<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/>',
     text: '<path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>',
     lines: '<path d="M21 6H3"/><path d="M15 12H3"/><path d="M17 18H3"/>',
+    /* the three rows of Settings › Data (PRD 1.7.0, decision 43) */
+    swap: '<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>',
+    shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+    listDots: '<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/>',
     palette: '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
     checklist: '<path d="M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344"/><path d="m9 11 3 3L22 4"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
@@ -2653,6 +2666,20 @@
       ov.querySelector("[data-ok]").focus();
     });
   }
+  function noticeDialog(title, body, { label = "OK" } = {}) {
+    return new Promise((resolve) => {
+      const { ov, close } = overlay(`
+      <div class="sheet dialog" role="alertdialog" aria-labelledby="dlg-title" aria-describedby="dlg-body">
+        <h2 id="dlg-title">${esc(title)}</h2>
+        <p id="dlg-body">${esc(body)}</p>
+        <div class="dialog-actions">
+          <button class="btn btn-primary" data-ok><span class="btn-label">${esc(label)}</span></button>
+        </div>
+      </div>`, { onClose: () => resolve() });
+      ov.querySelector("[data-ok]").addEventListener("click", () => close());
+      ov.querySelector("[data-ok]").focus();
+    });
+  }
   function choiceDialog(title, body, choices) {
     return new Promise((resolve) => {
       const { ov, close } = overlay(`
@@ -2768,12 +2795,12 @@
     if (at === null) return "No reminder set.";
     if (at <= Date.now()) return `That reminder time (${momentLabel(at)}) has already passed.`;
     if (done2) return "Reminders are off while the task is done. Reopen it to get this one.";
-    const when = `Reminder on ${momentLabel(at)}`;
+    const when2 = `Reminder on ${momentLabel(at)}`;
     switch (reminderPermission()) {
       case "granted":
-        return isNative() ? `${when}.` : `${when}, while Stack'd is open.`;
+        return isNative() ? `${when2}.` : `${when2}, while Stack'd is open.`;
       case "default":
-        return `${when}. Saving asks to allow notifications.`;
+        return `${when2}. Saving asks to allow notifications.`;
       case "denied":
         return "Notifications are blocked for Stack'd. Allow them in settings to get this reminder.";
       case "install":
@@ -3633,9 +3660,43 @@
     records.meetings = records.meetings.map(({ recording, jobs, lastError, ...m }) => m);
     return { app: FILE_APP, format: FILE_FORMAT, exportedAt: now2, records };
   }
-  var exportFileName = (now2 = Date.now()) => `stackd-export-${toISO(new Date(now2))}.json`;
-  function exportFile(now2 = Date.now()) {
-    return new Blob([JSON.stringify(exportDocument(now2))], { type: "application/json" });
+  var sharedBoards = () => S.lists.filter((l) => l.share).length;
+  function backupDocument(now2 = Date.now()) {
+    const doc2 = exportDocument(now2);
+    const shared2 = new Set(S.lists.filter((l) => l.share).map((l) => l.id));
+    if (shared2.size) {
+      doc2.records.lists = doc2.records.lists.filter((l) => !shared2.has(l.id));
+      doc2.records.tasks = doc2.records.tasks.filter((t) => !shared2.has(t.listId));
+    }
+    return doc2;
+  }
+  var two = (n) => String(n).padStart(2, "0");
+  function backupFileName(now2 = Date.now()) {
+    const d = new Date(now2);
+    return `stackd-backup-${toISO(d)}-${two(d.getHours())}${two(d.getMinutes())}.json`;
+  }
+  function makeBackup(now2 = Date.now()) {
+    const doc2 = backupDocument(now2);
+    const r = doc2.records;
+    if (!r.lists.some((l) => (l.status ?? "active") === "active")) {
+      if (!r.lists.length && !r.tasks.length && !r.notes.length && !r.meetings.length) {
+        throw new ImportError("nothing", sharedBoards() ? "Only shared boards are on this device, and shared boards are not in a backup." : "There is nothing on this device to back up.");
+      }
+      r.lists.unshift({ id: uid(), name: "Board", lanes: defaultLanes(), status: "active", archivedAt: null, deletedAt: null });
+    }
+    if (r.tasks.length + r.notes.length + r.meetings.length > MAX_RECORDS) {
+      throw new ImportError("too_large", `There are more than ${MAX_RECORDS.toLocaleString("en-GB")} tasks, notes and meetings on this device, which is more than a backup can hold. Empty Deleted, then try again.`);
+    }
+    const blob2 = new Blob([JSON.stringify(doc2)], { type: "application/json" });
+    if (blob2.size > MAX_FILE_BYTES) {
+      throw new ImportError("too_large", "What is on this device makes a file too large to restore. Empty Deleted or remove old meetings, then try again.");
+    }
+    try {
+      readDocument(JSON.parse(JSON.stringify(doc2)), now2);
+    } catch (e) {
+      throw new ImportError("bad_file", `A file made from what is on this device would not restore, so none was made${e?.message ? ` (${e.message.replace(/ ?Nothing was changed\.$/, "").replace(/\.$/, "")})` : ""}.`);
+    }
+    return { blob: blob2, name: backupFileName(now2), at: now2, counts: countsOf(r) };
   }
   var ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
   var SPEAKER = /^[A-Za-z0-9][\w .-]{0,39}$/;
@@ -3648,7 +3709,7 @@
   var ACTION_STATUSES = ["proposed", "added", "dismissed"];
   var LONG = 2e6;
   var bad = (what) => {
-    throw new ImportError("bad_file", `This file is damaged (${what}).`);
+    throw new ImportError("bad_file", `This file is damaged (${what}). Nothing was changed.`);
   };
   var isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
   var obj = (v, what) => isObj(v) ? v : bad(what);
@@ -3894,23 +3955,30 @@
     return v ? readDocument(v.doc, now2) : null;
   }
   var dropBackup = () => localStorage.removeItem(BACKUP_KEY);
+  var NOT_A_BACKUP = "This is not a Stack'd Minimalist backup. Nothing was changed.";
   function readDocument(doc2, now2 = Date.now()) {
+    if (isObj(doc2) && doc2.app === "stackd-account-export") {
+      throw new ImportError("not_stackd", "This is the file from Export my data. It holds the account as the server keeps it and cannot be restored here. Nothing was changed.");
+    }
+    if (isObj(doc2) && doc2.format === "stackd-backup") {
+      throw new ImportError("not_stackd", "This is a backup of Stack'd Finance, not of Stack'd Minimalist. Nothing was changed.");
+    }
     if (!isObj(doc2) || doc2.app !== FILE_APP || !Number.isInteger(doc2.format)) {
-      throw new ImportError("not_stackd", "This is not a Stack'd file.");
+      throw new ImportError("not_stackd", NOT_A_BACKUP);
     }
     if (doc2.format > FILE_FORMAT) {
-      throw new ImportError("newer", "This file comes from a newer version of Stack'd. Update the app, then import it.");
+      throw new ImportError("newer", "This backup comes from a newer version of Stack'd. Update the app, then restore it. Nothing was changed.");
     }
     return cleanRecords(doc2.records, now2);
   }
   async function importFile(file, { confirm } = {}) {
-    if (!canImport()) throw new ImportError("signed_in", "Sign out on this device before importing a file.");
-    if (file.size > MAX_FILE_BYTES) throw new ImportError("too_large", "This file is too large to import.");
+    if (!canImport()) throw new ImportError("signed_in", "Sign out on this device before restoring a backup. Nothing was changed.");
+    if (file.size > MAX_FILE_BYTES) throw new ImportError("too_large", "This file is too large to be a Stack'd Minimalist backup. Nothing was changed.");
     let doc2;
     try {
       doc2 = JSON.parse(await file.text());
     } catch {
-      throw new ImportError("not_stackd", "This is not a Stack'd file.");
+      throw new ImportError("not_stackd", NOT_A_BACKUP);
     }
     const records = readDocument(doc2);
     const counts = countsOf(records);
@@ -3923,11 +3991,12 @@
         exportedAt: time(doc2.exportedAt)
       });
       if (!ok) return null;
+      if (!canImport()) throw new ImportError("signed_in", "Sign out on this device before restoring a backup. Nothing was changed.");
     }
     try {
       replaceRecords(records);
     } catch {
-      throw new ImportError("storage", "There is not enough room on this device for the file. Nothing was changed.");
+      throw new ImportError("storage", "There is not enough room on this device for the backup. Nothing was changed.");
     }
     return { counts };
   }
@@ -4689,7 +4758,7 @@
     if (own && parts.some((p) => p.toLowerCase() === own.toLowerCase())) return { error: "You are already on this board." };
     return { emails: [...new Set(parts.map((p) => p.toLowerCase()))] };
   }
-  var sharedBoards = () => S.lists.filter((l) => l.share && (l.status ?? "active") === "active");
+  var sharedBoards2 = () => S.lists.filter((l) => l.share && (l.status ?? "active") === "active");
 
   // src/ui/sharing.js
   async function newBoardFlow() {
@@ -4882,7 +4951,7 @@
     }));
   }
   function sharedSectionHTML() {
-    const boards = sharedBoards();
+    const boards = sharedBoards2();
     if (!signedIn() || !boards.length) return "";
     return `
       <span class="section-title list-label" id="settings-shared">Shared boards</span>
@@ -5697,7 +5766,7 @@
     const tier = S.plan.tier;
     const next = PAID_TIERS[PAID_TIERS.indexOf(tier) + 1] || null;
     const what = step === "summarise" ? "summaries" : "audio minutes";
-    const when = resetsAt || S.plan.renewsAt;
+    const when2 = resetsAt || S.plan.renewsAt;
     const { ov, close } = sheet(`
   <div class="sheet" role="dialog" aria-label="Allowance used">
     <div class="sheet-handle"></div>
@@ -5705,7 +5774,7 @@
       <span class="section-title">Allowance used</span>
       <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
     </div>
-    <p class="plan-intro">You've used this ${tier === "tester" ? "day's" : "month's"} ${what}.${when ? ` Resets ${esc(fmtDate(when, S.dateFormat))}.` : ""}</p>
+    <p class="plan-intro">You've used this ${tier === "tester" ? "day's" : "month's"} ${what}.${when2 ? ` Resets ${esc(fmtDate(when2, S.dateFormat))}.` : ""}</p>
     ${next && available3() ? `<div class="plan-cards">${cardHTML(next, tier)}</div>` : ""}
     <button type="button" class="btn btn-secondary btn-block" data-close>OK</button>
   </div>`);
@@ -5845,6 +5914,207 @@
       ta.addEventListener("blur", flush);
     });
     window.addEventListener("pagehide", flush, { once: true });
+  }
+
+  // src/files.js
+  var native2 = () => !!globalThis.Capacitor?.isNativePlatform?.();
+  function saveFile(blob2, name) {
+    if (native2() || typeof document === "undefined" || !globalThis.URL?.createObjectURL) return "unavailable";
+    const url = URL.createObjectURL(blob2);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.hidden = true;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1e4);
+    return "handed";
+  }
+
+  // src/ui/data.js
+  var plural3 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  var countLine = (c) => [plural3(c.boards, "board"), plural3(c.tasks, "task"), plural3(c.notes, "note"), plural3(c.meetings, "meeting")].join(", ");
+  var when = (ts) => `${fmtDate(ts, S.dateFormat)} at ${fmtClock(ts)}`;
+  var refocus = (selector) => app.querySelector(selector)?.focus({ preventScroll: true });
+  var navRow = (ic, title, sub, attrs) => `
+        <button type="button" class="set-row set-nav" ${attrs}>
+          <span class="lrow-icon">${icon(ic, 18)}</span>
+          <span class="set-text">
+            <span class="set-title">${title}</span>
+            <span class="set-sub set-long">${sub}</span>
+          </span>
+          ${icon("chevronRight", 18)}
+        </button>`;
+  function dataSectionHTML() {
+    if (isLegacyOrigin()) return "";
+    return `
+      <span class="section-title list-label" id="settings-data">Data</span>
+      <div class="card list-card">
+        ${navRow("swap", "Import and export", "Bring in a file or send your tasks to another app.", 'data-open-transfer aria-haspopup="dialog"')}
+        ${navRow("shield", "Backup", "Save everything in one file, or restore one.", 'data-open-page="backup"')}
+        ${navRow("listDots", "Remembered imports", "What Stack'd remembers from your imports.", 'data-open-page="remembered"')}
+      </div>`;
+  }
+  function bindDataSection() {
+    app.querySelector("[data-open-transfer]")?.addEventListener("click", openTransferSheet);
+    app.querySelectorAll("[data-open-page]").forEach((b) => b.addEventListener("click", () => openPage(b.dataset.openPage)));
+  }
+  function openTransferSheet() {
+    const { ov, close } = overlay(`
+    <div class="sheet" role="dialog" aria-labelledby="xfer-title" aria-describedby="xfer-body">
+      <div class="sheet-handle"></div>
+      <div class="sheet-head"><span class="section-title" id="xfer-title">Import and export</span></div>
+      <p class="sheet-text" id="xfer-body">Bring tasks in from a file, or send them to another app.</p>
+      <div class="sheet-stack">
+        <button type="button" class="btn btn-secondary btn-block" data-import-file disabled>Import file</button>
+        <button type="button" class="btn btn-secondary btn-block" data-export-file disabled>Export file</button>
+        <button type="button" class="btn btn-secondary btn-block" data-cancel>Cancel</button>
+      </div>
+      <p class="hint sheet-note">Import and export are being built: these two buttons switch on in the next steps of 1.7.0.</p>
+    </div>`, { onClose: () => refocus("[data-open-transfer]") });
+    const cancel = ov.querySelector("[data-cancel]");
+    cancel.addEventListener("click", () => close());
+    cancel.focus();
+  }
+  var PAGES = ["backup", "remembered"];
+  var onPage = () => !isLegacyOrigin() && PAGES.includes(UI.settingsPage) ? UI.settingsPage : null;
+  function openPage(name) {
+    UI.settingsScroll = { area: app.querySelector(".scroll-area")?.scrollTop || 0, main: app.querySelector(".main")?.scrollTop || 0 };
+    UI.settingsPage = name;
+    rerender();
+    app.querySelector(".sub-title")?.focus({ preventScroll: true });
+  }
+  function closePage() {
+    const from = UI.settingsPage, at = UI.settingsScroll;
+    UI.settingsPage = null;
+    UI.settingsScroll = null;
+    rerender();
+    const put = (sel, v) => {
+      const el = app.querySelector(sel);
+      if (el && v) el.scrollTop = v;
+    };
+    put(".scroll-area", at?.area);
+    put(".main", at?.main);
+    app.querySelector(`[data-open-page="${from}"]`)?.focus({ preventScroll: true });
+  }
+  var pageHTML = (title, body) => `
+  <div class="screen settings-screen set-page">
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-sub-back aria-label="Back to Settings">${icon("chevronLeft")}</button>
+      <span class="kicker">Settings</span>
+      <span class="icon-btn-spacer" aria-hidden="true"></span>
+    </header>
+    <div class="scroll-area">
+      <h1 class="sub-title" tabindex="-1">${title}</h1>
+      ${body}
+    </div>
+  </div>`;
+  var actionRow = (ic, title, sub, button) => `
+        <div class="set-row set-wrap">
+          <span class="lrow-icon">${icon(ic, 18)}</span>
+          <div class="set-text">
+            <span class="set-title">${title}</span>
+            <span class="set-sub set-long">${sub}</span>
+          </div>
+          ${button}
+        </div>`;
+  function backupPageHTML() {
+    const can = canImport();
+    const last = S.lastFileBackupAt ? `Last backup file made on ${when(S.lastFileBackupAt)}.` : "No backup file made on this device yet.";
+    const shared2 = sharedBoards() ? " Shared boards are not in it either: they stay in their owner's account." : "";
+    return pageHTML("Backup", `
+      <div class="card list-card">
+        ${actionRow(
+      "download",
+      "Back up now",
+      "One file with your boards, tasks, notes and meetings.",
+      '<button type="button" class="btn btn-sm btn-secondary" data-backup-now>Back up now</button>'
+    )}
+      </div>
+      <p class="hint set-hint">${esc(last)} Recordings are not in the file; transcripts, minutes and actions are.${shared2}</p>
+      <div class="card list-card">
+        ${actionRow(
+      "upload",
+      "Restore a backup",
+      can ? "Replaces what is on this device with what is in a backup file." : "Not while signed in: your account is the copy of your data.",
+      `<button type="button" class="btn btn-sm btn-secondary" data-restore-pick ${can ? "" : "disabled"}>Choose file</button>`
+    )}
+      </div>
+      <p class="hint set-hint">${can ? "You see what the file holds and confirm before anything changes." : "To restore a file anyway: sign out and choose Keep a copy, restore the file, then sign in again. At sign-in, Merge sends the restored versions to your account and your other devices; Use my account discards them."}</p>`);
+  }
+  function rememberedPageHTML() {
+    return pageHTML("Remembered imports", `
+      <p class="sub-empty">Nothing remembered yet.</p>
+      <p class="hint set-hint">When you import a file, Stack'd remembers your answers here, so the next file of the same kind needs fewer questions.</p>`);
+  }
+  function settingsPageHTML() {
+    const page2 = onPage();
+    return page2 === "backup" ? backupPageHTML() : page2 === "remembered" ? rememberedPageHTML() : null;
+  }
+  function bindSettingsPage() {
+    if (!onPage()) return false;
+    bindScrollShadow();
+    app.querySelector("[data-sub-back]")?.addEventListener("click", closePage);
+    app.querySelector("[data-backup-now]")?.addEventListener("click", backUpNow);
+    app.querySelector("[data-restore-pick]")?.addEventListener("click", pickBackupFile);
+    return true;
+  }
+  async function backUpNow() {
+    let made;
+    try {
+      made = makeBackup();
+    } catch (e) {
+      await noticeDialog("No backup file was made", e?.code ? e.message : "Something went wrong while making the file. Nothing was changed.");
+      refocus("[data-backup-now]");
+      return;
+    }
+    if (saveFile(made.blob, made.name) !== "handed") {
+      await noticeDialog("No backup file was made", "Saving a file is not possible inside the app yet. Nothing was changed.");
+      refocus("[data-backup-now]");
+      return;
+    }
+    noteFileBackup(made.at);
+    rerender();
+    refocus("[data-backup-now]");
+    toast("Backup file made");
+  }
+  function pickBackupFile() {
+    if (!canImport()) {
+      rerender();
+      noticeDialog("The backup was not restored", "Sign out on this device before restoring a backup. Nothing was changed.");
+      return;
+    }
+    document.querySelectorAll("input[data-backup-pick]").forEach((el) => el.remove());
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.dataset.backupPick = "";
+    input.style.display = "none";
+    document.body.appendChild(input);
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (file) runRestore(file);
+    });
+    input.addEventListener("cancel", () => input.remove());
+    input.click();
+  }
+  async function runRestore(file) {
+    try {
+      const done2 = await importFile(file, {
+        confirm: async ({ counts, current: current3, recordingsLost, exportedAt }) => await choiceDialog(
+          "Replace what is on this device?",
+          `${exportedAt ? `The backup was made on ${when(exportedAt)} and holds` : "The backup holds"} ${countLine(counts)}. It replaces the ${countLine(current3)} on this device, which cannot be undone. Archived and deleted items are counted.${recordingsLost ? ` ${plural3(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
+          [{ id: "replace", label: "Replace", danger: true }]
+        ) === "replace"
+      });
+      if (done2) toast("Backup restored");
+    } catch (e) {
+      if (e?.code === "signed_in") rerender();
+      await noticeDialog("The backup was not restored", e?.code ? e.message : "The file could not be read. Nothing was changed.");
+    }
+    refocus("[data-restore-pick]");
   }
 
   // src/webcrypto.js
@@ -6068,7 +6338,7 @@
         ${row("lock", "Change PIN", "Your other devices ask for the new one.", '<button class="btn btn-sm btn-secondary" data-change-pin>Change</button>')}
       </div>
 
-      <span class="section-title list-label">Your data</span>
+      <span class="section-title list-label">Account data</span>
       <div class="card list-card">
         ${row("download", "Export my data", "One file with your account details and everything synced to it.", '<button class="btn btn-sm btn-secondary" data-export>Export</button>')}
         ${row("trash", "Delete account", "Removes the account and everything synced to it.", '<button class="btn btn-sm btn-ghost danger" data-delete-account>Delete</button>')}
@@ -6264,10 +6534,11 @@
   var THEME_LABEL = { light: "Light", dark: "Dark", system: "System" };
   var THEME_ICON = { light: "sun", dark: "moon", system: "monitor" };
   var COLOR_NAME = { red: "Red", amber: "Amber", green: "Green", blue: "Blue", violet: "Violet", gray: "Gray" };
-  var plural3 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  var plural4 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   var sameTag2 = (a, b) => a.toLowerCase() === b.toLowerCase();
   function openSettings(section) {
     UI.screen = "settings";
+    UI.settingsPage = null;
     rerender();
     if (section) app.querySelector(`#settings-${section}`)?.scrollIntoView({ block: "start" });
   }
@@ -6278,7 +6549,7 @@
     <button class="lrow-icon pc pc-${p.color}" data-color aria-label="Colour: ${COLOR_NAME[p.color]}" title="Change colour">${icon("flag", 18)}</button>
     <div class="set-text">
       <input class="set-input" data-name value="${esc(p.name)}" maxlength="24" autocomplete="off" aria-label="Priority name">
-      <span class="set-sub">${plural3(priorityUseCount(p.id), "task")}</span>
+      <span class="set-sub">${plural4(priorityUseCount(p.id), "task")}</span>
     </div>
     <div class="set-actions">
       <button class="set-btn" data-move="-1" aria-label="Move ${esc(p.name)} up" ${i === 0 ? "disabled" : ""}>${icon("chevronUp", 18)}</button>
@@ -6289,7 +6560,7 @@
   }
   function labelRowHTML(name) {
     const use = tagUseCounts(name);
-    const sub = use.notes ? `${plural3(use.tasks, "task")} · ${plural3(use.notes, "note")}` : plural3(use.tasks, "task");
+    const sub = use.notes ? `${plural4(use.tasks, "task")} · ${plural4(use.notes, "note")}` : plural4(use.tasks, "task");
     return `
   <div class="set-row" data-label="${esc(name)}">
     <span class="lrow-icon">${icon("tag", 18)}</span>
@@ -6307,40 +6578,9 @@
     <span class="lrow-icon dashed">${icon("plus", 18)}</span>
     <input class="set-input" ${attr} placeholder="${label}" maxlength="32" autocomplete="off" aria-label="${label}">
   </div>`;
-  var showImport = () => canImport() && !isLegacyOrigin();
-  function dataSectionHTML() {
-    if (!showImport()) return "";
-    return `
-      <span class="section-title list-label" id="settings-data">Your data</span>
-      <div class="card list-card">
-        <div class="set-row set-wrap">
-          <span class="lrow-icon">${icon("upload", 18)}</span>
-          <div class="set-text">
-            <span class="set-title">Import a Stack'd file</span>
-            <span class="set-sub set-long">Brings in the boards, tasks, notes and meetings from a file made with Download my data.</span>
-          </div>
-          <button class="btn btn-sm btn-secondary" data-import>Choose file</button>
-          <input type="file" class="visually-hidden-input" data-import-file accept=".json,application/json" tabindex="-1" aria-hidden="true">
-        </div>
-      </div>
-      <p class="hint set-hint">The file replaces what is on this device. Recordings are not in the file; transcripts, minutes and actions are.</p>`;
-  }
-  var countLine = (c) => [plural3(c.boards, "board"), plural3(c.tasks, "task"), plural3(c.notes, "note"), plural3(c.meetings, "meeting")].join(", ");
-  async function runImport(file) {
-    try {
-      const done2 = await importFile(file, {
-        confirm: ({ counts, current: current3, recordingsLost }) => confirmDialog(
-          "Replace what is on this device?",
-          `The file has ${countLine(counts)}. They replace the ${countLine(current3)} on this device, which cannot be undone.${recordingsLost ? ` ${plural3(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
-          { confirmLabel: "Replace", danger: true }
-        )
-      });
-      if (done2) toast(`Imported ${countLine(done2.counts)}`);
-    } catch (e) {
-      toast(e?.code ? e.message : "The file could not be imported. Nothing was changed.", { ms: 8e3 });
-    }
-  }
   function settingsHTML() {
+    const page2 = settingsPageHTML();
+    if (page2) return page2;
     const labels = allTags().sort((a, b) => a.localeCompare(b, void 0, { sensitivity: "base" }));
     const n = S.priorities.length;
     return `
@@ -6494,6 +6734,7 @@
     input.addEventListener("change", take);
   }
   function bindSettings() {
+    if (bindSettingsPage()) return;
     bindScrollShadow();
     bindAccountSection(app);
     bindSharedSection(app);
@@ -6518,7 +6759,7 @@
       row2.querySelectorAll("[data-move]").forEach((b) => b.addEventListener("click", () => movePriority(id, +b.dataset.move)));
       row2.querySelector("[data-delete]").addEventListener("click", async () => {
         const used = priorityUseCount(id);
-        if (used && !await confirmDialog(`Delete “${p.name}”?`, `${plural3(used, "task")} will have no priority.`, { confirmLabel: "Delete", danger: true })) return;
+        if (used && !await confirmDialog(`Delete “${p.name}”?`, `${plural4(used, "task")} will have no priority.`, { confirmLabel: "Delete", danger: true })) return;
         deletePriority(id);
       });
     });
@@ -6541,20 +6782,12 @@
       });
       row2.querySelector("[data-delete]").addEventListener("click", async () => {
         const used = tagUseCount(name);
-        if (used && !await confirmDialog(`Delete #${name}?`, `It is removed from ${plural3(used, "task")}.`, { confirmLabel: "Delete", danger: true })) return;
+        if (used && !await confirmDialog(`Delete #${name}?`, `It is removed from ${plural4(used, "task")}.`, { confirmLabel: "Delete", danger: true })) return;
         deleteLabel(name);
       });
     });
     bindAdd("[data-add-label]", addLabel);
-    const pick2 = app.querySelector("[data-import-file]");
-    if (pick2) {
-      app.querySelector("[data-import]").addEventListener("click", () => pick2.click());
-      pick2.addEventListener("change", () => {
-        const file = pick2.files[0];
-        pick2.value = "";
-        if (file) runImport(file);
-      });
-    }
+    bindDataSection();
     bindPlanSection(app);
     app.querySelector("[data-copy-sub]")?.addEventListener("click", async () => {
       try {
@@ -7907,14 +8140,14 @@
     const hasTitle = !!n.title.trim();
     const title = noteTitle(n);
     const preview = hasTitle && !isEmpty(n.body) ? firstLine(n.body) : "";
-    const when = fmtDateOrRelative(dateLabel2 === "Created" ? n.createdAt : n.updatedAt, S.dateFormat);
+    const when2 = fmtDateOrRelative(dateLabel2 === "Created" ? n.createdAt : n.updatedAt, S.dateFormat);
     return `
   <div class="row nrow" data-id="${n.id}" role="button" tabindex="0" aria-label="${esc(title)}${n.color ? `, ${colorName(n.color)}` : ""}">
     ${colorBarHTML(n.color)}
     <div class="t-main">
       <div class="nrow-line">
         <span class="t-title ${hasTitle ? "" : "untitled"}">${esc(title)}</span>
-        <span class="nrow-date num">${dateLabel2} ${esc(when)}</span>
+        <span class="nrow-date num">${dateLabel2} ${esc(when2)}</span>
       </div>
       ${noteMetaHTML(n, { links: true })}
       ${preview ? `<span class="nrow-preview">${esc(preview)}</span>` : ""}
@@ -9288,13 +9521,13 @@
   }
   function meetingRowHTML(m) {
     const title = meetingTitle(m);
-    const when = fmtDateOrRelative(m.createdAt, S.dateFormat);
+    const when2 = fmtDateOrRelative(m.createdAt, S.dateFormat);
     return `
   <div class="row nrow mrow" data-id="${m.id}" role="button" tabindex="0" aria-label="${esc(title)}">
     <div class="t-main">
       <div class="nrow-line">
         <span class="t-title ${m.title.trim() ? "" : "untitled"}">${esc(title)}</span>
-        <span class="nrow-date num">${esc(when)}</span>
+        <span class="nrow-date num">${esc(when2)}</span>
       </div>
       ${meetingChipsHTML(m)}
     </div>
@@ -9970,15 +10203,24 @@
   <div class="notice move-banner" role="region" aria-label="Stack'd has moved">
     ${icon("move", 18)}
     <span><strong>Stack'd has moved to <a href="${APP_ORIGIN}" target="_blank" rel="noopener">${APP_HOST}</a>.</strong>
-      Download your data here, then import it there in Settings. Recordings cannot travel in the file; their transcripts and minutes do.</span>
+      Download your data here, then restore it there in Settings › Backup. Recordings cannot travel in the file; their transcripts and minutes do.</span>
     <button class="btn btn-sm btn-secondary" data-download-data>${icon("download", 16)}Download my data</button>
   </div>`;
   }
   function bindMoveBanner() {
     app.querySelector("[data-download-data]")?.addEventListener("click", () => {
-      const name = exportFileName();
-      downloadFile(exportFile(), name);
-      toast(`Saved ${name}. Open ${APP_HOST}, then Settings › Import a Stack'd file.`, { ms: 1e4 });
+      let made;
+      try {
+        made = makeBackup();
+      } catch (e) {
+        noticeDialog("No file was made", e?.code ? e.message : "Something went wrong while making the file. Nothing was changed.");
+        return;
+      }
+      if (saveFile(made.blob, made.name) !== "handed") {
+        noticeDialog("No file was made", "Saving a file is not possible here.");
+        return;
+      }
+      noticeDialog("Your data is in a file", `It is called ${made.name}. Open ${APP_HOST}, go to Settings › Backup, press Restore a backup and choose that file.`);
     });
   }
   function onboardingHTML() {
@@ -10388,7 +10630,7 @@
   }
 
   // app.js
-  var screenKey = () => [isDesktop.matches, UI.screen, S.currentList, S.view, UI.folder, UI.folderKind, UI.detailId].join("|");
+  var screenKey = () => [isDesktop.matches, UI.screen, S.currentList, S.view, UI.folder, UI.folderKind, UI.detailId, UI.settingsPage].join("|");
   var shownKey = null;
   function readScroll() {
     const one = (sel, prop) => app.querySelector(sel)?.[prop] || 0;

@@ -1,7 +1,8 @@
 # PRD: Stack'd Minimalist 1.7.0 — swipe back, a tidier Settings, import and export
 
-Status: **in progress, 2026-11-26.** Phases 1 to 3 of 8 are done and
-agreed. Thirty-one decisions taken by the owner (§02). The decisions still to take are listed by phase in §11 and are
+Status: **in progress, 2026-11-26.** Phases 1 to 4 of 8 are done and
+agreed. Forty-four decisions taken by the owner (§02). The decisions
+still to take are listed by phase in §11 and are
 asked when their phase starts; each answer is recorded in §02. Branch:
 `release/1.7.0`, cut from `release/1.6.0` at `602b94c`.
 
@@ -19,7 +20,7 @@ the exported files) are done by the owner on one TestFlight build at the end.
 | A | A swipe left on the main menu returns to the page you came from | Small |
 | B | Settings: the Theme and Date format toggles look the same; three text sizes; even spacing | Small |
 | C | Tasks get a description | Medium |
-| D | Settings › Data: Import and export, Backup, Import automation | Large |
+| D | Settings › Data: Import and export, Backup, Remembered imports | Large |
 
 ## 02. Decisions taken (owner, 2026-11-26)
 
@@ -56,6 +57,19 @@ the exported files) are done by the owner on one TestFlight build at the end.
 | 29 | Devices still on 1.6.0 | Protected: 1.7.0 keeps the description such a device left out and sends it back |
 | 30 | The New task sheet | No description field; it is written in the open task |
 | 31 | Phase 3, the task description as built | Agreed from the pictures of the app, with the short empty card and, in the wide table, the mark after the title. The iPhone keyboard is checked on TestFlight |
+| 32 | Where Backup opens | A page of its own under Settings, with a back arrow, as in Stack'd Finance. The third row opens a page of the same kind |
+| 33 | The third Data row's name | "Remembered imports", not "Import automation": it sat one line above the unrelated section "Automations". Replaces the name in decisions 5 and 19; what it does is unchanged |
+| 34 | Shared boards in a backup | Left out, with their cards, and the Backup page says so. No other person's e-mail address goes into a file |
+| 35 | Import file and Export file until phases 5 to 7 | The Data card and the sheet are built in phase 4; the two buttons are shown switched off until their phase. Remembered imports shows its empty page |
+| 36 | Restore while signed in | The button is switched off; the page gives the reason and the way round in words (sign out and keep a copy, restore, sign in again) and what Merge and Use my account then do |
+| 37 | The old github.io address | No Data section there. The banner and "Download my data" stay, and their words point to Settings › Backup at the new address |
+| 38 | The backup file's name | `stackd-backup-2026-11-26-1405.json`: date and time. Files made under the old name still restore |
+| 39 | The signed-in Account card labelled "Your data" | Renamed "Account data". Its rows are unchanged |
+| 40 | The restore confirmation | Shows when the backup was made and both counts, says archived and deleted items are counted, and Cancel has the focus |
+| 41 | Last backup | The Backup page shows "Last backup file made" with date and time, or that none was made on this device yet |
+| 42 | Results and refusals | A success is a short message at the bottom; every refusal is a dialog with the full sentence |
+| 43 | Icons of the Data rows | Three new ones: opposed arrows, a shield with a tick, a list with dots |
+| 44 | Phase 4, the Data section and Backup as built | Agreed from the pictures of the app, with the check before a backup is handed over and the stand-in board when only shared boards are in use. A real file picker, a real download, a signed-in account and the iPhone app are checked on TestFlight |
 
 ---
 
@@ -208,32 +222,57 @@ device stays empty. Tasks from before 1.7.0 are not given the field on
 load, so the update does not send every task of an account again. Covered
 end to end against the real server code in `scripts/check-sync.mjs`; the
 check fails when the protection is switched off. The same applies to
-Import automation in the settings record (§06.4).
+Remembered imports in the settings record (§06.4).
 
 ## 06. D — Settings › Data
 
 The "Your data" card and its "Import a Stack'd file" row go. The
 "Developer" fold stays where it is and holds only the server address, as
-now. A new section, as in Stack'd Finance:
+now. A new section takes the card's place, as in Stack'd Finance:
 
 ```
 DATA
 ┌──────────────────────────────────────────────┐
-│ (⇅) Import and export                      › │
+│ (⇄) Import and export                      › │
 │     Bring in a file or send your tasks to    │
 │     another app.                             │
 ├──────────────────────────────────────────────┤
-│ (✓) Backup                                 › │
+│ (shield) Backup                            › │
 │     Save everything in one file, or restore  │
 │     one.                                     │
 ├──────────────────────────────────────────────┤
-│ (≡) Import automation                      › │
+│ (list) Remembered imports                  › │
 │     What Stack'd remembers from your imports.│
 └──────────────────────────────────────────────┘
 ```
 
-**Import and export** opens a sheet with three buttons, as in Finance:
-**Import file**, **Export file**, **Cancel**.
+Each row is a button with its own new icon (decision 43). The third row is
+called "Remembered imports" (decision 33). The section is shown signed in
+and signed out, and not at all on the old github.io address, which is for
+leaving (decision 37).
+
+**Import and export** opens a sheet, as in Finance: the title, the line
+"Bring tasks in from a file, or send them to another app.", and three equal
+buttons, **Import file**, **Export file**, **Cancel**. Until phases 5 and 7
+are built the first two are shown switched off, with a line under them that
+says so (decision 35); both go before release (§10, phase 8).
+
+**Backup** and **Remembered imports** open pages of their own under
+Settings, with a back arrow that returns to Settings where it was left
+(decision 32). A swipe right on such a page opens the menu, as on
+Settings, and the swipe left on the menu comes back to the page.
+
+**Built and agreed, 2026-11-26** (decision 44): `src/ui/data.js`
+(the section, the sheet, the two pages), `src/files.js` (the one place
+that hands a file over), `src/backup.js`, `src/ui/settings.js`,
+`src/ui/shell.js`, `src/ui/primitives.js` (a dialog with one button, for
+what must be read in full). Checked in the browser at 375 and 1280 px and
+on the old-address test server. One independent review of the change
+found one gap (no backup possible when only shared boards are in use) and
+five small points (focus after a dialog closes, a silent press after a
+sign-in in another tab, one misleading sentence, two weak checks); all six
+are fixed and covered by `scripts/check-backup.mjs` or re-tested in the
+browser.
 
 ### 06.1 Import: the guide
 
@@ -331,18 +370,68 @@ a browser it downloads.
 
 ### 06.3 Backup (decision 4)
 
-- **Back up now** writes the existing Stack'd file (`stackd-export-DATE.json`):
-  boards, tasks, notes, meetings with transcripts and minutes, priorities,
-  labels. Recordings are not in it, and the page says so.
-- **Restore a backup** is today's "Import a Stack'd file": it replaces what
-  is on the device after a confirmation that shows both counts.
-- The page shows when the last backup was made on this device.
-- Back up now works signed in or out. Restore is refused while signed in
-  (decision 16): the account is the copy, and the page says so and says
-  what to do instead (sign out first, or import the file's tasks through
-  Import).
+A page under Settings with two cards.
 
-### 06.4 Import automation (decision 5)
+**Back up now** writes one file, `stackd-backup-2026-11-26-1405.json`
+(decision 38): boards, tasks, notes, meetings with transcripts and minutes,
+priorities, labels. Not in it, and the page says so:
+
+- recordings;
+- boards shared with other people, and their cards (decision 34): no other
+  person's e-mail address goes into a file, and a shared board stays what
+  it is, a board in its owner's account. The sentence shows only on a
+  device that has a shared board.
+
+A backup that could not be restored is not made: before the file is handed
+over it is checked against everything a restore checks (size, number of
+items), and a dialog says why when it fails. One case needs help to
+restore: a device whose only boards in use are shared ones, with notes,
+meetings or archived boards of its own. A restore needs one board in use,
+so the file then carries an empty board called "Board" to stand in. Under the
+card: "Last backup file made on 26/11/2026 at 14:05.", or "No backup file
+made on this device yet." (decision 41). The time is noted only when a
+file really was handed over; it belongs to the device, is not in the file,
+is not synced, and a restore leaves it alone. A short message confirms:
+"Backup file made".
+
+**Restore a backup** replaces what is on the device with what is in a
+backup file. The file is read and checked first; then one question,
+"Replace what is on this device?", shows when the backup was made, what it
+holds and what it replaces, says that archived and deleted items are
+counted and how many recordings would go, with Cancel in focus (decision
+40). Then "Backup restored".
+
+Every refusal is a dialog titled "The backup was not restored", with the
+whole sentence, and each ends "Nothing was changed." (decision 42):
+
+| The file is | The dialog says |
+|---|---|
+| not a backup, or not readable | This is not a Stack'd Minimalist backup. |
+| the file from Account › Export my data | This is the file from Export my data. It holds the account as the server keeps it and cannot be restored here. |
+| a Stack'd Finance backup | This is a backup of Stack'd Finance, not of Stack'd Minimalist. |
+| from a newer version | This backup comes from a newer version of Stack'd. Update the app, then restore it. |
+| damaged | This file is damaged (what is wrong). |
+| too large | This file is too large to be a Stack'd Minimalist backup. |
+| too big for this device's storage | There is not enough room on this device for the backup. |
+
+**Signed in** (decisions 16 and 36): Back up now works as above. Restore is
+switched off, with "Not while signed in: your account is the copy of your
+data." and, under the card, the way round: "To restore a file anyway: sign
+out and choose Keep a copy, restore the file, then sign in again. At
+sign-in, Merge sends the restored versions to your account and your other
+devices; Use my account discards them." The signed-in Account card that
+was also labelled "Your data" is now "Account data" (decision 39).
+
+**The old address** (decision 37): the banner's "Download my data" writes
+the same backup file, and a dialog says where it goes: "Open
+app.stackdplatform.com, go to Settings › Backup, press Restore a backup
+and choose that file."
+
+**Inside the iPhone and Android apps** a file cannot be saved until phase
+8 (decision 13). Until then Back up now says so in a dialog and notes no
+time: the app never claims a file it did not hand over.
+
+### 06.4 Remembered imports (decisions 5 and 33)
 
 A page that lists what the guide has learned, one row per file layout,
 named after its columns or by the owner: "35 columns: List Name, Name,
@@ -400,11 +489,11 @@ Each phase: options shown → owner agrees → built → shown → owner agrees.
 | 1 | B: Settings toggles, sizes, spacing. **Done and agreed** (decisions 22 to 25) | Before and after screenshots, phone and wide, light and dark |
 | 2 | A: swipe left. **Done and agreed** (decision 26) | Pictures of the swipe half way in the test browser, then TestFlight |
 | 3 | C: task description. **Done and agreed** (decisions 27 to 31) | Mock-ups of the task detail, three options; then the built screens |
-| 4 | D: Data section, the sheet, Backup | Mock-ups, then the working pages |
+| 4 | D: Data section, the sheet, Backup. **Done and agreed** (decisions 32 to 44) | Mock-ups, then the working pages |
 | 5 | D: Import guide, CSV and JSON, Trello layout, automation | The guide, step by step, on the sample files |
 | 6 | D: Import of Excel and XML | The same files in those formats |
 | 7 | D: Export, six formats | The pages, and one file of each format to open |
-| 8 | iPhone saving, QA, security review, version, release notes | TestFlight build |
+| 8 | iPhone saving, QA, security review, version, release notes. QA includes: no switched-off button and no "being built" line left in the Import and export sheet | TestFlight build |
 
 ## 11. Still to decide, asked when the phase starts
 
@@ -414,7 +503,6 @@ when its phase starts, and the answer goes into §02.
 
 | Phase | Question | My suggestion |
 |---|---|---|
-| 4 | The wording of the three Data rows and of the sheet | As in §06 |
 | 5 | A JSON or XML file that is not a flat list, such as Trello's own free "Export as JSON" (the whole board, with checklists, where the power-up's free plan stops at 10 cards). Decision 18 says no readers for named tools, so: leave such files out, or let the guide ask which part of the file holds the cards? | Let the guide ask; no tool is named |
 | 5 | A file with no link or number per row: how a second import recognises a card (decision 17) | Same list and same title; Review shows how many were skipped and offers "import them anyway" |
 | 5 | An Excel file with several sheets | Read the first, offer the others |

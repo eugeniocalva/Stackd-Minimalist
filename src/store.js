@@ -113,6 +113,8 @@ export const UI = {
   folder: 'archived',    // which tab the folders screen shows
   folderKind: 'tasks',   // 'tasks' | 'notes' | 'meetings' | 'boards' — segment inside a folder
   menuSlide: false,      // the next render of the main menu slides in from the left (swipe)
+  settingsPage: null,    // a page under Settings: 'backup' | 'remembered' (ui/data.js); null is Settings itself
+  settingsScroll: null,  // { area, main }: where Settings was scrolled when such a page was opened, to come back to
   detailId: null,        // task id on 'detail', note id on 'note', meeting id on 'meeting'
   transcriptAll: false,  // meeting detail: the transcript is expanded past its first lines
   recorder: null,        // { meetingId } while a recording runs (ui/recorder.js owns the session)
@@ -169,6 +171,9 @@ function withSettings(state) {
   state.theme ??= 'system';
   state.priorities ??= defaultPriorities();
   state.labels ??= [];   // labels created in Settings; tags on tasks count too
+  /* 1.7.0: when a backup file was last made here. It belongs to this device:
+     not in the file, not synced, and a restore leaves it alone. */
+  state.lastFileBackupAt ??= null;
   /* Notes (1.4.0): no migration, just defaults */
   state.notes ??= [];
   state.notesSort ??= 'created-desc';
@@ -923,6 +928,9 @@ export function deleteMeetingForever(id) {
   S.meetings = S.meetings.filter((m) => m.id !== id);
   commit();
 }
+
+/** A backup file was handed over just now (ui/data.js): the Backup page shows when. */
+export function noteFileBackup(at = Date.now()) { S.lastFileBackupAt = at; save(); }
 
 export function setTitle(id, title) {
   const t = taskById(id); if (!t || !title.trim()) return;

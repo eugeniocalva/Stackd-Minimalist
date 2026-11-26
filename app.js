@@ -43,7 +43,7 @@ import { approvalHTML, bindApproval } from './src/ui/approval.js';
    back to its start: tick a card in the third lane and the board jumps to
    the first (PRD-improvements AC-01.1). So the offsets of the screen being
    replaced are put back when the new one is the same screen. */
-const screenKey = () => [isDesktop.matches, UI.screen, S.currentList, S.view, UI.folder, UI.folderKind, UI.detailId].join('|');
+const screenKey = () => [isDesktop.matches, UI.screen, S.currentList, S.view, UI.folder, UI.folderKind, UI.detailId, UI.settingsPage].join('|');
 let shownKey = null;
 function readScroll() {
   const one = (sel, prop) => app.querySelector(sel)?.[prop] || 0;

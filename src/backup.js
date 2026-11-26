@@ -1,6 +1,8 @@
-/* The Stack'd export file (PRD-accounts AC-12.2, architecture §32): a JSON
-   file with everything a person made, written by "Download my data" on the
-   old address and read by Settings › "Import a Stack'd file".
+/* The Stack'd backup file (PRD-accounts AC-12.2, architecture §32; PRD
+   1.7.0 §06.3): a JSON file with everything a person made, written by
+   Settings › Backup › "Back up now" (and by "Download my data" on the old
+   address) and read by "Restore a backup", which puts it in place of what
+   is on the device.
 
    An imported file is untrusted input. Nothing in it is copied as it is:
    cleanRecords() rebuilds every record from the fields the app knows, with
@@ -11,7 +13,11 @@
    Recordings are not in the file: they are binary, large, and live in
    IndexedDB. Transcripts, minutes and actions are.
 
-   The pre-sign-in backup slot (keep, info, restore…) arrives with sync. */
+   Two different things are called a backup here. The FILE is the one a
+   person makes and restores (makeBackup, importFile). The SLOT further
+   down (keep, info, backupRecords, dropBackup) is one copy in this
+   device's storage, made before a first sign-in and kept 30 days. Neither
+   reads or writes the other. */
 
 import {
   S, DONE_LANE, PRIORITY_COLORS, NOTE_COLORS, REMINDER_OPTIONS,
@@ -19,6 +25,7 @@ import {
 } from './store.js';
 import { RECUR_OPTIONS, isDateFormat, toISO } from './dates.js';
 import { sanitize } from './richtext.js';
+import { uid } from './util.js';
 
 export const FILE_APP = 'stackd';
 export const FILE_FORMAT = 1;
@@ -28,12 +35,12 @@ export const MAX_RECORDS = 20000;                 // tasks + notes + meetings; t
 /* Owned by src/account.js once sign-in exists; absent ⇔ signed out. */
 const ACCOUNT_KEY = 'stackd-account';
 
-/** code: 'signed_in' | 'too_large' | 'not_stackd' | 'newer' | 'bad_file' | 'storage' */
+/** code: 'signed_in' | 'too_large' | 'not_stackd' | 'newer' | 'bad_file' | 'storage', and from makeBackup 'nothing' */
 export class ImportError extends Error {
   constructor(code, message) { super(message); this.name = 'ImportError'; this.code = code; }
 }
 
-/** Import is for a signed-out device: with an account, the account is the copy. */
+/** Restoring a file is for a signed-out device: with an account, the account is the copy. */
 export function canImport() {
   try { return localStorage.getItem(ACCOUNT_KEY) === null; } catch { return true; }
 }
@@ -53,11 +60,65 @@ export function exportDocument(now = Date.now()) {
 /** How many meetings have a recording that the file cannot carry. */
 export const recordingsLeftBehind = () => S.meetings.filter((m) => m.recording).length;
 
-export const exportFileName = (now = Date.now()) => `stackd-export-${toISO(new Date(now))}.json`;
+/* ── The backup file (PRD 1.7.0 §06.3) ───────────────────────────────── */
 
-/** The old-address "Download my data". */
-export function exportFile(now = Date.now()) {
-  return new Blob([JSON.stringify(exportDocument(now))], { type: 'application/json' });
+/** Boards shared with other people. They are not in a backup file
+    (decision 34): the file would carry those people's e-mail addresses,
+    and a restored copy would come back as a personal board with the shared
+    board's id. They stay what they are, boards in their owner's account. */
+export const sharedBoards = () => S.lists.filter((l) => l.share).length;
+
+/** What goes into a backup file: everything in exportDocument() except the
+    shared boards and their cards. The slot kept before a first sign-in
+    still takes the whole document (keep, below). */
+export function backupDocument(now = Date.now()) {
+  const doc = exportDocument(now);
+  const shared = new Set(S.lists.filter((l) => l.share).map((l) => l.id));
+  if (shared.size) {
+    doc.records.lists = doc.records.lists.filter((l) => !shared.has(l.id));
+    doc.records.tasks = doc.records.tasks.filter((t) => !shared.has(t.listId));
+  }
+  return doc;
+}
+
+const two = (n) => String(n).padStart(2, '0');
+/** stackd-backup-2026-11-26-1405.json, in local time: two backups on one day keep apart (decision 38). */
+export function backupFileName(now = Date.now()) {
+  const d = new Date(now);
+  return `stackd-backup-${toISO(d)}-${two(d.getHours())}${two(d.getMinutes())}.json`;
+}
+
+/** The file for "Back up now" and for "Download my data" on the old
+    address. A backup that could not be restored is worse than none, so the
+    file is checked against everything a restore will check before it is
+    handed over: an ImportError says why none was made ('nothing', 'too_large'
+    or 'bad_file').
+    @returns {{ blob: Blob, name: string, at: number, counts: { boards, tasks, notes, meetings } }} */
+export function makeBackup(now = Date.now()) {
+  const doc = backupDocument(now);
+  const r = doc.records;
+  if (!r.lists.some((l) => (l.status ?? 'active') === 'active')) {
+    /* no board of the person's own is in use: the boards in use are shared ones, which stay out */
+    if (!r.lists.length && !r.tasks.length && !r.notes.length && !r.meetings.length) {
+      throw new ImportError('nothing', sharedBoards()
+        ? 'Only shared boards are on this device, and shared boards are not in a backup.'
+        : 'There is nothing on this device to back up.');
+    }
+    /* notes, meetings or archived boards are still worth a file. A restore
+       needs one board in use, as the app always has one: an empty one stands in. */
+    r.lists.unshift({ id: uid(), name: 'Board', lanes: defaultLanes(), status: 'active', archivedAt: null, deletedAt: null });
+  }
+  if (r.tasks.length + r.notes.length + r.meetings.length > MAX_RECORDS) {
+    throw new ImportError('too_large', `There are more than ${MAX_RECORDS.toLocaleString('en-GB')} tasks, notes and meetings on this device, which is more than a backup can hold. Empty Deleted, then try again.`);
+  }
+  const blob = new Blob([JSON.stringify(doc)], { type: 'application/json' });
+  if (blob.size > MAX_FILE_BYTES) {
+    throw new ImportError('too_large', 'What is on this device makes a file too large to restore. Empty Deleted or remove old meetings, then try again.');
+  }
+  try { readDocument(JSON.parse(JSON.stringify(doc)), now); } catch (e) {   // what a restore would refuse
+    throw new ImportError('bad_file', `A file made from what is on this device would not restore, so none was made${e?.message ? ` (${e.message.replace(/ ?Nothing was changed\.$/, '').replace(/\.$/, '')})` : ''}.`);
+  }
+  return { blob, name: backupFileName(now), at: now, counts: countsOf(r) };
 }
 
 /* ── Validation ──────────────────────────────────────────────────────── */
@@ -73,7 +134,7 @@ const SOURCES = ['recording', 'pasted', 'file'];
 const ACTION_STATUSES = ['proposed', 'added', 'dismissed'];
 const LONG = 2_000_000;                             // a transcript or a note body
 
-const bad = (what) => { throw new ImportError('bad_file', `This file is damaged (${what}).`); };
+const bad = (what) => { throw new ImportError('bad_file', `This file is damaged (${what}). Nothing was changed.`); };
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const obj = (v, what) => (isObj(v) ? v : bad(what));
 const list = (v, what) => (v === undefined || v === null ? [] : Array.isArray(v) ? v : bad(what));
@@ -300,31 +361,41 @@ export function purgeOld(now = Date.now()) { if (slot() && !info(now)) localStor
 export function backupRecords(now = Date.now()) { const v = slot(); return v ? readDocument(v.doc, now) : null; }
 export const dropBackup = () => localStorage.removeItem(BACKUP_KEY);
 
-/** The parsed file → clean records, or an ImportError. */
+const NOT_A_BACKUP = "This is not a Stack'd Minimalist backup. Nothing was changed.";
+
+/** The parsed file → clean records, or an ImportError. Two other files that
+    an app called Stack'd writes look like a backup to a person and are not
+    one: each gets its own sentence. */
 export function readDocument(doc, now = Date.now()) {
+  if (isObj(doc) && doc.app === 'stackd-account-export') {
+    throw new ImportError('not_stackd', 'This is the file from Export my data. It holds the account as the server keeps it and cannot be restored here. Nothing was changed.');
+  }
+  if (isObj(doc) && doc.format === 'stackd-backup') {
+    throw new ImportError('not_stackd', "This is a backup of Stack'd Finance, not of Stack'd Minimalist. Nothing was changed.");
+  }
   if (!isObj(doc) || doc.app !== FILE_APP || !Number.isInteger(doc.format)) {
-    throw new ImportError('not_stackd', "This is not a Stack'd file.");
+    throw new ImportError('not_stackd', NOT_A_BACKUP);
   }
   if (doc.format > FILE_FORMAT) {
-    throw new ImportError('newer', "This file comes from a newer version of Stack'd. Update the app, then import it.");
+    throw new ImportError('newer', "This backup comes from a newer version of Stack'd. Update the app, then restore it. Nothing was changed.");
   }
   return cleanRecords(doc.records, now);
 }
 
-/* ── Import ──────────────────────────────────────────────────────────── */
+/* ── Restore ─────────────────────────────────────────────────────────── */
 
-/** Reads, validates and installs a Stack'd file in place of what is on
-    this device. `confirm`, when given, is asked first with what would
-    happen and may resolve false to stop: nothing changes then and the
-    result is null.
+/** "Restore a backup": reads, validates and installs a backup file in
+    place of what is on this device. `confirm`, when given, is asked first
+    with what would happen and may resolve false to stop: nothing changes
+    then and the result is null.
     @param {Blob} file
     @param {{ confirm?: (info: { counts, current, recordingsLost: number, exportedAt: number|null }) => boolean|Promise<boolean> }} [options]
     @returns {Promise<{ counts: { boards, tasks, notes, meetings } } | null>} */
 export async function importFile(file, { confirm } = {}) {
-  if (!canImport()) throw new ImportError('signed_in', 'Sign out on this device before importing a file.');
-  if (file.size > MAX_FILE_BYTES) throw new ImportError('too_large', 'This file is too large to import.');
+  if (!canImport()) throw new ImportError('signed_in', 'Sign out on this device before restoring a backup. Nothing was changed.');
+  if (file.size > MAX_FILE_BYTES) throw new ImportError('too_large', "This file is too large to be a Stack'd Minimalist backup. Nothing was changed.");
   let doc;
-  try { doc = JSON.parse(await file.text()); } catch { throw new ImportError('not_stackd', "This is not a Stack'd file."); }
+  try { doc = JSON.parse(await file.text()); } catch { throw new ImportError('not_stackd', NOT_A_BACKUP); }
   const records = readDocument(doc);
   const counts = countsOf(records);
   if (confirm) {
@@ -336,9 +407,11 @@ export async function importFile(file, { confirm } = {}) {
       exportedAt: time(doc.exportedAt),
     });
     if (!ok) return null;
+    /* the question can stay open a long time: another tab may have signed in meanwhile */
+    if (!canImport()) throw new ImportError('signed_in', 'Sign out on this device before restoring a backup. Nothing was changed.');
   }
   try { replaceRecords(records); } catch {
-    throw new ImportError('storage', 'There is not enough room on this device for the file. Nothing was changed.');
+    throw new ImportError('storage', 'There is not enough room on this device for the backup. Nothing was changed.');
   }
   return { counts };
 }

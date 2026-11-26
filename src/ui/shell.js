@@ -40,9 +40,10 @@ import { noteDetailHTML, bindNoteDetail } from './notedetail.js';
 import { searchFieldHTML, bindSearch } from './search.js';
 import { meetingsHTML, bindMeetings, openMeetings } from './meetings.js';
 import { meetingHTML, bindMeeting } from './meeting.js';
-import { toast, downloadFile, promptDialog } from './primitives.js';
+import { promptDialog, noticeDialog } from './primitives.js';
 import { APP_ORIGIN, APP_HOST, isLegacyOrigin } from '../legal.js';
-import { exportFile, exportFileName } from '../backup.js';
+import { makeBackup } from '../backup.js';
+import { saveFile } from '../files.js';
 
 /* — the old address (PRD-accounts AC-12.2, AC-12.3) — */
 
@@ -55,16 +56,22 @@ export function moveBannerHTML() {
   <div class="notice move-banner" role="region" aria-label="Stack'd has moved">
     ${icon('move', 18)}
     <span><strong>Stack'd has moved to <a href="${APP_ORIGIN}" target="_blank" rel="noopener">${APP_HOST}</a>.</strong>
-      Download your data here, then import it there in Settings. Recordings cannot travel in the file; their transcripts and minutes do.</span>
+      Download your data here, then restore it there in Settings › Backup. Recordings cannot travel in the file; their transcripts and minutes do.</span>
     <button class="btn btn-sm btn-secondary" data-download-data>${icon('download', 16)}Download my data</button>
   </div>`;
 }
 
 export function bindMoveBanner() {
+  /* the same file as Settings › Backup › Back up now; what to do next is a
+     dialog, a toast would cut it (PRD 1.7.0, decisions 37 and 42) */
   app.querySelector('[data-download-data]')?.addEventListener('click', () => {
-    const name = exportFileName();
-    downloadFile(exportFile(), name);
-    toast(`Saved ${name}. Open ${APP_HOST}, then Settings › Import a Stack'd file.`, { ms: 10000 });
+    let made;
+    try { made = makeBackup(); } catch (e) {
+      noticeDialog('No file was made', e?.code ? e.message : 'Something went wrong while making the file. Nothing was changed.');
+      return;
+    }
+    if (saveFile(made.blob, made.name) !== 'handed') { noticeDialog('No file was made', 'Saving a file is not possible here.'); return; }
+    noticeDialog('Your data is in a file', `It is called ${made.name}. Open ${APP_HOST}, go to Settings › Backup, press Restore a backup and choose that file.`);
   });
 }
 

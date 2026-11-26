@@ -104,6 +104,24 @@ export function confirmDialog(title, body, { confirmLabel = 'Confirm', danger = 
   });
 }
 
+/** Something the person has to read in full: a title, a sentence or two and
+    one button. A toast is one line and is cut on a phone; a refusal is not
+    said in a toast (PRD 1.7.0, decision 42). Resolves when it is closed. */
+export function noticeDialog(title, body, { label = 'OK' } = {}) {
+  return new Promise((resolve) => {
+    const { ov, close } = overlay(`
+      <div class="sheet dialog" role="alertdialog" aria-labelledby="dlg-title" aria-describedby="dlg-body">
+        <h2 id="dlg-title">${esc(title)}</h2>
+        <p id="dlg-body">${esc(body)}</p>
+        <div class="dialog-actions">
+          <button class="btn btn-primary" data-ok><span class="btn-label">${esc(label)}</span></button>
+        </div>
+      </div>`, { onClose: () => resolve() });
+    ov.querySelector('[data-ok]').addEventListener('click', () => close());
+    ov.querySelector('[data-ok]').focus();
+  });
+}
+
 /** A question with more than one way to go ahead: Cancel plus one button
     per choice ({ id, label, danger? }). Resolves with the chosen id, or null. */
 export function choiceDialog(title, body, choices) {

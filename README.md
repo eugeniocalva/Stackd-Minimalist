@@ -17,8 +17,8 @@ Version **1.6.0** (built on the `release/1.6.0` branch; `VERSION` in
   counts on every device you sign in on.
 - **A new address**, `app.stackdplatform.com`, with a strict
   Content-Security-Policy; the old GitHub Pages address keeps working for
-  one release with a banner to move and Download my data; Settings imports
-  that file on a signed-out device.
+  one release with a banner to move and Download my data; Settings › Backup
+  restores that file on a signed-out device.
 - **Kanban and navigation**: the board keeps its place when you tick a
   card, Done is always the last lane, hold a card to move it and hold
   longer to delete it, swipe right for the main menu, one "+" grid
@@ -357,8 +357,10 @@ is enough; HTTPS is required for install + service worker on real devices.
     the account, and links to the Privacy Policy and Terms
   - *Shared boards (1.6.0):* the boards you share or are on, with their
     people
-  - *Your data (1.6.0, signed out only):* Import a Stack'd file made with
-    Download my data on the old address
+  - *Data (1.7.0):* Import and export (a sheet; its pages are being
+    built), Backup (Back up now writes one file; Restore a backup puts a
+    file in place of what is on the device, signed out only) and
+    Remembered imports
 - **Gestures** — list rows: double-tap / double-click completes,
   long-press (with a haptic tick on the phone) or swipe left deletes, drag
   to reprioritize in manual sort. Kanban cards and board rows: hold to

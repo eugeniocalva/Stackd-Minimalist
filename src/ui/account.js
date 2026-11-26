@@ -104,7 +104,7 @@ export function accountSectionHTML() {
         ${row('lock', 'Change PIN', 'Your other devices ask for the new one.', '<button class="btn btn-sm btn-secondary" data-change-pin>Change</button>')}
       </div>
 
-      <span class="section-title list-label">Your data</span>
+      <span class="section-title list-label">Account data</span>
       <div class="card list-card">
         ${row('download', 'Export my data', 'One file with your account details and everything synced to it.', '<button class="btn btn-sm btn-secondary" data-export>Export</button>')}
         ${row('trash', 'Delete account', 'Removes the account and everything synced to it.', '<button class="btn btn-sm btn-ghost danger" data-delete-account>Delete</button>')}

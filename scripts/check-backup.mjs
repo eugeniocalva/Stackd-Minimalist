@@ -65,11 +65,63 @@ assert.deepEqual(Object.keys(doc.records).sort(), ['lists', 'meetings', 'notes',
 assert.deepEqual(Object.keys(doc.records.settings).sort(), ['dateFormat', 'labels', 'priorities']);
 assert.ok(doc.records.meetings.every((m) => !('recording' in m) && !('jobs' in m) && !('lastError' in m)), 'device-only meeting fields stay behind');
 assert.equal(backup.recordingsLeftBehind(), 2);
-const json = await backup.exportFile().text();
+const json = await backup.makeBackup().blob.text();
 assert.ok(!json.includes(S.plan.subscriberId), 'the subscriber id is not in the file');
 for (const key of ['"plan"', '"ai"', '"proxyUrl"', '"theme"', '"subscriberId"']) assert.ok(!json.includes(key), `${key} is not in the file`);
-assert.match(backup.exportFileName(Date.UTC(2026, 10, 13, 12)), /^stackd-export-2026-11-13\.json$/);
-assert.equal(backup.exportFile().type, 'application/json');
+/* the backup file (PRD 1.7.0 §06.3): its name carries the local date and time, so two on one day keep apart */
+assert.equal(backup.backupFileName(new Date(2026, 10, 13, 9, 5).getTime()), 'stackd-backup-2026-11-13-0905.json');
+assert.equal(backup.backupFileName(new Date(2026, 10, 13, 14, 30).getTime()), 'stackd-backup-2026-11-13-1430.json');
+{
+  const made = backup.makeBackup(1760000000000);
+  assert.equal(made.blob.type, 'application/json');
+  assert.equal(made.name, backup.backupFileName(1760000000000));
+  assert.equal(made.at, 1760000000000);
+  assert.deepEqual(made.counts, backup.countsOf(doc.records), 'the counts are those of the file');
+  assert.deepEqual(JSON.parse(await made.blob.text()), clone(doc), 'with no shared board, the file is the whole document');
+  assert.ok(!json.includes('lastFileBackupAt'), 'when a backup was made is not in the file');
+
+  /* shared boards stay out, with their cards and with the people on them (decision 34) */
+  const sharedId = 'sharedboard1';
+  S.lists.push({ id: sharedId, name: 'With Ana', lanes: store.defaultLanes(), status: 'active', archivedAt: null, deletedAt: null,
+    share: { role: 'member', ownerEmail: 'owner@example.test', members: [{ email: 'ana@example.test', role: 'member', state: 'active' }] } });
+  S.tasks.push(store.blankTask(sharedId, 'A card on the shared board'));
+  assert.equal(backup.sharedBoards(), 1);
+  const text = await backup.makeBackup().blob.text();
+  for (const s of ['With Ana', sharedId, 'owner@example.test', 'ana@example.test', 'A card on the shared board']) assert.ok(!text.includes(s), `${s} is not in a backup`);
+  assert.equal(JSON.parse(text).records.lists.length, doc.records.lists.length, 'the personal boards are all there');
+  backup.keep('merge');
+  assert.ok(mem.get(backup.BACKUP_KEY).includes(sharedId) && mem.get(backup.BACKUP_KEY).includes('A card on the shared board'), 'the copy kept before a first sign-in still takes every board');
+  assert.equal(backup.info().counts.boards, S.lists.length);
+  backup.dropBackup();
+  assert.equal(backup.info(), null);
+
+  /* the person's own boards all archived, a shared board in use: the notes, meetings and archived boards still go
+     into a file, with an empty board standing in so that it restores */
+  const personal = S.lists.filter((l) => !l.share);
+  const statusWas = personal.map((l) => [l.status, l.archivedAt]);
+  personal.forEach((l) => { l.status = 'archived'; l.archivedAt = 1; });
+  const lone = JSON.parse(await backup.makeBackup().blob.text());
+  assert.deepEqual(lone.records.lists.map((l) => l.status), ['active', ...personal.map(() => 'archived')], 'one stand-in board, then the archived ones');
+  assert.equal(lone.records.lists[0].name, 'Board');
+  assert.equal(lone.records.notes.length, doc.records.notes.length, 'the notes are in it');
+  assert.doesNotThrow(() => backup.readDocument(lone), 'and it restores');
+  personal.forEach((l, i) => { [l.status, l.archivedAt] = statusWas[i]; });
+  /* nothing at all but shared boards: no file, and the sentence says why */
+  const keptNotes = S.notes, keptMeetings = S.meetings, keptTasks = S.tasks;
+  S.lists = S.lists.filter((l) => l.share); S.notes = []; S.meetings = []; S.tasks = S.tasks.filter((t) => t.listId === sharedId);
+  assert.throws(() => backup.makeBackup(), (e) => e instanceof backup.ImportError && e.code === 'nothing' && /Only shared boards/.test(e.message));
+  S.lists = [...personal, ...S.lists]; S.notes = keptNotes; S.meetings = keptMeetings; S.tasks = keptTasks;
+  S.lists = S.lists.filter((l) => !l.share);
+  S.tasks = S.tasks.filter((t) => t.listId !== sharedId);
+  assert.equal(backup.sharedBoards(), 0);
+
+  /* nor one with more records than a restore accepts */
+  const tasks = S.tasks;
+  S.tasks = Array.from({ length: backup.MAX_RECORDS + 1 }, (_, i) => store.blankTask('work', `t${i}`));
+  assert.throws(() => backup.makeBackup(), (e) => e instanceof backup.ImportError && e.code === 'too_large');
+  S.tasks = tasks;
+  assert.deepEqual(JSON.parse(await backup.makeBackup(1760000000000).blob.text()), clone(doc), 'and the store is as it was');
+}
 
 /* the validator changes nothing in a file the app wrote itself */
 const original = store.exportRecords();
@@ -79,8 +131,10 @@ assert.deepEqual(backup.cleanRecords(backup.cleanRecords(clone(doc.records))), b
 
 /* ── import into a fresh profile: everything is there ────────────────── */
 
-const blob = backup.exportFile();
+const blob = backup.makeBackup().blob;
 const subscriber = S.plan.subscriberId;
+store.noteFileBackup(1700000000000);   // a backup was made on this device at some point
+assert.ok(!(await backup.makeBackup().blob.text()).includes('lastFileBackupAt') && !(await backup.makeBackup().blob.text()).includes('1700000000000'), 'when a backup was made is never in a file');
 /* a "fresh profile": another document under the same roof */
 S.lists = [{ id: 'solo', name: 'Solo', lanes: store.defaultLanes() }];
 S.tasks = [store.blankTask('solo', 'Only here')];
@@ -97,6 +151,9 @@ assert.deepEqual(result.counts, { boards: original.lists.length, tasks: original
 assert.deepEqual(asked.counts, result.counts);
 assert.deepEqual(asked.current, { boards: 1, tasks: 1, notes: 0, meetings: 2 });
 assert.equal(asked.recordingsLost, 1, 'only the meeting that goes loses its recording');
+assert.ok(Number.isFinite(asked.exportedAt) && asked.exportedAt > 0, 'the confirmation is told when the backup was made');
+assert.equal(S.lastFileBackupAt, 1700000000000, 'a restore leaves the time of the last backup on this device alone');
+assert.equal(JSON.parse(localStorage.getItem(store.STORE_KEY)).lastFileBackupAt, 1700000000000, 'and it is on disk');
 
 const after = store.exportRecords();
 assert.deepEqual(after.lists, original.lists, 'every board and lane');
@@ -152,6 +209,17 @@ await rejects(mutate((r) => { r.meetings.find((m) => m.transcript).transcript.se
 await rejects(mutate((r) => { r.meetings.find((m) => m.transcript).transcript.speakers = JSON.parse('{"__proto__": "x"}'); }), 'bad_file', '__proto__ as a speaker');
 await rejects(mutate((r) => { r.tasks = Array.from({ length: backup.MAX_RECORDS + 1 }, (_, i) => ({ id: `t${i}`, listId: 'work', title: 'x' })); }), 'bad_file', 'too many records');
 await rejects({ size: backup.MAX_FILE_BYTES + 1, text: async () => '{}' }, 'too_large', 'a file over the limit');
+
+/* other files an app called Stack'd writes are refused by name, not as "not a backup" */
+{
+  const says = async (value, pattern) => {
+    await assert.rejects(() => backup.importFile(file(value)), (e) => e instanceof backup.ImportError && e.code === 'not_stackd' && pattern.test(e.message), String(pattern));
+  };
+  await says({ app: 'stackd-account-export', exportedAt: 1, records: [] }, /Export my data/);
+  await says({ format: 'stackd-backup', app: "Stack'd 1.3.1", accounts: [] }, /Stack'd Finance/);
+  await says([{ title: 'a list of tasks' }], /not a Stack'd Minimalist backup/);
+  await says('not json at all', /not a Stack'd Minimalist backup/);
+}
 
 /* signed in: the account is the copy */
 mem.set('stackd-account', '{}');
