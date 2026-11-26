@@ -35,7 +35,7 @@ import * as media from './src/media.js';
 import { isRecording, recordingMeetingId } from './src/ui/recorder.js';
 import { toast } from './src/ui/primitives.js';
 import { openPlanRequired, openAllowanceUsed } from './src/ui/paywall.js';
-import { bindSwipeRight, slideTo } from './src/ui/gestures.js';
+import { bindSwipeRight, bindSwipeLeft, slideTo } from './src/ui/gestures.js';
 import * as agesignal from './src/agesignal.js';
 import { approvalHTML, bindApproval } from './src/ui/approval.js';
 
@@ -54,22 +54,38 @@ function readScroll() {
     lanes: [...app.querySelectorAll('.lane')].map((l) => [l.dataset.lane, l.querySelector('.lane-cards')?.scrollTop || 0]),
   };
 }
-function keepScroll(was) {
-  shownKey = S.onboarded ? screenKey() : null;
-  if (!shownKey || was.key !== shownKey) return;
-  const put = (sel, prop, v) => { const el = app.querySelector(sel); if (el && v) el[prop] = v; };
+/** Puts offsets read by readScroll() back, in #app or in a layer drawn from the same screen. */
+function putScroll(root, was) {
+  const put = (sel, prop, v) => { const el = root.querySelector(sel); if (el && v) el[prop] = v; };
   put('.board', 'scrollLeft', was.board); put('.scroll-area', 'scrollTop', was.area);
   put('.main', 'scrollTop', was.main); put('.sidebar', 'scrollTop', was.side);
   was.lanes.forEach(([id, top]) => {
-    const el = top && [...app.querySelectorAll('.lane')].find((l) => l.dataset.lane === id)?.querySelector('.lane-cards');
+    const el = top && [...root.querySelectorAll('.lane')].find((l) => l.dataset.lane === id)?.querySelector('.lane-cards');
     if (el) el.scrollTop = top;
   });
 }
+function keepScroll(was) {
+  shownKey = S.onboarded ? screenKey() : null;
+  if (!shownKey || was.key !== shownKey) return;
+  putScroll(app, was);
+}
+
+/* The pages the main menu opens over, and the one it was last opened from
+   (PRD 1.7.0 §03, A-1): whichever way the menu was opened (the swipe to the
+   right, the Boards tab, the board's own button), the render that shows it
+   notes the page it replaces, with its scroll offsets. A swipe to the left
+   on the menu puts that page back. Kept until the app is closed; a menu
+   that opens cold has nowhere to go back to. */
+const TOP_LEVEL = ['list', 'notes', 'meetings', 'folders', 'settings'];
+let shownScreen = null;  // the mobile screen on show, null on wide screens and before the app proper
+let cameFrom = null;     // { screen, key, scroll }
 
 function render() {
-  const was = readScroll();
+  const was = readScroll(), from = shownScreen;
   draw();
   keepScroll(was);
+  shownScreen = S.onboarded && !isDesktop.matches && !lock.locked() && !agesignal.waiting() ? UI.screen : null;
+  if (shownScreen === 'lists' && TOP_LEVEL.includes(from)) cameFrom = { screen: from, key: was.key, scroll: was };
 }
 
 /** The markup of the current mobile screen, not yet bound. */
@@ -239,7 +255,6 @@ document.addEventListener('click', (e) => {
    its board (or folder) shows underneath. A swipe that starts on a row, a
    card, a lane or a field does nothing (they have gestures of their own);
    from the left edge it always works. */
-const TOP_LEVEL = ['list', 'notes', 'meetings', 'folders', 'settings'];
 const ITEMS = '.row, .kcard, .lane, .board, .card, .set-row, .lrow, .chip-row, .search-row, .invite-card, .notice';
 const FIELDS = 'input, textarea, select, [contenteditable="true"], [data-editor]';
 
@@ -287,12 +302,23 @@ function buildBackPeek() {
   const shade = peekLayer('', 'peek-shade');
   return { kind: 'back', to, under, shade, els: [under, nav, shade] };
 }
-const peekKind = () => (UI.screen === 'detail' ? 'back' : 'menu');
+/* the way back from the menu (PRD 1.7.0 §03): the page it was opened from
+   waits under it, as it was left and dimmed, and the menu goes off to the
+   left. If that page is no longer the same one (its board was removed from
+   the menu), it is drawn from the top. */
+const sameAsLeft = () => asScreen(cameFrom.screen, screenKey) === cameFrom.key;
+function buildReturnPeek() {
+  const under = peekLayer(asScreen(cameFrom.screen, screenHTML), 'peek peek-under');
+  if (sameAsLeft()) putScroll(under, cameFrom.scroll);
+  const dim = peekLayer('', 'peek-dim peek-dim-under');
+  return { kind: 'return', to: cameFrom.screen, under, dim, els: [under, dim] };
+}
+const peekKind = () => (UI.screen === 'detail' ? 'back' : UI.screen === 'lists' ? 'return' : 'menu');
 function preparePeek() {
   const kind = peekKind();
   if (waiting?.kind === kind) return;
   dropWaiting();
-  waiting = kind === 'back' ? buildBackPeek() : buildMenuPeek();
+  waiting = kind === 'back' ? buildBackPeek() : kind === 'return' ? buildReturnPeek() : buildMenuPeek();
   waiting.els.forEach((el) => el.classList.add('peek-waiting'));
 }
 function takePeek() {
@@ -352,6 +378,51 @@ function peekBack() {
   };
 }
 
+/* The mirror of peekMenu: the menu is the screen in #app this time, so it is
+   the menu that moves and the page that waits in a layer. A redraw of the
+   menu under the finger (sync finishing) gives a new element: looked up on
+   every frame. */
+function peekReturn() {
+  const peek = takePeek();
+  const { to, dim } = peek;
+  const menu = () => app.querySelector('.menu-screen');
+  const w = window.innerWidth;
+  const at = (p) => shift(-p * w);
+  app.classList.add('is-leaving');
+  dim.style.opacity = '1';
+  return {
+    move: (p) => { const m = menu(); if (m) m.style.transform = at(p); dim.style.opacity = String(1 - p); },
+    settle: (open) => {
+      if (open) app.querySelectorAll('.bottom-nav [data-nav]').forEach((b) => b.classList.toggle('active', b.dataset.nav === to));
+      dim.style.transition = 'opacity 220ms ease';
+      dim.style.opacity = open ? '0' : '1';
+      const done = () => {
+        app.classList.remove('is-leaving');
+        if (open && UI.screen === 'lists') {
+          UI.screen = to; rerender();
+          if (sameAsLeft()) putScroll(app, cameFrom.scroll);
+        } else { const m = menu(); if (m) m.style.transform = ''; }
+        endPeek(peek);
+      };
+      const m = menu();
+      if (m) slideTo(m, at(open ? 1 : 0), done); else done();
+    },
+  };
+}
+
+/* On the menu, a swipe to the left that starts anywhere, rows included
+   (PRD 1.7.0 §03, A-2; decision 11): a row's tap, hold and drag are its
+   own, and the swipe code tells them apart. */
+bindSwipeLeft(app, {
+  canStart: (target) => {
+    if (isDesktop.matches || !S.onboarded || lock.locked() || isRecording()) return false;
+    if (peeking || document.querySelector('.overlay') || target.closest(`.bottom-nav, .hold-bar, ${FIELDS}`)) return false;
+    return UI.screen === 'lists' && !!cameFrom;
+  },
+  prepare: preparePeek,
+  discard: dropWaiting,
+  start: () => (UI.screen === 'lists' && cameFrom ? peekReturn() : null),
+});
 bindSwipeRight(app, {
   canStart: (target, x, edge) => {
     if (isDesktop.matches || !S.onboarded || lock.locked() || isRecording()) return false;

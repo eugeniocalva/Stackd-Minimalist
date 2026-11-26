@@ -1,7 +1,7 @@
 # PRD: Stack'd Minimalist 1.7.0 — swipe back, a tidier Settings, import and export
 
-Status: **in progress, 2026-11-26.** Twenty-one decisions taken by the
-owner (§02). The decisions still to take are listed by phase in §11 and are
+Status: **in progress, 2026-11-26.** Phases 1 and 2 of 8 are done and
+agreed. Twenty-six decisions taken by the owner (§02). The decisions still to take are listed by phase in §11 and are
 asked when their phase starts; each answer is recorded in §02. Branch:
 `release/1.7.0`, cut from `release/1.6.0` at `602b94c`.
 
@@ -50,6 +50,7 @@ the exported files) are done by the owner on one TestFlight build at the end.
 | 23 | Toggle labels | Stay 12 px bold. At 14 px the three date formats do not fit side by side under 375 px |
 | 24 | Plan cards in the paywall sheet | Same look as in Settings |
 | 25 | Toggles on wide screens | Full width of the card, as on the phone |
+| 26 | Phase 2, the swipe left as built | Agreed from the pictures and the tested cases. The feel on the iPhone is checked on TestFlight |
 
 ---
 
@@ -81,6 +82,29 @@ puts that page back, exactly as it was.
 
 Built with the same finger-following code as the swipe right
 (`src/ui/gestures.js`), mirrored, so the two feel alike.
+
+**Built and agreed, 2026-11-26** (`app.js`, `src/ui/gestures.js`,
+`styles/screens.css`; decision 26). Checked at 375 px with simulated
+touches:
+
+| Case | Result |
+|---|---|
+| Settings scrolled 600 px, menu by the Boards tab, swipe left from a board row | Back on Settings at 600 px (A-1, A-2, A-3) |
+| Kanban scrolled to the third lane, menu by a swipe right, swipe left | Back on the board at the same lane |
+| Swipe right again, swipe left again | Menu, then the page, each time (A-7) |
+| A short slow swipe | Springs back to the menu |
+| A short fast flick | Completes |
+| A tap on a board row | Opens the board (A-4) |
+| A press of 450 ms, then a drag | Lifts the row to reorder; no swipe (A-4) |
+| Out and back to where the finger started, on a board row | Stays on the menu; opens nothing |
+| A mostly vertical drag | Not a swipe (A-4) |
+| The board it came from is no longer the current one | Goes to the current board, from the top (A-5) |
+| Swipe right on the menu; swipe left on a page; a sheet open | Nothing |
+
+One change to existing behaviour, needed for "rows included": the release
+that ends a swipe is never a tap on the row under the finger. Not checked
+here: how it feels under a real finger, and A-6 after the app is closed and
+reopened. Both are for the TestFlight build.
 
 ## 04. B — Settings
 
@@ -347,7 +371,7 @@ Each phase: options shown → owner agrees → built → shown → owner agrees.
 | Phase | What | Shown for agreement as |
 |---|---|---|
 | 1 | B: Settings toggles, sizes, spacing. **Done and agreed** (decisions 22 to 25) | Before and after screenshots, phone and wide, light and dark |
-| 2 | A: swipe left | A recording in the test browser, then TestFlight |
+| 2 | A: swipe left. **Done and agreed** (decision 26) | Pictures of the swipe half way in the test browser, then TestFlight |
 | 3 | C: task description | Mock-ups of the task detail, two options |
 | 4 | D: Data section, the sheet, Backup | Mock-ups, then the working pages |
 | 5 | D: Import guide, CSV and JSON, Trello layout, automation | The guide, step by step, on the sample files |

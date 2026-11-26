@@ -209,6 +209,14 @@
 .peek-nav { position: fixed; inset: 0; pointer-events: none; }
 .peek-shade { background: rgb(8 12 20 / 0.16); }
 #app.is-peeking { position: relative; z-index: 1; background: var(--bg-base); box-shadow: -10px 0 30px rgb(0 0 0 / 0.16); will-change: transform; }
+/* The way back from the menu (PRD 1.7.0 §03), the mirror of the menu coming
+   in: the menu is the screen in #app here, so it is the one that moves, off
+   to the left, over the page it was opened from, which waits in a layer
+   under it with its dim. The bottom bar is in #app too and stays put. */
+#app.is-leaving { position: relative; z-index: 1; }
+#app.is-leaving .menu-screen { background: var(--bg-base); box-shadow: 6px 0 24px rgb(0 0 0 / 0.14); will-change: transform; }
+#app.is-leaving .page-head { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--bg-base); }
+.peek-dim.peek-dim-under { z-index: 0; }
 
 /* Board rows: held, dragged, dropped on (PRD-improvements US-10) */
 .lrow[data-id], .side-item[data-id] { position: relative; -webkit-touch-callout: none; }

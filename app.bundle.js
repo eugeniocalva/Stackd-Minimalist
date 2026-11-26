@@ -2229,6 +2229,8 @@
   var TOUCH_SLOP = 10;
   var EDGE = 56;
   var armed = null;
+  var lifted = false;
+  var swipedAt = -1e9;
   function disarm() {
     if (!armed) return;
     armed.el.classList.remove("is-armed");
@@ -2294,6 +2296,7 @@
       let dragging = false, held = false, ghost = null, raf = 0, scrollV = 0, lastMove = null;
       const startDrag = () => {
         dragging = true;
+        lifted = true;
         try {
           el.setPointerCapture(pid);
         } catch {
@@ -2314,6 +2317,7 @@
       const endDrag = () => {
         if (!dragging) return;
         dragging = false;
+        lifted = false;
         cancelAnimationFrame(raf);
         raf = 0;
         scrollV = 0;
@@ -2395,7 +2399,7 @@
         endDrag();
         if (wasDragging || held) swallowClick();
         if (wasDragging) onDrop?.(ev);
-        else if (!held && !wasArmed && Math.hypot(ev.clientX - sx, ev.clientY - sy) < SLOP && onTap) {
+        else if (!held && !wasArmed && performance.now() - swipedAt > 300 && Math.hypot(ev.clientX - sx, ev.clientY - sy) < SLOP && onTap) {
           swallowNextClick();
           onTap(ev);
         }
@@ -2420,7 +2424,7 @@
   }
   var EDGE_PX = 24;
   var START_PX = 8;
-  function bindSwipeRight(root, { canStart, start: start2, prepare = null, discard = null }) {
+  function bindSwipe(root, dir, { canStart, start: start2, prepare = null, discard = null }) {
     let s = null;
     const sideways = (target) => {
       for (let n = target; n && n !== root; n = n.parentElement) {
@@ -2445,7 +2449,7 @@
       drop();
       if (e.touches.length !== 1) return;
       const t = e.touches[0];
-      const edge = t.clientX <= EDGE_PX;
+      const edge = dir > 0 ? t.clientX <= EDGE_PX : t.clientX >= window.innerWidth - EDGE_PX;
       const scroller = sideways(e.target);
       if (!canStart(e.target, t.clientX, edge) || !edge && scroller) return;
       const touch3 = s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0, scroller };
@@ -2460,8 +2464,12 @@
     root.addEventListener("touchmove", (e) => {
       if (!s) return;
       const t = e.touches[0];
-      const dx = t.clientX - s.x, dy = t.clientY - s.y;
+      const dx = dir * (t.clientX - s.x), dy = t.clientY - s.y;
       if (!s.live) {
+        if (lifted || armed) {
+          drop();
+          return;
+        }
         if (!e.cancelable) {
           drop();
           return;
@@ -2481,13 +2489,14 @@
           return;
         }
         hold(s.scroller);
-        s.x = t.clientX - 1;
+        s.x = t.clientX - dir;
       }
       e.preventDefault();
       const now2 = performance.now();
-      s.v = (t.clientX - s.last[0]) / Math.max(1, now2 - s.last[1]);
+      s.v = dir * (t.clientX - s.last[0]) / Math.max(1, now2 - s.last[1]);
       s.last = [t.clientX, now2];
-      s.live.move(Math.max(0, Math.min(1, (t.clientX - s.x) / window.innerWidth)));
+      swipedAt = now2;
+      s.live.move(Math.max(0, Math.min(1, dir * (t.clientX - s.x) / window.innerWidth)));
     }, { passive: false });
     const end = (cancelled2) => {
       if (!s) return;
@@ -2495,7 +2504,8 @@
         drop();
         return;
       }
-      const live = s.live, p = (s.last[0] - s.x) / window.innerWidth, v = s.v;
+      const live = s.live, p = dir * (s.last[0] - s.x) / window.innerWidth, v = s.v;
+      swipedAt = performance.now();
       free(s.scroller);
       s = null;
       live?.settle(!cancelled2 && (p > 1 / 3 || v > 0.5 && p > 0.08));
@@ -2503,6 +2513,8 @@
     root.addEventListener("touchend", () => end(false), { passive: true });
     root.addEventListener("touchcancel", () => end(true), { passive: true });
   }
+  var bindSwipeRight = (root, o) => bindSwipe(root, 1, o);
+  var bindSwipeLeft = (root, o) => bindSwipe(root, -1, o);
   function slideTo(el, to, done2) {
     const reduce2 = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     if (reduce2) {
@@ -7064,7 +7076,7 @@
     if (openRow && !openRow.contains(e.target)) closeOpenRow();
   });
   var CONTROLS = '.check,.grip,.swipe-del,.swipe-add,input,textarea,select,.ac-hover,[contenteditable="true"]';
-  function bindSwipe(el, { left = null, right = null, onTap = null, onDoubleTap = null, onLongPress = null } = {}) {
+  function bindSwipe2(el, { left = null, right = null, onTap = null, onDoubleTap = null, onLongPress = null } = {}) {
     const leftEl = left ? el.querySelector(left.sel) : null;
     const rightEl = right ? el.querySelector(right.sel) : null;
     const wl = () => leftEl?.offsetWidth || 0, wr = () => rightEl?.offsetWidth || 0;
@@ -7171,7 +7183,7 @@
     });
   }
   function bindRowGestures(el, task) {
-    bindSwipe(el, {
+    bindSwipe2(el, {
       left: { sel: ".swipe-del", onAct: () => {
         buzz("MEDIUM");
         deleteWithUndo(task.id);
@@ -8871,7 +8883,7 @@
         flush();
         toBoard(m, a);
       });
-      bindSwipe(el, {
+      bindSwipe2(el, {
         left: { sel: ".swipe-del", onAct: () => {
           buzz("MEDIUM");
           flush();
@@ -10265,11 +10277,9 @@
       lanes: [...app.querySelectorAll(".lane")].map((l) => [l.dataset.lane, l.querySelector(".lane-cards")?.scrollTop || 0])
     };
   }
-  function keepScroll(was) {
-    shownKey = S.onboarded ? screenKey() : null;
-    if (!shownKey || was.key !== shownKey) return;
+  function putScroll(root, was) {
     const put = (sel, prop, v) => {
-      const el = app.querySelector(sel);
+      const el = root.querySelector(sel);
       if (el && v) el[prop] = v;
     };
     put(".board", "scrollLeft", was.board);
@@ -10277,14 +10287,24 @@
     put(".main", "scrollTop", was.main);
     put(".sidebar", "scrollTop", was.side);
     was.lanes.forEach(([id, top]) => {
-      const el = top && [...app.querySelectorAll(".lane")].find((l) => l.dataset.lane === id)?.querySelector(".lane-cards");
+      const el = top && [...root.querySelectorAll(".lane")].find((l) => l.dataset.lane === id)?.querySelector(".lane-cards");
       if (el) el.scrollTop = top;
     });
   }
+  function keepScroll(was) {
+    shownKey = S.onboarded ? screenKey() : null;
+    if (!shownKey || was.key !== shownKey) return;
+    putScroll(app, was);
+  }
+  var TOP_LEVEL = ["list", "notes", "meetings", "folders", "settings"];
+  var shownScreen = null;
+  var cameFrom = null;
   function render() {
-    const was = readScroll();
+    const was = readScroll(), from = shownScreen;
     draw2();
     keepScroll(was);
+    shownScreen = S.onboarded && !isDesktop.matches && !locked() && !waiting() ? UI.screen : null;
+    if (shownScreen === "lists" && TOP_LEVEL.includes(from)) cameFrom = { screen: from, key: was.key, scroll: was };
   }
   function screenHTML() {
     return UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meeting" ? meetingHTML() : UI.screen === "meetings" ? meetingsHTML() : mobileListHTML();
@@ -10453,7 +10473,6 @@
       rerender();
     }
   });
-  var TOP_LEVEL = ["list", "notes", "meetings", "folders", "settings"];
   var ITEMS = ".row, .kcard, .lane, .board, .card, .set-row, .lrow, .chip-row, .search-row, .invite-card, .notice";
   var FIELDS = 'input, textarea, select, [contenteditable="true"], [data-editor]';
   function asScreen(screen, build) {
@@ -10495,12 +10514,19 @@
     const shade = peekLayer("", "peek-shade");
     return { kind: "back", to, under, shade, els: [under, nav, shade] };
   }
-  var peekKind = () => UI.screen === "detail" ? "back" : "menu";
+  var sameAsLeft = () => asScreen(cameFrom.screen, screenKey) === cameFrom.key;
+  function buildReturnPeek() {
+    const under = peekLayer(asScreen(cameFrom.screen, screenHTML), "peek peek-under");
+    if (sameAsLeft()) putScroll(under, cameFrom.scroll);
+    const dim = peekLayer("", "peek-dim peek-dim-under");
+    return { kind: "return", to: cameFrom.screen, under, dim, els: [under, dim] };
+  }
+  var peekKind = () => UI.screen === "detail" ? "back" : UI.screen === "lists" ? "return" : "menu";
   function preparePeek() {
     const kind = peekKind();
     if (waiting2?.kind === kind) return;
     dropWaiting();
-    waiting2 = kind === "back" ? buildBackPeek() : buildMenuPeek();
+    waiting2 = kind === "back" ? buildBackPeek() : kind === "return" ? buildReturnPeek() : buildMenuPeek();
     waiting2.els.forEach((el) => el.classList.add("peek-waiting"));
   }
   function takePeek() {
@@ -10574,6 +10600,52 @@
       }
     };
   }
+  function peekReturn() {
+    const peek = takePeek();
+    const { to, dim } = peek;
+    const menu = () => app.querySelector(".menu-screen");
+    const w = window.innerWidth;
+    const at = (p) => shift(-p * w);
+    app.classList.add("is-leaving");
+    dim.style.opacity = "1";
+    return {
+      move: (p) => {
+        const m = menu();
+        if (m) m.style.transform = at(p);
+        dim.style.opacity = String(1 - p);
+      },
+      settle: (open2) => {
+        if (open2) app.querySelectorAll(".bottom-nav [data-nav]").forEach((b) => b.classList.toggle("active", b.dataset.nav === to));
+        dim.style.transition = "opacity 220ms ease";
+        dim.style.opacity = open2 ? "0" : "1";
+        const done2 = () => {
+          app.classList.remove("is-leaving");
+          if (open2 && UI.screen === "lists") {
+            UI.screen = to;
+            rerender();
+            if (sameAsLeft()) putScroll(app, cameFrom.scroll);
+          } else {
+            const m2 = menu();
+            if (m2) m2.style.transform = "";
+          }
+          endPeek(peek);
+        };
+        const m = menu();
+        if (m) slideTo(m, at(open2 ? 1 : 0), done2);
+        else done2();
+      }
+    };
+  }
+  bindSwipeLeft(app, {
+    canStart: (target) => {
+      if (isDesktop.matches || !S.onboarded || locked() || isRecording()) return false;
+      if (peeking || document.querySelector(".overlay") || target.closest(`.bottom-nav, .hold-bar, ${FIELDS}`)) return false;
+      return UI.screen === "lists" && !!cameFrom;
+    },
+    prepare: preparePeek,
+    discard: dropWaiting,
+    start: () => UI.screen === "lists" && cameFrom ? peekReturn() : null
+  });
   bindSwipeRight(app, {
     canStart: (target, x, edge) => {
       if (isDesktop.matches || !S.onboarded || locked() || isRecording()) return false;

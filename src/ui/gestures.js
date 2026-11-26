@@ -8,7 +8,9 @@
    by the press itself: the badge calls onDelete, which asks first.
 
    bindSwipeRight: a swipe to the right that follows the finger: the main
-   menu slides in over a top-level page, an open card slides off its board. */
+   menu slides in over a top-level page, an open card slides off its board.
+   bindSwipeLeft: the same swipe, mirrored: the main menu slides off the
+   page it was opened from (PRD 1.7.0 §03). */
 
 import { buzz } from '../haptics.js';
 import { icon } from './icons.js';
@@ -22,6 +24,8 @@ const EDGE = 56;         // px from the scroller's edge where auto-scroll starts
 /* — the delete badge: one at a time — */
 
 let armed = null;        // { el, bar }
+let lifted = false;      // something is being dragged: no swipe starts under it
+let swipedAt = -1e9;     // when a swipe last moved or ended: its release is not a tap
 
 export function disarm() {
   if (!armed) return;
@@ -86,7 +90,7 @@ export function bindHold(el, {
     let dragging = false, held = false, ghost = null, raf = 0, scrollV = 0, lastMove = null;
 
     const startDrag = () => {
-      dragging = true;
+      dragging = true; lifted = true;
       try { el.setPointerCapture(pid); } catch { /* the pointer is already gone */ }
       el.classList.add('dragging');
       sc?.classList.add('is-dragging');
@@ -103,7 +107,7 @@ export function bindHold(el, {
     };
     const endDrag = () => {
       if (!dragging) return;
-      dragging = false;
+      dragging = false; lifted = false;
       cancelAnimationFrame(raf); raf = 0; scrollV = 0;
       try { el.releasePointerCapture(pid); } catch { /* never captured */ }
       el.classList.remove('dragging');
@@ -167,7 +171,7 @@ export function bindHold(el, {
       finish(); endDrag();
       if (wasDragging || held) swallowClick();
       if (wasDragging) onDrop?.(ev);
-      else if (!held && !wasArmed && Math.hypot(ev.clientX - sx, ev.clientY - sy) < SLOP && onTap) {
+      else if (!held && !wasArmed && performance.now() - swipedAt > 300 && Math.hypot(ev.clientX - sx, ev.clientY - sy) < SLOP && onTap) {
         /* onTap usually draws another screen at once. The click the browser
            still sends for this press would then land on whatever is now under
            the finger, a task row for instance, and open it (testing report
@@ -192,15 +196,19 @@ function swallowNextClick() {
   setTimeout(() => document.removeEventListener('click', stop, { capture: true }), 400);
 }
 
-/** A one-finger swipe to the right that follows the finger (PRD-improvements
-    AC-07.1, US-04; owner's review 2026-11-17). canStart(target, x) says
+/** A one-finger sideways swipe that follows the finger (PRD-improvements
+    AC-07.1, US-04; owner's review 2026-11-17). dir: 1 to the right, -1 to
+    the left; the rest reads for a swipe to the right, and a swipe to the
+    left is its mirror image (its edge is the right one). canStart(target, x) says
     whether a touch may start one here. Once the finger has moved sideways
     more than it has moved down, start() builds whatever the swipe reveals
     and returns { move(p), settle(open) }: move gets the progress 0…1 on
     every frame, settle is called on release, open when the swipe went far
     enough (a third of the width) or fast enough. A swipe that starts in a
     sideways scroller (a chip row, the lanes) belongs to the scroller, except
-    from the left edge. While a swipe runs the page does not scroll.
+    from the left edge. While a swipe runs the page does not scroll. A press
+    that has lifted a row or shows its buttons is not a swipe, and the
+    release that ends a swipe is not a tap on what was under the finger.
 
     Smoothness (owner's review of build 11):
     - prepare() is called just after a finger lands where a swipe may
@@ -212,7 +220,7 @@ function swallowNextClick() {
       cancelled), there is no swipe: the two never run together. */
 export const EDGE_PX = 24;
 const START_PX = 8;
-export function bindSwipeRight(root, { canStart, start, prepare = null, discard = null }) {
+function bindSwipe(root, dir, { canStart, start, prepare = null, discard = null }) {
   let s = null;
   /* the sideways scroller a touch starts in (a chip row, the lanes), or null */
   const sideways = (target) => {
@@ -231,7 +239,7 @@ export function bindSwipeRight(root, { canStart, start, prepare = null, discard 
     drop();
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
-    const edge = t.clientX <= EDGE_PX;
+    const edge = dir > 0 ? t.clientX <= EDGE_PX : t.clientX >= window.innerWidth - EDGE_PX;
     const scroller = sideways(e.target);
     if (!canStart(e.target, t.clientX, edge) || (!edge && scroller)) return;
     const touch = s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0, scroller };
@@ -241,8 +249,9 @@ export function bindSwipeRight(root, { canStart, start, prepare = null, discard 
   root.addEventListener('touchmove', (e) => {
     if (!s) return;
     const t = e.touches[0];
-    const dx = t.clientX - s.x, dy = t.clientY - s.y;
+    const dx = dir * (t.clientX - s.x), dy = t.clientY - s.y;
     if (!s.live) {
+      if (lifted || armed) { drop(); return; }                                    // a held row, not a swipe
       if (!e.cancelable) { drop(); return; }                                      // the page is already scrolling
       if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { drop(); return; }   // a vertical scroll
       if (dx < -10) { drop(); return; }                                           // the other way
@@ -252,18 +261,20 @@ export function bindSwipeRight(root, { canStart, start, prepare = null, discard 
       s.live = start();
       if (!s.live) { drop(); return; }
       hold(s.scroller);
-      s.x = t.clientX - 1;                                                         // no jump at the start
+      s.x = t.clientX - dir;                                                       // no jump at the start
     }
     e.preventDefault();
     const now = performance.now();
-    s.v = (t.clientX - s.last[0]) / Math.max(1, now - s.last[1]);
+    s.v = dir * (t.clientX - s.last[0]) / Math.max(1, now - s.last[1]);
     s.last = [t.clientX, now];
-    s.live.move(Math.max(0, Math.min(1, (t.clientX - s.x) / window.innerWidth)));
+    swipedAt = now;
+    s.live.move(Math.max(0, Math.min(1, dir * (t.clientX - s.x) / window.innerWidth)));
   }, { passive: false });
   const end = (cancelled) => {
     if (!s) return;
     if (!s.live) { drop(); return; }
-    const live = s.live, p = (s.last[0] - s.x) / window.innerWidth, v = s.v;
+    const live = s.live, p = dir * (s.last[0] - s.x) / window.innerWidth, v = s.v;
+    swipedAt = performance.now();
     free(s.scroller);
     s = null;
     live?.settle(!cancelled && (p > 1 / 3 || (v > 0.5 && p > 0.08)));
@@ -271,6 +282,8 @@ export function bindSwipeRight(root, { canStart, start, prepare = null, discard 
   root.addEventListener('touchend', () => end(false), { passive: true });
   root.addEventListener('touchcancel', () => end(true), { passive: true });
 }
+export const bindSwipeRight = (root, o) => bindSwipe(root, 1, o);
+export const bindSwipeLeft = (root, o) => bindSwipe(root, -1, o);
 
 /** Slides el to translateX(to) with the swipe easing, then calls done(). */
 export function slideTo(el, to, done) {
