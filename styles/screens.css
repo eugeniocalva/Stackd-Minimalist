@@ -330,7 +330,10 @@
 .set-row:last-child { border-bottom: none; }
 .set-wrap { flex-wrap: wrap; }
 .set-wrap .set-text { min-width: 150px; }
-.set-wrap .segmented { margin-left: auto; }
+/* A toggle takes its own line under the title and spans the card, in equal
+   parts, whatever its labels (PRD 1.7.0 §04 B1). */
+.set-wrap .segmented { flex: 1 0 100%; }
+.set-wrap .segmented .seg { flex: 1 1 0; min-width: 0; padding-left: 4px; padding-right: 4px; white-space: nowrap; }
 .set-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .set-title { font-size: var(--text-base); font-weight: 700; }
 .set-sub { font-size: var(--text-sm); color: var(--text-secondary); }
@@ -360,6 +363,27 @@ button.lrow-icon:active { transform: scale(0.9); }
 .lrow-icon.dashed { background: transparent; border: 2px dashed var(--color-border); color: var(--text-tertiary); }
 .set-row.is-disabled .set-title { color: var(--text-secondary); }
 .scroll-area > .set-hint { text-align: left; margin: calc(-1 * var(--space-2)) var(--space-1) var(--space-5); }
+/* One rhythm for the whole page (PRD 1.7.0 §04 B3): a label to its card 12,
+   card to card 12, a card or the plan grid to its footnote 8, and 24 before
+   the next label. Set from above only, so no gap depends on what the
+   element before happens to be. */
+.settings-screen .scroll-area > * { margin-bottom: 0; }
+.settings-screen .scroll-area > * + * { margin-top: var(--space-3); }
+.settings-screen .scroll-area > * + .set-hint,
+.settings-screen .scroll-area > * + .set-under { margin-top: var(--space-2); }
+.settings-screen .scroll-area > * + .list-label { margin-top: var(--space-6); }
+/* Developer is a section whose label is its summary, with 8px of its own above and below the word */
+.settings-screen .scroll-area > * + .set-dev { margin-top: var(--space-4); }
+.settings-screen .set-dev:not([open]) + .list-label { margin-top: var(--space-4); }
+.settings-screen .set-dev > summary { padding-left: var(--space-1); padding-right: var(--space-1); }
+.settings-screen .set-dev[open] > summary { margin-bottom: var(--space-1); }
+.settings-screen .set-dev > .card { margin-bottom: 0; }
+.settings-screen .set-dev > .set-hint { display: block; margin: var(--space-2) var(--space-1) 0; }
+/* Three text sizes under the page title: 16 for names and prices, 14 for
+   second lines and controls, 12 for labels, toggles and footnotes; two
+   weights, 700 and 400 (PRD 1.7.0 §04 B2). */
+.settings-screen .tag { font-size: var(--text-xs); }
+.settings-screen .set-input::placeholder { font-weight: 400; }
 .lrow > svg:last-child { color: var(--text-tertiary); flex: none; }
 .side-settings { margin-top: auto; }
 .side-settings + .side-user { margin-top: var(--space-2); }
@@ -489,7 +513,8 @@ textarea.input.paste-area { width: 100%; min-height: 220px; resize: vertical; fo
 .from-meeting svg { width: 14px; height: 14px; }
 .plan-current { display: flex; flex-direction: column; gap: var(--space-3); }
 .plan-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
-.plan-name { font-family: var(--font-family-display); font-weight: 800; font-size: var(--text-lg); }
+/* plan cards read the same in Settings and in the paywall sheet (PRD 1.7.0, decision 24) */
+.plan-name { font-size: var(--text-base); font-weight: 700; }
 .plan-price { font-weight: 700; }
 .plan-bar { display: flex; flex-direction: column; gap: 4px; }
 .plan-bar-line { display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--text-secondary); }
@@ -500,7 +525,9 @@ textarea.input.paste-area { width: 100%; min-height: 220px; resize: vertical; fo
 .plan-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--space-3); margin-top: var(--space-3); }
 .plan-card { display: flex; flex-direction: column; gap: 6px; padding: var(--space-4); border-radius: var(--radius-lg); background: var(--bg-surface); border: 1px solid var(--color-border); }
 .plan-card.is-current { border-color: var(--color-accent); }
-.plan-pool { font-size: var(--text-sm); font-weight: 600; }
+.plan-pool { font-size: var(--text-sm); }
+.plan-price .hint { font-weight: 400; }
+.plan-card .tag { font-size: var(--text-xs); }
 .plan-renew { font-size: var(--text-xs); color: var(--text-secondary); }
 .plan-card .btn, .plan-card .tag { align-self: flex-start; margin-top: var(--space-1); }
 .plan-intro { margin: 0 0 var(--space-2); font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; }
