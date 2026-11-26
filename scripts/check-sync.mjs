@@ -188,6 +188,40 @@ assert.ok(n, 'the note arrives');
 assert.ok(!n.body.includes('onerror'), 'its body is sanitised like typed text');
 assert.equal(n.color, null, 'an unknown colour is dropped');
 
+/* A device still on 1.6.0 edits a task that has a description (PRD 1.7.0
+   §05, decision 29). It does not know the field, so it sends the whole task
+   without it and the account takes that as the newest copy. This device
+   keeps its description and sends the task again in the same sync. */
+{
+  const dTask = S.tasks.find((x) => x.id === bTask.id);
+  const rowOf = (id) => JSON.parse(db.raw.prepare("SELECT data FROM records WHERE kind = 'task' AND id = ?").get(id).data);
+  store.setDescription(dTask.id, 'Ask about <b>Tuesday</b>');
+  await sync.now();
+  assert.equal(rowOf(dTask.id).description, 'Ask about <b>Tuesday</b>', 'a description syncs');
+  pull = await B('/v1/sync', { cursor: 0, changes: [] }, bTok);
+  const { description: _unknown, ...held } = pull.changes.find((x) => x.kind === 'task' && x.id === dTask.id).data;   // what 1.6.0 holds
+  await B('/v1/sync', { cursor: pull.cursor, changes: [{ kind: 'task', id: dTask.id, changedAt: Date.now() + 10_000, deleted: false, data: { ...held, title: 'Call the dentist (old phone)' } }] }, bTok);
+  assert.ok(!('description' in rowOf(dTask.id)), 'the old device wiped it in the account');
+  pushes = [];
+  await sync.now();
+  assert.equal(store.taskById(dTask.id).title, 'Call the dentist (old phone)', "the old device's edit arrives");
+  assert.equal(store.taskById(dTask.id).description, 'Ask about <b>Tuesday</b>', 'and the description is kept here');
+  assert.deepEqual([rowOf(dTask.id).description, rowOf(dTask.id).title], ['Ask about <b>Tuesday</b>', 'Call the dentist (old phone)'], 'and is back in the account, with the edit, in the same sync');
+  await sync.now();
+  assert.equal(pushes.at(-1), 0, 'sent once, not again');
+  /* emptied on purpose on a 1.7.0 device: the field is there and empty, and it stays empty here */
+  await B('/v1/sync', { cursor: 0, changes: [{ kind: 'task', id: dTask.id, changedAt: Date.now() + 20_000, deleted: false, data: { ...rowOf(dTask.id), description: '' } }] }, bTok);
+  await sync.now();
+  assert.equal(store.taskById(dTask.id).description, '', 'a description emptied on another 1.7.0 device stays empty');
+  /* an old device's edit to a task with no description here: nothing to keep, nothing sent back */
+  const { description: _none, ...plain } = rowOf(dTask.id);
+  await B('/v1/sync', { cursor: 0, changes: [{ kind: 'task', id: dTask.id, changedAt: Date.now() + 30_000, deleted: false, data: { ...plain, title: 'Call the dentist' } }] }, bTok);
+  pushes = [];
+  await sync.now();
+  assert.equal(store.taskById(dTask.id).title, 'Call the dentist');
+  assert.ok(pushes.every((n) => n === 0), 'no description here: the old edit is taken as it is');
+}
+
 /* a second device signing in with untouched samples downloads, never doubles (AC-06.1) */
 const local = { untouched: true, counts: { list: 4, task: 15, note: 0, meeting: 0 } };
 assert.equal(sync.mergePlan(local, { counts: (await B('/v1/sync/summary', undefined, bTok)).counts }), 'download');

@@ -7,6 +7,7 @@ import {
   S, UI, isDesktop, DONE_LANE, RETENTION_DAYS, TASK_SORTS, isManualSort, priorityById,
   listById, taskById, tasksOf, openCount, sortedTasks, lanesOf, laneName, laneTaskCount, canDeleteLane, laneHeir,
   reorderTask, moveToLane, nameTaken, restoreLane, addLane, renameLane, reorderLane, deleteLane, commit, rerender,
+  hasDescription,
 } from '../store.js';
 import { bindHold } from './gestures.js';
 import { sharedChipHTML, bindSharedChip } from './sharing.js';
@@ -85,6 +86,11 @@ export function priorityTagHTML(t) {
   return p ? `<span class="tag pc pc-${p.color}">${esc(p.name)}</span>` : '';
 }
 
+/** The mark a row or card carries when its task has a description: never
+    the text itself (PRD 1.7.0 §05, C-5). */
+export const descMarkHTML = (t) => (hasDescription(t)
+  ? `<span class="t-desc" role="img" aria-label="Has a description" title="Has a description">${icon('lines', 14)}</span>` : '');
+
 export function taskMetaHTML(t) {
   const bits = [];
   if (t.due) bits.push(dueChipHTML(t, { prefix: true }));
@@ -94,6 +100,7 @@ export function taskMetaHTML(t) {
     const done = t.subtasks.filter((s) => s.done).length;
     bits.push(`<span class="t-sub num">${done}/${t.subtasks.length} subtasks</span>`);
   }
+  if (hasDescription(t)) bits.push(descMarkHTML(t));
   return bits.length ? `<div class="t-meta">${bits.join('')}</div>` : '';
 }
 
@@ -234,7 +241,7 @@ export function desktopTableHTML() {
       return `
       <div class="tgrid tgrid-row ${t.done ? 'done' : ''}" data-id="${t.id}">
         <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? 'checked' : ''} data-id="${t.id}">
-        <span class="t-title">${esc(t.title)}</span>
+        <span class="t-title">${esc(t.title)}${t.done ? '' : descMarkHTML(t)}</span>
         ${t.done ? '<span></span><span></span><span></span>' : `
         ${t.due ? dueChipHTML(t) : '<span class="cell-muted">—</span>'}
         ${priorityTagHTML(t) || '<span class="cell-muted">—</span>'}

@@ -8,7 +8,7 @@ import {
   daysFrom, nextOccurrence, addDays, daysBetween, reminderInstant,
   defaultDateFormat, isDateFormat, setDefaultDateFormat, fmtDate, fmtClock, anchorDayOf } from './dates.js';
 import { reminderKey } from './reminders.js';
-import { sanitize, toText } from './richtext.js';
+import { sanitize, toText, isEmpty } from './richtext.js';
 
 export const STORE_KEY = 'stackd-v2';
 const LEGACY_KEY = 'stackd-v1';
@@ -237,6 +237,7 @@ export function blankTask(listId, title, extra = {}) {
   return {
     id: uid(), listId, lane: 'backlog', title, done: false, order: 0,
     priority: 'none', tags: [], subtasks: [],
+    description: '',                         // sanitised like a note body (1.7.0); a task from before has no such field
     start: null, due: null, dueTime: null, recur: 'none', reminder: null, reminderFiredAt: null,
     recurDay: null,                          // day of the month a monthly / yearly series is set for (BUG-06)
     completedCount: 0, lastCompletedAt: null,
@@ -928,6 +929,21 @@ export function setTitle(id, title) {
   t.title = title.trim(); touch(t); commit();
 }
 
+/* A task's description (PRD 1.7.0 §05): the same sanitised subset as a note
+   body. Tasks made before 1.7.0 have no such field, which reads as empty;
+   it is not added to them on load, or every task of an account would be
+   sent again on the first sync after the update. */
+export const DESCRIPTION_MAX = 20000;
+export const hasDescription = (t) => !!t.description && !isEmpty(t.description);
+/** quiet: saved without a redraw, so the caret stays while typing. */
+export function setDescription(id, html, { quiet = false } = {}) {
+  const t = taskById(id); if (!t || t.status !== 'active') return;
+  const next = sanitize(String(html ?? '').slice(0, DESCRIPTION_MAX));
+  if (next === (t.description || '')) return;
+  t.description = next; touch(t);
+  if (quiet) persistQuiet(); else commit();
+}
+
 /** Trimmed, no leading #, de-duplicated case-insensitively, empties dropped. */
 export function normalizeTags(tags) {
   const seen = new Set();
@@ -1044,6 +1060,7 @@ export function copyTask(id, listId, lane) {
     lane, done: lane === DONE_LANE, order: nextOrder(),
     priority: t.priority, tags: [...t.tags],
     subtasks: t.subtasks.map((s) => ({ id: uid(), title: s.title, done: false })),
+    description: t.description || '',
     start: t.start, due: t.due, dueTime: t.dueTime, recur: t.recur, reminder: t.reminder,
     recurDay: t.recurDay ?? null,
   });

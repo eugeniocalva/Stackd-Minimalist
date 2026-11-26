@@ -643,6 +643,8 @@
       priority: "none",
       tags: [],
       subtasks: [],
+      description: "",
+      // sanitised like a note body (1.7.0); a task from before has no such field
       start: null,
       due: null,
       dueTime: null,
@@ -1372,6 +1374,18 @@
     touch(t);
     commit();
   }
+  var DESCRIPTION_MAX = 2e4;
+  var hasDescription = (t) => !!t.description && !isEmpty(t.description);
+  function setDescription(id, html, { quiet = false } = {}) {
+    const t = taskById(id);
+    if (!t || t.status !== "active") return;
+    const next = sanitize(String(html ?? "").slice(0, DESCRIPTION_MAX));
+    if (next === (t.description || "")) return;
+    t.description = next;
+    touch(t);
+    if (quiet) persistQuiet();
+    else commit();
+  }
   function normalizeTags(tags) {
     const seen = /* @__PURE__ */ new Set();
     return tags.map((x) => String(x).trim().replace(/^#+/, "")).filter((x) => {
@@ -1491,6 +1505,7 @@
       priority: t.priority,
       tags: [...t.tags],
       subtasks: t.subtasks.map((s) => ({ id: uid(), title: s.title, done: false })),
+      description: t.description || "",
       start: t.start,
       due: t.due,
       dueTime: t.dueTime,
@@ -2200,6 +2215,7 @@
     /* Notes (1.4.0) */
     note: '<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/>',
     text: '<path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/>',
+    lines: '<path d="M21 6H3"/><path d="M15 12H3"/><path d="M17 18H3"/>',
     palette: '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
     checklist: '<path d="M21 10.656V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12.344"/><path d="m9 11 3 3L22 4"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
@@ -3710,6 +3726,8 @@
       priority: ctx.priorities.has(r.priority) ? r.priority : "none",
       tags: tagsOf(r.tags),
       subtasks: checkItems(r.subtasks, "title", "a subtask"),
+      /* kept absent when absent: that is how a record written before 1.7.0 is told apart (src/sync.js) */
+      ...typeof r.description === "string" ? { description: sanitize(r.description.slice(0, DESCRIPTION_MAX)) } : {},
       start: start2 && (!due || start2 <= due) ? start2 : null,
       due,
       dueTime: due && typeof r.dueTime === "string" && HHMM.test(r.dueTime) ? r.dueTime : null,
@@ -4135,9 +4153,9 @@
         const refused = new Set((r.rejected || []).map((x) => `${x.kind}:${x.id}`));
         for (const c of changes) if (!refused.has(c.key)) doc.shadow[c.key] = [c.hash, c.changedAt];
         const gone = (r.rejected || []).filter((x) => x.reason === "deleted").map((x) => ({ kind: x.kind, id: x.id, changedAt: 0, deleted: true, data: null }));
-        applyInbound([...r.changes || [], ...gone]);
+        const again2 = applyInbound([...r.changes || [], ...gone]);
         doc.cursor = r.cursor;
-        more = r.more || changes.length === BATCH;
+        more = r.more || changes.length === BATCH || !!again2;
         for (const [id, res] of Object.entries(r.spaces || {})) {
           if (!spacesOf()[id]) continue;
           if (res.gone) {
@@ -4150,7 +4168,7 @@
           const dead = (res.rejected || []).filter((x) => x.reason === "deleted").map((x) => ({ kind: x.kind, id: x.id, changedAt: 0, deleted: true, data: null }));
           if ((res.rejected || []).some((x) => x.reason === "not_allowed")) sp.cursor = 0;
           else sp.cursor = res.cursor;
-          applyInbound([...res.changes || [], ...dead], { space: id });
+          if (applyInbound([...res.changes || [], ...dead], { space: id })) more = true;
           if (res.more || (spaceChanges[id] || []).length === BATCH) more = true;
         }
         applyShared(r.shared);
@@ -4221,7 +4239,9 @@
       const local = c.kind === "settings" ? null : (S[plural[c.kind]] || []).find((x) => x.id === c.id);
       const record2 = c.kind === "settings" ? clean : fromWire(c.kind, clean, local);
       if (space && c.kind === "list") record2.share = { role: share.role, ownerEmail: share.ownerEmail, members: share.members || [] };
-      upserts.push({ kind: c.kind, record: record2, key, changedAt: c.changedAt });
+      const resend = c.kind === "task" && !("description" in clean) && !!local?.description;
+      if (resend) record2.description = local.description;
+      upserts.push({ kind: c.kind, record: record2, key, changedAt: c.changedAt, resend });
     }
     if (sp) {
       if (Object.keys(held).length) sp.held = held;
@@ -4231,8 +4251,9 @@
     const now2 = collect(S, { space });
     for (const u of upserts) {
       const r = now2.get(u.key);
-      if (r) shadow[u.key] = [hash(canonical(r.data)), u.changedAt];
+      if (r) shadow[u.key] = [u.resend ? "" : hash(canonical(r.data)), u.changedAt];
     }
+    return upserts.some((u) => u.resend);
   }
   async function firstPlan() {
     const r = await request("/v1/sync/summary");
@@ -6589,7 +6610,7 @@
   }
   function filterTasks(tasks, query) {
     if (!normalize(query).trim()) return tasks;
-    return tasks.filter((t) => matches(query, [t.title, ...t.tags, ...t.subtasks.map((s) => s.title)]));
+    return tasks.filter((t) => matches(query, [t.title, toText(t.description || ""), ...t.tags, ...t.subtasks.map((s) => s.title)]));
   }
   function filterMeetings(meetings, query, titleOf = (m) => m.title) {
     if (!normalize(query).trim()) return meetings;
@@ -6749,6 +6770,7 @@
     const p = priorityById(t.priority);
     return p ? `<span class="tag pc pc-${p.color}">${esc(p.name)}</span>` : "";
   }
+  var descMarkHTML = (t) => hasDescription(t) ? `<span class="t-desc" role="img" aria-label="Has a description" title="Has a description">${icon("lines", 14)}</span>` : "";
   function taskMetaHTML(t) {
     const bits = [];
     if (t.due) bits.push(dueChipHTML(t, { prefix: true }));
@@ -6758,6 +6780,7 @@
       const done2 = t.subtasks.filter((s) => s.done).length;
       bits.push(`<span class="t-sub num">${done2}/${t.subtasks.length} subtasks</span>`);
     }
+    if (hasDescription(t)) bits.push(descMarkHTML(t));
     return bits.length ? `<div class="t-meta">${bits.join("")}</div>` : "";
   }
   function dueChipHTML(t, { prefix = false } = {}) {
@@ -6878,7 +6901,7 @@
       return `
       <div class="tgrid tgrid-row ${t.done ? "done" : ""}" data-id="${t.id}">
         <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
-        <span class="t-title">${esc(t.title)}</span>
+        <span class="t-title">${esc(t.title)}${t.done ? "" : descMarkHTML(t)}</span>
         ${t.done ? "<span></span><span></span><span></span>" : `
         ${t.due ? dueChipHTML(t) : '<span class="cell-muted">—</span>'}
         ${priorityTagHTML(t) || '<span class="cell-muted">—</span>'}
@@ -9409,7 +9432,101 @@
         </div>
       </div>`;
   }
+  function descriptionHTML(t, { readOnly = false } = {}) {
+    const html = sanitize(t.description || "");
+    if (readOnly) {
+      return hasDescription(t) ? `
+      <div class="card desc-card">
+        <span class="section-title">Description</span>
+        <div class="desc-body">${html}</div>
+      </div>` : "";
+    }
+    return `
+      <div class="card desc-card" data-desc>
+        <span class="section-title" id="desc-label">Description</span>
+        <div class="desc-body" data-desc-body contenteditable="true" tabindex="0" role="textbox" aria-multiline="true" aria-labelledby="desc-label" data-placeholder="Add a description…">${html}</div>
+        <div class="desc-tools" role="toolbar" aria-label="Text formatting" hidden>
+          ${FORMATS.map(([cmd, label, glyph]) => `<button type="button" class="ne-tool ne-fmt" data-fmt="${cmd}" aria-pressed="false" aria-label="${label}" title="${label}"><span class="fmt-glyph fmt-${cmd}">${glyph}</span></button>`).join("")}
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-sm btn-primary" data-desc-done>Done</button>
+        </div>
+      </div>`;
+  }
+  var flushDescription = null;
+  window.addEventListener("pagehide", () => flushDescription?.());
+  document.addEventListener("selectionchange", () => {
+    const body = document.activeElement;
+    if (!body?.matches?.("[data-desc-body]")) return;
+    const state3 = stateAt();
+    body.closest("[data-desc]").querySelectorAll("[data-fmt]").forEach((b) => b.setAttribute("aria-pressed", String(!!state3[b.dataset.fmt])));
+  });
+  function bindDescription(t) {
+    const card = app.querySelector("[data-desc]");
+    if (!card) return;
+    const body = card.querySelector("[data-desc-body]");
+    const tools = card.querySelector(".desc-tools");
+    let timer2 = null;
+    const flush = () => {
+      if (!timer2) return;
+      clearTimeout(timer2);
+      timer2 = null;
+      setDescription(t.id, body.innerHTML, { quiet: true });
+    };
+    flushDescription = flush;
+    const changed = () => {
+      clearTimeout(timer2);
+      timer2 = setTimeout(flush, 500);
+    };
+    const editing2 = (on) => {
+      tools.hidden = !on;
+      card.classList.toggle("is-editing", on);
+    };
+    body.addEventListener("input", () => {
+      if (/^(?:<div>)?(?:<br>)?(?:<\/div>)?$/i.test(body.innerHTML.trim())) body.innerHTML = "";
+      changed();
+    });
+    card.addEventListener("focusin", () => editing2(true));
+    card.addEventListener("focusout", (e) => {
+      if (card.contains(e.relatedTarget)) return;
+      flush();
+      editing2(false);
+    });
+    const apply2 = (cmd) => {
+      if (document.activeElement !== body) body.focus();
+      exec(cmd);
+      changed();
+    };
+    body.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        body.blur();
+        return;
+      }
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const cmd = SHORTCUTS[`${e.shiftKey ? "shift+" : ""}${e.key.toLowerCase()}`];
+      if (cmd) {
+        e.preventDefault();
+        apply2(cmd);
+      }
+    });
+    card.querySelectorAll("[data-fmt]").forEach((b) => {
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", () => apply2(b.dataset.fmt));
+    });
+    body.addEventListener("paste", (e) => {
+      e.preventDefault();
+      const html = e.clipboardData.getData("text/html");
+      const text2 = e.clipboardData.getData("text/plain");
+      if (!document.execCommand("insertHTML", false, html ? sanitize(html) : fromPlain(text2))) document.execCommand("insertText", false, text2);
+    });
+    card.querySelector("[data-desc-done]").addEventListener("click", () => {
+      flush();
+      document.activeElement?.blur();
+      editing2(false);
+    });
+  }
   function detailHTML() {
+    flushDescription?.();
     const t = taskById(UI.detailId);
     if (!t) {
       UI.screen = "list";
@@ -9470,6 +9587,7 @@
           <button class="kv-val ${t.reminder === null ? "placeholder" : ""}" data-reminder>${esc(reminderLabel(t.reminder))}${icon("chevronDown", 16)}</button>
         </div>
       </div>
+      ${descriptionHTML(t)}
       ${subtasksHTML(t)}
     </div>
   </div>`;
@@ -9490,8 +9608,10 @@
       return;
     }
     bindScrollShadow();
+    bindDescription(t);
     app.querySelector("[data-from-meeting]")?.addEventListener("click", (e) => openMeeting(e.currentTarget.dataset.fromMeeting));
     app.querySelector("[data-back]").addEventListener("click", () => {
+      flushDescription?.();
       UI.screen = "list";
       rerender();
     });
@@ -9506,13 +9626,16 @@
         openDetail(c.id);
       } } });
     } });
-    app.querySelector("[data-more]").addEventListener("click", (e) => openMenu(e.currentTarget, [
-      { label: "Move", icon: "move", onClick: move },
-      { label: "Copy", icon: "copy", onClick: copy },
-      { label: "Archive", icon: "archive", onClick: () => archiveWithUndo(t.id) },
-      { divider: true },
-      { label: "Delete", icon: "trash", danger: true, onClick: () => deleteWithUndo(t.id) }
-    ]));
+    app.querySelector("[data-more]").addEventListener("click", (e) => {
+      flushDescription?.();
+      openMenu(e.currentTarget, [
+        { label: "Move", icon: "move", onClick: move },
+        { label: "Copy", icon: "copy", onClick: copy },
+        { label: "Archive", icon: "archive", onClick: () => archiveWithUndo(t.id) },
+        { divider: true },
+        { label: "Delete", icon: "trash", danger: true, onClick: () => deleteWithUndo(t.id) }
+      ]);
+    });
     app.querySelector("[data-move]").addEventListener("click", move);
     const h1 = app.querySelector("[data-title]");
     const editTitle = () => {
@@ -9635,6 +9758,7 @@
         ${row2(`${icon("move", 16)}From`, esc(from))}
         ${row2("Reminder", esc(reminderLabel(t.reminder)))}
       </div>
+      ${descriptionHTML(t, { readOnly: true })}
       ${t.subtasks.length ? subtasksHTML(t, { readOnly: true }) : ""}
       <div class="dialog-actions">
         <button class="btn btn-secondary" data-ro-restore>${icon("undo", 18)}Restore</button>

@@ -241,6 +241,27 @@
 .detail-tags { display: flex; gap: 6px; flex-wrap: wrap; padding-left: calc(26px + var(--space-3)); }
 .subhead { display: flex; align-items: baseline; justify-content: space-between; }
 .subhead .count { font-size: var(--text-xs); font-weight: 700; color: var(--text-tertiary); }
+/* Task description (PRD 1.7.0 §05): a card of its own between the fields
+   and Subtasks, written like a note body. The formatting row shows while
+   the caret is in the text. */
+.desc-card { display: flex; flex-direction: column; gap: var(--space-2); transition: border-color var(--dur-quick) ease; }
+.desc-card.is-editing { border-color: var(--color-accent); }
+.desc-body {
+  min-height: 1.5em; outline: none; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-size: var(--text-base); line-height: 1.5; color: var(--text-primary); caret-color: var(--color-accent);
+  user-select: text; -webkit-user-select: text;
+}
+.desc-body:empty::before { content: attr(data-placeholder); color: var(--text-tertiary); pointer-events: none; }
+.desc-body b { font-weight: 700; }
+.desc-body i { font-style: italic; }
+.desc-body u { text-decoration: underline; text-underline-offset: 2px; }
+.desc-body s { text-decoration: line-through; }
+.desc-tools { display: flex; align-items: center; gap: 2px; padding-top: var(--space-2); border-top: 1px solid var(--color-border); }
+.desc-tools[hidden] { display: none; }
+.desc-tools .spacer { flex: 1; }
+/* the mark a row or card carries when its task has a description */
+.t-desc { display: inline-flex; align-items: center; color: var(--text-tertiary); }
+.t-title .t-desc { margin-left: 6px; vertical-align: -2px; }
 .subrows { display: flex; flex-direction: column; }
 .subrow { display: flex; gap: var(--space-3); align-items: center; min-height: 44px; padding: 4px 0; }
 .subrow.done { opacity: 0.5; }

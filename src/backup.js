@@ -15,7 +15,7 @@
 
 import {
   S, DONE_LANE, PRIORITY_COLORS, NOTE_COLORS, REMINDER_OPTIONS,
-  defaultLanes, normalizeTags, exportRecords, replaceRecords,
+  defaultLanes, normalizeTags, exportRecords, replaceRecords, DESCRIPTION_MAX,
 } from './store.js';
 import { RECUR_OPTIONS, isDateFormat, toISO } from './dates.js';
 import { sanitize } from './richtext.js';
@@ -152,6 +152,8 @@ function cleanTask(r, i, ctx) {
     title: text(r.title).trim() || 'Untitled', done: flag(r.done), order: num(r.order, i),
     priority: ctx.priorities.has(r.priority) ? r.priority : 'none',
     tags: tagsOf(r.tags), subtasks: checkItems(r.subtasks, 'title', 'a subtask'),
+    /* kept absent when absent: that is how a record written before 1.7.0 is told apart (src/sync.js) */
+    ...(typeof r.description === 'string' ? { description: sanitize(r.description.slice(0, DESCRIPTION_MAX)) } : {}),
     start: start && (!due || start <= due) ? start : null, due,
     dueTime: due && typeof r.dueTime === 'string' && HHMM.test(r.dueTime) ? r.dueTime : null,
     recur: due ? pick(r.recur, RECURS, 'none') : 'none',

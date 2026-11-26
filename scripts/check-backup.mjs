@@ -33,6 +33,7 @@ store.setMediaRemover((keys) => removed.push(...keys));
 
 const task = S.tasks.find((t) => t.title === 'Book 1:1s for next sprint');
 store.setTags(task.id, ['Team', 'q3']);
+store.setDescription(task.id, 'Agenda in the <b>shared</b> doc<br>30 minutes each');
 store.archiveTask(S.tasks.find((t) => t.title === 'Water the plants').id);
 store.softDelete(S.tasks.find((t) => t.title === 'Fix the bike tire').id);
 store.addLabel('someday');
@@ -177,7 +178,10 @@ const hostile = mutate((r, d) => {
     tags: ['ok', 5, { a: 1 }, '#dup', 'DUP'], subtasks: [{ id: 's1', title: 5, done: 1 }],
     origin: { listId: '<x>', lane: 'y', order: 1 }, from: { meetingId: '<m>', actionId: 'a' },
     createdAt: 'yesterday', updatedAt: -5, injected: '<script>alert(1)</script>',
+    description: 'Hi<script>alert(1)</script> <i onmouseover="x">there</i><img src=x onerror=alert(3)>',
   });
+  delete r.tasks[1].description;      // a file written by 1.6.0
+  r.tasks[2].description = 5;         // not text
   r.notes[0].body = 'Hi<script>alert(1)</script><img src=x onerror=alert(2)> <b onclick="x()">bold</b>';
   r.notes[0].color = 'javascript:alert(1)';
   r.settings.priorities[0].color = 'red" onmouseover="x';
@@ -204,6 +208,8 @@ assert.deepEqual(h.tags, ['ok', 'dup']);
 assert.deepEqual(h.subtasks, [{ id: 's1', title: '', done: false }]);
 assert.ok(Number.isFinite(h.createdAt) && h.updatedAt >= h.createdAt);
 assert.ok(!('injected' in h), 'unknown fields are dropped');
+assert.equal(h.description, 'Hi <i>there</i>', 'a description passes the sanitiser (1.7.0)');
+assert.ok(!('description' in S.tasks[1]) && !('description' in S.tasks[2]), 'no description in the file: none is made up, so sync can tell an old record apart');
 const n = S.notes[0];
 assert.equal(n.body, 'Hi <b>bold</b>', 'a note body passes the sanitiser');
 assert.equal(n.color, null);

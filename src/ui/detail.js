@@ -5,7 +5,7 @@
 import {
   S, UI, RETENTION_DAYS, priorityName, reminderLabel, laneName,
   taskById, listById, setPriority, setTags, setTitle, setSchedule, clearSchedule,
-  copyTask, deleteForever, commit, rerender,
+  setDescription, hasDescription, copyTask, deleteForever, commit, rerender,
   meetingById, meetingTitle,
 } from '../store.js';
 import { fmtDue, fmtDateLong, fmtRelative, daysLeft, recurLabel, RECUR_OPTIONS, todayISO } from '../dates.js';
@@ -18,6 +18,7 @@ import { openSchedule } from './schedule.js';
 import { openMoveCopy } from './movecopy.js';
 import { openTagPicker } from './tagpicker.js';
 import { openMeeting } from './meeting.js';
+import { sanitize, fromPlain, FORMATS, SHORTCUTS, exec, stateAt } from '../richtext.js';
 
 
 function scheduleNote(t) {
@@ -53,7 +54,91 @@ function subtasksHTML(t, { readOnly = false } = {}) {
       </div>`;
 }
 
+/* ── Description (PRD 1.7.0 §05) ─────────────────────────────────────────
+   A card of its own between the fields and Subtasks (decision 27), written
+   like a note body: bold, italic, underline, strikethrough and line breaks.
+   The text is editable in place; the formatting row shows while the caret
+   is in it. Typing saves quietly, 500 ms after the last key, when the card
+   is left and before the screen is drawn again, so the caret never moves
+   and nothing typed is lost to a redraw. */
+
+function descriptionHTML(t, { readOnly = false } = {}) {
+  const html = sanitize(t.description || '');
+  if (readOnly) {
+    return hasDescription(t) ? `
+      <div class="card desc-card">
+        <span class="section-title">Description</span>
+        <div class="desc-body">${html}</div>
+      </div>` : '';
+  }
+  return `
+      <div class="card desc-card" data-desc>
+        <span class="section-title" id="desc-label">Description</span>
+        <div class="desc-body" data-desc-body contenteditable="true" tabindex="0" role="textbox" aria-multiline="true" aria-labelledby="desc-label" data-placeholder="Add a description…">${html}</div>
+        <div class="desc-tools" role="toolbar" aria-label="Text formatting" hidden>
+          ${FORMATS.map(([cmd, label, glyph]) =>
+            `<button type="button" class="ne-tool ne-fmt" data-fmt="${cmd}" aria-pressed="false" aria-label="${label}" title="${label}"><span class="fmt-glyph fmt-${cmd}">${glyph}</span></button>`).join('')}
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-sm btn-primary" data-desc-done>Done</button>
+        </div>
+      </div>`;
+}
+
+/* what is typed and not yet saved, for the screen that is about to be replaced or left */
+let flushDescription = null;
+window.addEventListener('pagehide', () => flushDescription?.());
+/* the formatting buttons mirror the style at the caret */
+document.addEventListener('selectionchange', () => {
+  const body = document.activeElement;
+  if (!body?.matches?.('[data-desc-body]')) return;
+  const state = stateAt();
+  body.closest('[data-desc]').querySelectorAll('[data-fmt]').forEach((b) => b.setAttribute('aria-pressed', String(!!state[b.dataset.fmt])));
+});
+
+function bindDescription(t) {
+  const card = app.querySelector('[data-desc]');
+  if (!card) return;
+  const body = card.querySelector('[data-desc-body]');
+  const tools = card.querySelector('.desc-tools');
+  let timer = null;
+  const flush = () => {
+    if (!timer) return;
+    clearTimeout(timer); timer = null;
+    setDescription(t.id, body.innerHTML, { quiet: true });
+  };
+  flushDescription = flush;
+  const changed = () => { clearTimeout(timer); timer = setTimeout(flush, 500); };
+  const editing = (on) => { tools.hidden = !on; card.classList.toggle('is-editing', on); };
+
+  body.addEventListener('input', () => {
+    /* the browser leaves "<br>" behind when the last character goes: empty again, so the placeholder shows */
+    if (/^(?:<div>)?(?:<br>)?(?:<\/div>)?$/i.test(body.innerHTML.trim())) body.innerHTML = '';
+    changed();
+  });
+  card.addEventListener('focusin', () => editing(true));
+  card.addEventListener('focusout', (e) => { if (card.contains(e.relatedTarget)) return; flush(); editing(false); });
+  const apply = (cmd) => { if (document.activeElement !== body) body.focus(); exec(cmd); changed(); };
+  body.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); body.blur(); return; }
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const cmd = SHORTCUTS[`${e.shiftKey ? 'shift+' : ''}${e.key.toLowerCase()}`];
+    if (cmd) { e.preventDefault(); apply(cmd); }
+  });
+  card.querySelectorAll('[data-fmt]').forEach((b) => {
+    b.addEventListener('mousedown', (e) => e.preventDefault());   // keep the selection in the text
+    b.addEventListener('click', () => apply(b.dataset.fmt));
+  });
+  body.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const html = e.clipboardData.getData('text/html');
+    const text = e.clipboardData.getData('text/plain');
+    if (!document.execCommand('insertHTML', false, html ? sanitize(html) : fromPlain(text))) document.execCommand('insertText', false, text);
+  });
+  card.querySelector('[data-desc-done]').addEventListener('click', () => { flush(); document.activeElement?.blur(); editing(false); });
+}
+
 export function detailHTML() {
+  flushDescription?.();   // the screen being replaced may hold text not saved yet
   const t = taskById(UI.detailId);
   if (!t) { UI.screen = 'list'; return mobileListHTML(); }
   if (t.status !== 'active') return readOnlyHTML(t);
@@ -111,6 +196,7 @@ export function detailHTML() {
           <button class="kv-val ${t.reminder === null ? 'placeholder' : ''}" data-reminder>${esc(reminderLabel(t.reminder))}${icon('chevronDown', 16)}</button>
         </div>
       </div>
+      ${descriptionHTML(t)}
       ${subtasksHTML(t)}
     </div>
   </div>`;
@@ -128,8 +214,9 @@ export function bindDetail() {
   if (!t) { rerender(); return; }
   if (t.status !== 'active') { bindReadOnly(t); return; }
   bindScrollShadow();
+  bindDescription(t);
   app.querySelector('[data-from-meeting]')?.addEventListener('click', (e) => openMeeting(e.currentTarget.dataset.fromMeeting));
-  app.querySelector('[data-back]').addEventListener('click', () => { UI.screen = 'list'; rerender(); });
+  app.querySelector('[data-back]').addEventListener('click', () => { flushDescription?.(); UI.screen = 'list'; rerender(); });
   app.querySelector('.detail-title-row .check').addEventListener('change', () => completeTask(t.id, app.querySelector('.detail-title-row')));
 
   /* ⋯ menu */
@@ -141,13 +228,13 @@ export function bindDetail() {
       S.currentList = c.listId; commit(); openDetail(c.id);
     } } });
   } });
-  app.querySelector('[data-more]').addEventListener('click', (e) => openMenu(e.currentTarget, [
+  app.querySelector('[data-more]').addEventListener('click', (e) => { flushDescription?.(); openMenu(e.currentTarget, [
     { label: 'Move', icon: 'move', onClick: move },
     { label: 'Copy', icon: 'copy', onClick: copy },
     { label: 'Archive', icon: 'archive', onClick: () => archiveWithUndo(t.id) },
     { divider: true },
     { label: 'Delete', icon: 'trash', danger: true, onClick: () => deleteWithUndo(t.id) },
-  ]));
+  ]); });
   app.querySelector('[data-move]').addEventListener('click', move);
 
   /* inline title edit */
@@ -277,6 +364,7 @@ function readOnlyHTML(t) {
         ${row(`${icon('move', 16)}From`, esc(from))}
         ${row('Reminder', esc(reminderLabel(t.reminder)))}
       </div>
+      ${descriptionHTML(t, { readOnly: true })}
       ${t.subtasks.length ? subtasksHTML(t, { readOnly: true }) : ''}
       <div class="dialog-actions">
         <button class="btn btn-secondary" data-ro-restore>${icon('undo', 18)}Restore</button>

@@ -94,6 +94,9 @@ assert.deepEqual(filterTasks(tasks, '').map((t) => t.title), ['Email vendor', 'P
 assert.deepEqual(filterTasks(tasks, 'vendor').map((t) => t.title), ['Email vendor']);
 assert.deepEqual(filterTasks(tasks, 'hotel').map((t) => t.title), ['Plan trip'], 'subtask titles count');
 assert.deepEqual(filterTasks(tasks, 'home').map((t) => t.title), ['Water plants'], 'tags count');
+tasks[2].description = 'Use the <b>rain</b> barrel<br>behind the shed';
+assert.deepEqual(filterTasks(tasks, 'shed rain').map((t) => t.title), ['Water plants'], 'the description counts, as text (1.7.0)');
+assert.equal(filterTasks(tasks, '<b>').length, 0, 'its markup does not');
 const notes = [
   { title: 'Weekly sync', body: 'Agenda for <b>Monday</b><br>Budget', tags: ['meeting'], checklist: [{ text: 'Pull numbers' }] },
   { title: '', body: 'Café ideas', tags: ['food'], checklist: null },

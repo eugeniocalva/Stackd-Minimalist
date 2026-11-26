@@ -245,9 +245,10 @@ async function once() {
       /* refused because the server already deleted it: it goes here too, even if this device missed the tombstone */
       const gone = (r.rejected || []).filter((x) => x.reason === 'deleted')
         .map((x) => ({ kind: x.kind, id: x.id, changedAt: 0, deleted: true, data: null }));
-      applyInbound([...(r.changes || []), ...gone]);
+      /* true when something that came in has to go back out (a description an old device left out) */
+      const again = applyInbound([...(r.changes || []), ...gone]);
       doc.cursor = r.cursor;
-      more = r.more || changes.length === BATCH;
+      more = r.more || changes.length === BATCH || !!again;
       for (const [id, res] of Object.entries(r.spaces || {})) {
         if (!spacesOf()[id]) continue;
         if (res.gone) { spaceGone(id); continue; }
@@ -258,7 +259,7 @@ async function once() {
         /* refused for permission: take the server's version back on the next full pull */
         if ((res.rejected || []).some((x) => x.reason === 'not_allowed')) sp.cursor = 0;
         else sp.cursor = res.cursor;
-        applyInbound([...(res.changes || []), ...dead], { space: id });
+        if (applyInbound([...(res.changes || []), ...dead], { space: id })) more = true;
         if (res.more || (spaceChanges[id] || []).length === BATCH) more = true;
       }
       applyShared(r.shared);
@@ -290,7 +291,8 @@ function latestByKey(changes) {
 }
 
 /** Pulled changes → the store, cleaned first; the shadow moves before the
-    store does, so applying never looks like a local edit. */
+    store does, so applying never looks like a local edit. Returns true when
+    a record has to be sent again (see resend below). */
 function applyInbound(changes, { space = null } = {}) {
   /* a space's cards that came before its board wait for it (below) */
   const sp = space ? spacesOf()[space] : null;
@@ -332,7 +334,16 @@ function applyInbound(changes, { space = null } = {}) {
     const local = c.kind === 'settings' ? null : (S[plural[c.kind]] || []).find((x) => x.id === c.id);
     const record = c.kind === 'settings' ? clean : fromWire(c.kind, clean, local);
     if (space && c.kind === 'list') record.share = { role: share.role, ownerEmail: share.ownerEmail, members: share.members || [] };
-    upserts.push({ kind: c.kind, record, key, changedAt: c.changedAt });
+    /* A device still on 1.6.0 does not know descriptions: when it edits a
+       task it sends the whole task without one, and the account takes that
+       as the newest copy. 1.7.0 always writes the field once a task has had
+       a description, even an emptied one, so a task that arrives with no
+       such field came from an old device: the description here is kept,
+       and the task is sent again so the account has it back (PRD 1.7.0
+       §05, decision 29). */
+    const resend = c.kind === 'task' && !('description' in clean) && !!local?.description;
+    if (resend) record.description = local.description;
+    upserts.push({ kind: c.kind, record, key, changedAt: c.changedAt, resend });
   }
   if (sp) { if (Object.keys(held).length) sp.held = held; else delete sp.held; }
   applyRemote({ upserts, deletes });
@@ -340,8 +351,10 @@ function applyInbound(changes, { space = null } = {}) {
   const now = collect(S, { space });
   for (const u of upserts) {
     const r = now.get(u.key);
-    if (r) shadow[u.key] = [hash(canonical(r.data)), u.changedAt];
+    /* a record to send again gets a hash nothing has, so the next diff picks it up */
+    if (r) shadow[u.key] = [u.resend ? '' : hash(canonical(r.data)), u.changedAt];
   }
+  return upserts.some((u) => u.resend);
 }
 
 /* — first sign-in (AC-06.1 to 06.5) — */

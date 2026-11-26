@@ -94,6 +94,29 @@ assert.equal(d.reminderFiredAt, null);
 store.markReminderFired(d.id, 777);
 const copy = store.copyTask(d.id, d.listId, 'backlog');
 assert.equal(copy.reminderFiredAt, null);
+
+// description (PRD 1.7.0 §05): cleaned like a note body, capped, copied; emptied stays a field
+assert.equal(d.description, '', 'a new task has an empty description');
+store.setDescription(d.id, 'Bring <b onclick="x()">the form</b><script>alert(1)</script><br>and <em>ID</em>');
+assert.equal(d.description, 'Bring <b>the form</b><br>and <i>ID</i>');
+assert.equal(store.hasDescription(d), true);
+assert.equal(store.copyTask(d.id, d.listId, 'backlog').description, d.description, 'a copy carries the description');
+{
+  let drawn = 0;
+  store.setRenderer(() => { drawn++; });
+  const edited = d.updatedAt;
+  store.setDescription(d.id, 'typed so far', { quiet: true });
+  assert.equal(drawn, 0, 'typing saves without a redraw');
+  assert.ok(d.updatedAt >= edited && JSON.parse(localStorage.getItem(store.STORE_KEY)).tasks.find((x) => x.id === d.id).description === 'typed so far', 'and is on disk');
+  store.setDescription(d.id, 'typed so far');
+  assert.equal(drawn, 0, 'the same text again changes nothing');
+  store.setRenderer(() => {});
+}
+store.setDescription(d.id, 'x'.repeat(store.DESCRIPTION_MAX + 50));
+assert.equal(d.description.length, store.DESCRIPTION_MAX, 'capped');
+store.setDescription(d.id, ' <br> ');
+assert.deepEqual([d.description, store.hasDescription(d)], ['', false], 'emptied: the field stays, as empty text');
+assert.equal(store.hasDescription({ title: 'made on 1.6.0' }), false, 'a task from before 1.7.0 has none');
 store.addTask({ listId: 'work', title: 'New with past reminder', priority: 'none', tags: [], due: new Date(recent).toLocaleDateString('sv'), dueTime: hhmm(recent), reminder: 0 });
 assert.ok(typeof find('New with past reminder').reminderFiredAt === 'number');
 

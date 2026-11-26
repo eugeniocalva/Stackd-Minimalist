@@ -1,7 +1,7 @@
 # PRD: Stack'd Minimalist 1.7.0 — swipe back, a tidier Settings, import and export
 
-Status: **in progress, 2026-11-26.** Phases 1 and 2 of 8 are done and
-agreed. Twenty-six decisions taken by the owner (§02). The decisions still to take are listed by phase in §11 and are
+Status: **in progress, 2026-11-26.** Phases 1 to 3 of 8 are done and
+agreed. Thirty-one decisions taken by the owner (§02). The decisions still to take are listed by phase in §11 and are
 asked when their phase starts; each answer is recorded in §02. Branch:
 `release/1.7.0`, cut from `release/1.6.0` at `602b94c`.
 
@@ -51,6 +51,11 @@ the exported files) are done by the owner on one TestFlight build at the end.
 | 24 | Plan cards in the paywall sheet | Same look as in Settings |
 | 25 | Toggles on wide screens | Full width of the card, as on the phone |
 | 26 | Phase 2, the swipe left as built | Agreed from the pictures and the tested cases. The feel on the iPhone is checked on TestFlight |
+| 27 | Where the description sits in an open task | Its own card, between the fields and Subtasks |
+| 28 | The mark on a row or card with a description | Three short lines, at the end of the line with the date, priority and labels |
+| 29 | Devices still on 1.6.0 | Protected: 1.7.0 keeps the description such a device left out and sends it back |
+| 30 | The New task sheet | No description field; it is written in the open task |
+| 31 | Phase 3, the task description as built | Agreed from the pictures of the app, with the short empty card and, in the wide table, the mark after the title. The iPhone keyboard is checked on TestFlight |
 
 ---
 
@@ -164,24 +169,46 @@ Checked by measuring every gap on the page, phone and wide.
   bold, italic, underline, strikethrough and line breaks, through the same
   cleaning notes use (`src/richtext.js`). No lists, links or headings,
   because notes have none.
-- **C-2** It is edited in the task detail with the notes toolbar. An empty
-  one shows as "Add a description". Where it sits: §11, phase 3.
+- **C-2** It is edited in the open task, in a card of its own between the
+  fields and Subtasks (decision 27), with the notes formatting row (bold,
+  italic, underline, strikethrough) and a Done button, shown while the
+  caret is in the text. An empty one shows as "Add a description…". The
+  New task sheet has no description field (decision 30).
 - **C-3** Search finds text in descriptions.
 - **C-4** It is in the Stack'd file, in sync, in copy and move, and in every
   export format.
-- **C-5** Board cards and list rows show a small mark when the task has a
-  description, never the text. Which mark: §11, phase 3.
+- **C-5** Board cards and list rows show a small mark, three short lines,
+  when the task has a description, never the text. It sits at the end of
+  the line with the date, priority and labels (decision 28). The wide
+  table has no such line: there the mark follows the title.
+- **C-6** At most 20,000 characters. An archived or deleted task shows its
+  description as text, not editable.
+
+**Built and agreed, 2026-11-26** (decision 31). Checked in the browser at
+375 and 1280 px: typing saves by itself half a second after the
+last key without moving the caret; a redraw while typing (a subtask
+ticked) loses nothing; bold from the row and from Ctrl+B; pasted markup is
+cleaned; Escape and Done leave the text; the mark shows in List, Kanban
+and the table; search finds a word that is only in the description; a copy
+carries it; an archived task shows it read-only. New automated checks in
+`npm run check` cover cleaning, the 20,000 limit, copy, quiet saving,
+search, the Stack'd file and the 1.6.0 protection below.
 
 **Devices still on 1.6.0** (checked in `src/sync.js`, 2026-11-26). An old
 device drops the field when a task arrives, and does not send the task back
 by itself, so nothing is lost while it only reads. But when it edits that
 task (ticks it, renames it), it sends the whole task without the
-description, and the account takes that as the newest copy. Proposed
-protection, no server change: 1.7.0 always writes the field, even when
-empty; a task that arrives with no such field at all came from an old
-device, so 1.7.0 keeps the description it has and sends it back. To agree
-in phase 3. The same applies to Import automation in the settings record
-(§06.4).
+description, and the account takes that as the newest copy. Protection,
+agreed as decision 29 and built, with no server change: once a task has
+had a description, 1.7.0 always writes the field, even emptied; a task
+that arrives with no such field at all came from an old device, so 1.7.0
+keeps the description it has and sends the task back in the same sync,
+with the old device's edit. A description emptied on purpose on a 1.7.0
+device stays empty. Tasks from before 1.7.0 are not given the field on
+load, so the update does not send every task of an account again. Covered
+end to end against the real server code in `scripts/check-sync.mjs`; the
+check fails when the protection is switched off. The same applies to
+Import automation in the settings record (§06.4).
 
 ## 06. D — Settings › Data
 
@@ -372,7 +399,7 @@ Each phase: options shown → owner agrees → built → shown → owner agrees.
 |---|---|---|
 | 1 | B: Settings toggles, sizes, spacing. **Done and agreed** (decisions 22 to 25) | Before and after screenshots, phone and wide, light and dark |
 | 2 | A: swipe left. **Done and agreed** (decision 26) | Pictures of the swipe half way in the test browser, then TestFlight |
-| 3 | C: task description | Mock-ups of the task detail, two options |
+| 3 | C: task description. **Done and agreed** (decisions 27 to 31) | Mock-ups of the task detail, three options; then the built screens |
 | 4 | D: Data section, the sheet, Backup | Mock-ups, then the working pages |
 | 5 | D: Import guide, CSV and JSON, Trello layout, automation | The guide, step by step, on the sample files |
 | 6 | D: Import of Excel and XML | The same files in those formats |
@@ -387,9 +414,6 @@ when its phase starts, and the answer goes into §02.
 
 | Phase | Question | My suggestion |
 |---|---|---|
-| 3 | Where the description sits in the task detail: under the title, or in its own card above Subtasks | Its own card, so the toolbar has room |
-| 3 | Which mark a card shows when it has a description | A small "lines" icon next to the date and labels |
-| 3 | Agree the protection against 1.6.0 devices (§05) | As proposed, no server change |
 | 4 | The wording of the three Data rows and of the sheet | As in §06 |
 | 5 | A JSON or XML file that is not a flat list, such as Trello's own free "Export as JSON" (the whole board, with checklists, where the power-up's free plan stops at 10 cards). Decision 18 says no readers for named tools, so: leave such files out, or let the guide ask which part of the file holds the cards? | Let the guide ask; no tool is named |
 | 5 | A file with no link or number per row: how a second import recognises a card (decision 17) | Same list and same title; Review shows how many were skipped and offers "import them anyway" |

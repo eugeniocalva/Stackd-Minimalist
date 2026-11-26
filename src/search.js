@@ -17,10 +17,10 @@ export function matches(query, fields) {
   return terms.every((t) => hay.includes(t));
 }
 
-/** Title, tags and subtask titles. */
+/** Title, description, tags and subtask titles. */
 export function filterTasks(tasks, query) {
   if (!normalize(query).trim()) return tasks;
-  return tasks.filter((t) => matches(query, [t.title, ...t.tags, ...t.subtasks.map((s) => s.title)]));
+  return tasks.filter((t) => matches(query, [t.title, toText(t.description || ''), ...t.tags, ...t.subtasks.map((s) => s.title)]));
 }
 
 /** Meetings (PRD-meetings AC-02.4): title, transcript text and speaker
