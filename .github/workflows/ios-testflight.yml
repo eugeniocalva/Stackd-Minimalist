@@ -230,6 +230,10 @@ jobs:
             || { echo "::error::plugins/recording-service is missing from the Podfile - it is a file: dependency, run npm ci"; exit 1; }
           grep -q "CapawesomeCapacitorAgeSignals" ios/App/Podfile \
             || { echo "::error::@capawesome/capacitor-age-signals is missing from the Podfile - the store age signal would not be read"; exit 1; }
+          grep -q "CapacitorFilesystem" ios/App/Podfile \
+            || { echo "::error::@capacitor/filesystem is missing from the Podfile - backups and exports could not be saved"; exit 1; }
+          grep -q "CapacitorShare" ios/App/Podfile \
+            || { echo "::error::@capacitor/share is missing from the Podfile - backups and exports could not be saved"; exit 1; }
 
       # Apple's Declared Age Range needs the com.apple.developer.declared-age-range
       # entitlement (docs/prd-age-signals.md, D-7). Signing fails if the App ID

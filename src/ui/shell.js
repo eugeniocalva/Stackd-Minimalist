@@ -64,13 +64,13 @@ export function moveBannerHTML() {
 export function bindMoveBanner() {
   /* the same file as Settings › Backup › Back up now; what to do next is a
      dialog, a toast would cut it (PRD 1.7.0, decisions 37 and 42) */
-  app.querySelector('[data-download-data]')?.addEventListener('click', () => {
+  app.querySelector('[data-download-data]')?.addEventListener('click', async () => {
     let made;
     try { made = makeBackup(); } catch (e) {
       noticeDialog('No file was made', e?.code ? e.message : 'Something went wrong while making the file. Nothing was changed.');
       return;
     }
-    if (saveFile(made.blob, made.name) !== 'handed') { noticeDialog('No file was made', 'Saving a file is not possible here.'); return; }
+    if ((await saveFile(made.blob, made.name).catch(() => 'failed')) !== 'handed') { noticeDialog('No file was made', 'Saving a file is not possible here.'); return; }
     noticeDialog('Your data is in a file', `It is called ${made.name}. Open ${APP_HOST}, go to Settings › Backup, press Restore a backup and choose that file.`);
   });
 }

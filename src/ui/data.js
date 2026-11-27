@@ -238,9 +238,12 @@ async function backUpNow() {
     refocus('[data-backup-now]');
     return;
   }
-  /* the time is noted only when a file really was handed over (src/files.js) */
-  if (saveFile(made.blob, made.name) !== 'handed') {
-    await noticeDialog('No backup file was made', 'Saving a file is not possible inside the app yet. Nothing was changed.');
+  /* the time is noted only when a file really was handed over (src/files.js); closing the share sheet says nothing */
+  let saved;
+  try { saved = await saveFile(made.blob, made.name); } catch { saved = 'failed'; }
+  if (saved === 'cancelled') { refocus('[data-backup-now]'); return; }
+  if (saved !== 'handed') {
+    await noticeDialog('No backup file was made', saved === 'failed' ? 'The file could not be written on this device. Nothing was changed.' : "This device cannot save files from Stack'd. Nothing was changed.");
     refocus('[data-backup-now]');
     return;
   }

@@ -3,7 +3,8 @@
    on the device and handed over (src/files.js). It changes nothing.
 
    The choices live here while the pages are open, and are kept for the
-   next export until the app is closed. Every name on these pages is the
+   next export until the app is closed. In the iPhone and Android apps the
+   file goes to the system's share sheet (src/files.js). Every name on these pages is the
    person's own, but a board or a label may have come from an imported
    file: all of it is escaped. */
 
@@ -182,8 +183,12 @@ async function finish() {
     return;
   }
   if (!made.count) return;
-  if (saveFile(new Blob([made.bytes], { type: made.type }), made.name) !== 'handed') {
-    await noticeDialog('No file was made', 'Saving a file is not possible inside the app yet. Nothing was changed.');
+  /* closing the share sheet without choosing leaves the pages as they are, with nothing said */
+  let saved;
+  try { saved = await saveFile(new Blob([made.bytes], { type: made.type }), made.name); } catch { saved = 'failed'; }
+  if (saved === 'cancelled') return;
+  if (saved !== 'handed') {
+    await noticeDialog('No file was made', saved === 'failed' ? 'The file could not be written on this device. Nothing was changed.' : "This device cannot save files from Stack'd. Nothing was changed.");
     return;
   }
   last = options();

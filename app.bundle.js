@@ -7252,8 +7252,32 @@ ${title.toLowerCase()}`);
 
   // src/files.js
   var native2 = () => !!globalThis.Capacitor?.isNativePlatform?.();
-  function saveFile(blob2, name) {
-    if (native2() || typeof document === "undefined" || !globalThis.URL?.createObjectURL) return "unavailable";
+  var plugins = () => globalThis.Capacitor?.Plugins || {};
+  async function base64Of(blob2) {
+    const bytes = new Uint8Array(await blob2.arrayBuffer());
+    let s = "";
+    for (let i = 0; i < bytes.length; i += 32768) s += String.fromCharCode(...bytes.subarray(i, i + 32768));
+    return btoa(s);
+  }
+  async function shareNative(blob2, name) {
+    const { Filesystem, Share } = plugins();
+    if (!Filesystem?.writeFile || !Share?.share) return "unavailable";
+    const path = `exports/${name}`;
+    const { uri } = await Filesystem.writeFile({ path, data: await base64Of(blob2), directory: "CACHE", recursive: true });
+    try {
+      await Share.share({ title: name, files: [uri], dialogTitle: name });
+      return "handed";
+    } catch (e) {
+      if (/cancel/i.test(String(e?.message ?? e))) return "cancelled";
+      throw e;
+    } finally {
+      Filesystem.deleteFile({ path, directory: "CACHE" }).catch(() => {
+      });
+    }
+  }
+  async function saveFile(blob2, name) {
+    if (native2()) return shareNative(blob2, name);
+    if (typeof document === "undefined" || !globalThis.URL?.createObjectURL) return "unavailable";
     const url = URL.createObjectURL(blob2);
     const a = document.createElement("a");
     a.href = url;
@@ -8919,8 +8943,15 @@ ${xref}
       return;
     }
     if (!made.count) return;
-    if (saveFile(new Blob([made.bytes], { type: made.type }), made.name) !== "handed") {
-      await noticeDialog("No file was made", "Saving a file is not possible inside the app yet. Nothing was changed.");
+    let saved;
+    try {
+      saved = await saveFile(new Blob([made.bytes], { type: made.type }), made.name);
+    } catch {
+      saved = "failed";
+    }
+    if (saved === "cancelled") return;
+    if (saved !== "handed") {
+      await noticeDialog("No file was made", saved === "failed" ? "The file could not be written on this device. Nothing was changed." : "This device cannot save files from Stack'd. Nothing was changed.");
       return;
     }
     last = options();
@@ -9177,8 +9208,18 @@ ${xref}
       refocus("[data-backup-now]");
       return;
     }
-    if (saveFile(made.blob, made.name) !== "handed") {
-      await noticeDialog("No backup file was made", "Saving a file is not possible inside the app yet. Nothing was changed.");
+    let saved;
+    try {
+      saved = await saveFile(made.blob, made.name);
+    } catch {
+      saved = "failed";
+    }
+    if (saved === "cancelled") {
+      refocus("[data-backup-now]");
+      return;
+    }
+    if (saved !== "handed") {
+      await noticeDialog("No backup file was made", saved === "failed" ? "The file could not be written on this device. Nothing was changed." : "This device cannot save files from Stack'd. Nothing was changed.");
       refocus("[data-backup-now]");
       return;
     }
@@ -13258,7 +13299,7 @@ ${xref}
   </div>`;
   }
   function bindMoveBanner() {
-    app.querySelector("[data-download-data]")?.addEventListener("click", () => {
+    app.querySelector("[data-download-data]")?.addEventListener("click", async () => {
       let made;
       try {
         made = makeBackup();
@@ -13266,7 +13307,7 @@ ${xref}
         noticeDialog("No file was made", e?.code ? e.message : "Something went wrong while making the file. Nothing was changed.");
         return;
       }
-      if (saveFile(made.blob, made.name) !== "handed") {
+      if (await saveFile(made.blob, made.name).catch(() => "failed") !== "handed") {
         noticeDialog("No file was made", "Saving a file is not possible here.");
         return;
       }
