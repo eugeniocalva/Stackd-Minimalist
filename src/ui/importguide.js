@@ -18,7 +18,7 @@ import {
   importTasks, undoImport, rememberImport, importRoom, rerender,
 } from '../store.js';
 import {
-  FIELDS, readFile, tableFromPart, partName, guessMapping, signature, analyse, plan, defaultListChoice, parseDate, GuideError,
+  FIELDS, readUpload, tableOfPart, partName, guessMapping, signature, analyse, plan, defaultListChoice, parseDate, GuideError,
 } from '../importer.js';
 import { fmtDate } from '../dates.js';
 import { esc, app } from '../util.js';
@@ -36,15 +36,6 @@ const refuse = (message) => noticeDialog('The file was not imported', `${message
 let G = null;
 const bare = (entries = []) => Object.assign(Object.create(null), Object.fromEntries(entries));
 
-/** The file's bytes → text. Spreadsheets do not all write UTF-8: a file
-    that starts with a UTF-16 mark is read as that, and one that is not
-    valid UTF-8 as Windows-1252, where accents are one byte each. */
-function decode(buffer) {
-  const b = new Uint8Array(buffer);
-  if (b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder('utf-16le').decode(buffer);
-  if (b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder('utf-16be').decode(buffer);
-  try { return new TextDecoder('utf-8', { fatal: true }).decode(buffer); } catch { return new TextDecoder('windows-1252').decode(buffer); }
-}
 export const guideOpen = () => !!G;
 
 /* ── Starting: the file ──────────────────────────────────────────────── */
@@ -54,7 +45,7 @@ export function startImport() {
   document.querySelectorAll('input[data-import-pick]').forEach((el) => el.remove());
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = '.csv,.json,text/csv,application/json';
+  input.accept = '.csv,.xlsx,.json,.xml,text/csv,application/json,application/xml,text/xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   input.dataset.importPick = '';
   input.style.display = 'none';
   document.body.appendChild(input);
@@ -66,21 +57,31 @@ export function startImport() {
 async function open(file) {
   if (file.size > MAX_FILE_BYTES) { refuse('This file is too large to import.'); return; }
   let read;
-  try { read = readFile(file.name, decode(await file.arrayBuffer())); } catch (e) {
+  try { read = await readUpload(file.name, await file.arrayBuffer()); } catch (e) {
     refuse(e instanceof GuideError ? e.message : 'This file could not be read.');
     return;
   }
   const settingsScroll = UI.settingsPage ? UI.settingsScroll : { area: app.querySelector('.scroll-area')?.scrollTop || 0, main: app.querySelector('.main')?.scrollTop || 0 };
   G = {
-    fileName: file.name, doc: null, parts: null, part: null, table: null, mapping: null, facts: null, layout: null, trusted: false,
+    fileName: file.name, read: null, parts: null, part: null, table: null, mapping: null, facts: null, layout: null, trusted: false,
     where: { mode: 'new', name: file.name.replace(/\.[a-z0-9]+$/i, '').slice(0, 80) || 'Imported', boardId: null },
     lists: bare(), labels: bare(), dateOrder: null, archived: 'leave', repeats: 'skip', step: 0,
   };
   try {
     if (read.kind === 'parts') {
-      G.doc = read.doc; G.parts = read.parts;
-      if (typeof read.doc.name === 'string' && read.doc.name.trim()) G.where.name = read.doc.name.trim().slice(0, 80);
-      usePart(read.suggested.path);
+      G.read = read; G.parts = read.parts;
+      if (typeof read.doc?.name === 'string' && read.doc.name.trim()) G.where.name = read.doc.name.trim().slice(0, 80);
+      /* open on the part suggested, or on the first one that can be read: one sheet too long does not refuse the file */
+      let first = null, why = null;
+      for (const p of [read.suggested, ...read.parts.filter((x) => x !== read.suggested)]) {
+        try { usePart(p); first = p; break; } catch (e) { why ??= e; }
+      }
+      if (!first) throw why;
+      /* a part (a sheet) imported before, with answers remembered, is the one to open on */
+      if (!G.trusted && S.importLayouts.length && read.parts.length <= 12) {
+        const known = read.parts.find((p) => { try { return p !== first && S.importLayouts.some((l) => l.signature === signature(tableOfPart(read, p).columns)); } catch { return false; } });
+        if (known) { usePart(known); if (!G.trusted) usePart(first); }
+      }
     } else useTable(read.table);
   } catch (e) {
     G = null;
@@ -92,9 +93,10 @@ async function open(file) {
   show();
 }
 
-function usePart(path) {
-  useTable(tableFromPart(G.doc, G.parts, path));   // throws for a part that cannot be read: the one on show stays
-  G.part = path;
+/* part: one of G.parts, a sheet of an Excel file or a list of records inside a document */
+function usePart(part) {
+  useTable(tableOfPart(G.read, part));   // throws for a part that cannot be read: the one on show stays
+  G.part = part.path;
 }
 
 /* A table is in: place its columns, and take the answers remembered for a
@@ -202,12 +204,16 @@ const sampleOf = (columnName) => {
 };
 
 function partHTML() {
-  return chrome('Which part', `${esc(G.fileName)} holds several lists of things. Choose the one that holds your tasks; the others are used to fill in names.`, `
-      <div class="card list-card" role="radiogroup" aria-label="The part that holds the tasks">
+  const sheets = G.read.what === 'sheets';
+  const lead = sheets
+    ? `${esc(G.fileName)} has ${plural(G.parts.length, 'sheet')} with rows. Choose the one that holds your tasks.`
+    : `${esc(G.fileName)} holds several lists of things. Choose the one that holds your tasks; the others are used to fill in names.`;
+  return chrome(sheets ? 'Which sheet' : 'Which part', lead, `
+      <div class="card list-card" role="radiogroup" aria-label="The ${sheets ? 'sheet' : 'part'} that holds the tasks">
         ${G.parts.map((p, i) => `
         <button type="button" class="guide-row guide-choice" role="radio" aria-checked="${p.path.join('/') === G.part.join('/')}" data-part="${i}">
           <span class="guide-radio" aria-hidden="true"></span>
-          <span class="guide-left"><span class="set-title">${esc(partName(p))}</span><span class="guide-sample">${plural(p.count, 'item')} · ${esc(p.keys.slice(0, 4).join(', '))}</span></span>
+          <span class="guide-left"><span class="set-title">${esc(partName(p))}</span><span class="guide-sample">${plural(p.count, sheets ? 'row' : 'item')} · ${esc(p.keys.slice(0, 4).join(', '))}</span></span>
         </button>`).join('')}
       </div>`, 'Continue');
 }
@@ -414,7 +420,7 @@ export function bindGuide() {
 
   /* which part */
   qa('[data-part]').forEach((b) => b.addEventListener('click', () => {
-    try { usePart(G.parts[+b.dataset.part].path); } catch (e) { refuse(e instanceof GuideError ? e.message : 'That part could not be read.'); return; }
+    try { usePart(G.parts[+b.dataset.part]); } catch (e) { refuse(e instanceof GuideError ? e.message : 'That part could not be read.'); return; }
     G.trusted = false;   // the question was asked: go through the columns too
     redraw(`[data-part="${b.dataset.part}"]`);
   }));

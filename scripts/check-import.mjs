@@ -2,6 +2,7 @@
    PRD 1.7.0 §06.1) — `npm run check`. Every file here is made up: the
    repository is public, and no real export is kept in it. */
 import assert from 'node:assert/strict';
+import { deflateRawSync } from 'node:zlib';
 
 const { parseCSV } = await import('../src/formats/csv.js');
 const imp = await import('../src/importer.js');
@@ -246,4 +247,251 @@ const ep = imp.plan(evil.table, { mapping: imp.guessMapping(evil.table), archive
 assert.equal(ep.items[0].title, '<b>hi</b>', 'a title is kept as text; the views escape it');
 assert.equal({}.polluted, undefined);
 
-console.log('check-import: CSV, values, columns, parts, plans and refusals all pass');
+/* ── XML (phase 6): the same rows as a tool writes them, values padded with line breaks ── */
+const xmlMod = await import('../src/formats/xml.js');
+const bytes = (text) => new TextEncoder().encode(text).buffer;
+const XML = `<?xml version="1.0" encoding="utf-8"?><!DOCTYPE base>
+<base>
+  <element>
+    <List-Name>
+      Backlog
+    </List-Name>
+    <Name>
+      Call the plumber &amp; the &lt;electrician&gt;
+    </Name>
+    <Desc>
+      Ask about the leak.
+
+Bring the **old** invoice.
+    </Desc>
+    <Closed>false</Closed>
+    <Due-Complete />
+    <Desc-Data><emoji></emoji></Desc-Data>
+    <Due>2026-12-01</Due>
+    <Labels>home (blue_light)</Labels>
+    <Short-Link>ab12</Short-Link>
+  </element>
+  <element>
+    <List-Name>Doing</List-Name>
+    <Name><![CDATA[Slides <for> the review]]></Name>
+    <Desc />
+    <Closed>false</Closed>
+    <Due-Complete>true</Due-Complete>
+    <Desc-Data><emoji></emoji></Desc-Data>
+    <Due />
+    <Labels>work (red)</Labels>
+    <Short-Link>ef56</Short-Link>
+  </element>
+</base>`;
+{
+  const r = await imp.readUpload('board.xml', bytes(XML));
+  assert.equal(r.kind, 'table');
+  const m = imp.guessMapping(r.table);
+  assert.deepEqual([m.title, m.list, m.description, m.labels, m.due, m.done, m.archived, m.key], ['Name', 'List-Name', 'Desc', 'Labels', 'Due', 'Due-Complete', 'Closed', 'Short-Link']);
+  const x = imp.plan(r.table, { mapping: m, archived: 'leave', repeats: 'skip' }, { lanes, existing: [], priorities });
+  assert.deepEqual(x.items.map((t) => [t.title, t.lane, t.tags, t.due, t.done, t.description]), [
+    ['Call the plumber & the <electrician>', { id: 'backlog' }, ['home'], '2026-12-01', false, 'Ask about the leak.<br><br>Bring the <b>old</b> invoice.'],
+    ['Slides <for> the review', { id: 'done' }, ['work'], null, true, ''],
+  ], 'entities and CDATA are text; padding goes; an empty element is an empty value');
+  /* one task is still a list of one */
+  const one = await imp.readUpload('one.xml', bytes('<tasks><task><title>Only one</title><status>To do</status></task></tasks>'));
+  assert.deepEqual([one.kind, one.table.columns, one.table.rows], ['table', ['title', 'status'], [['Only one', 'To do']]]);
+  /* several lists of records in one XML file: asked which, and ids followed, as for JSON */
+  const two = await imp.readUpload('two.xml', bytes('<board><lists><list><id>L1</id><name>To do</name></list><list><id>L2</id><name>Later</name></list></lists><cards><card><name>A</name><idList>L2</idList></card><card><name>B</name><idList>L1</idList></card></cards></board>'));
+  assert.equal(two.kind, 'parts');
+  assert.deepEqual(two.parts.map((x2) => imp.partName(x2)), ['lists', 'cards'], 'a wrapper is the list of what it wraps');
+  assert.deepEqual(imp.tableOfPart(two, two.suggested).rows, [['A', 'Later'], ['B', 'To do']]);
+  /* what a file declares is never looked up or expanded */
+  const bomb = '<!DOCTYPE lolz [<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;"><!ENTITY xxe SYSTEM "file:///etc/passwd">]><tasks><task><title>&lol2; &xxe; &#x41;&#66;&#0;&#xD800;</title></task></tasks>';
+  assert.deepEqual((await imp.readUpload('bomb.xml', bytes(bomb))).table.rows, [['&lol2; &xxe; AB']]);
+  /* names every object has are fields like any other */
+  const odd = xmlMod.toValue(xmlMod.parseXML('<r><x><constructor>1</constructor><__proto__>2</__proto__><toString>3</toString></x></r>'));
+  assert.deepEqual([odd[0].constructor, odd[0].__proto__, odd[0].toString, {}.polluted], ['1', '2', '3', undefined]);
+  for (const [bad, code] of [['<a><b></a>', 'unreadable'], ['<a>', 'unreadable'], ['plain text', 'unreadable'], [`${'<a>'.repeat(80)}${'</a>'.repeat(80)}`, 'unreadable'], ['<a><b>only text</b></a>', 'empty'], ['<a></a><b></b>', 'unreadable']]) {
+    await assert.rejects(() => imp.readUpload('x.xml', bytes(bad)), (e) => e instanceof imp.GuideError && e.code === code, `${bad.slice(0, 30)}: ${code}`);
+  }
+  /* long hostile XML is read in a moment */
+  const t0 = performance.now();
+  await assert.rejects(() => imp.readUpload('x.xml', bytes('<'.repeat(300000))));
+  await assert.rejects(() => imp.readUpload('x.xml', bytes(`<a ${'x="'.repeat(100000)}`)));
+  await imp.readUpload('x.xml', bytes(`<r>${'<t><n>a</n></t>'.repeat(4000)}</r>`));
+  assert.ok(performance.now() - t0 < 1500, 'hostile XML is read quickly');
+}
+
+/* ── Excel (phase 6): a workbook built here, two sheets and a hidden one ── */
+function zip(files) {   // minimal writer: local headers + central directory + end record
+  const enc = new TextEncoder(); const partsOut = []; const central = []; let offset = 0;
+  const u16 = (n) => [n & 255, (n >> 8) & 255], u32 = (n) => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
+  for (const [name, text, method] of files) {
+    const nameB = enc.encode(name), data = enc.encode(text);
+    const body = method === 8 ? deflateRawSync(data) : data;
+    const local = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(method), ...u16(0), ...u16(0), ...u32(0), ...u32(body.length), ...u32(data.length), ...u16(nameB.length), ...u16(0), ...nameB]);
+    central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(method), ...u16(0), ...u16(0), ...u32(0), ...u32(body.length), ...u32(data.length), ...u16(nameB.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset), ...nameB]));
+    partsOut.push(local, body); offset += local.length + body.length;
+  }
+  const cdStart = offset; const cd = central.reduce((n, c) => n + c.length, 0);
+  const eocd = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cd), ...u32(cdStart), ...u16(0)]);
+  const all = new Uint8Array(offset + cd + eocd.length); let at = 0;
+  for (const b of [...partsOut, ...central, eocd]) { all.set(b, at); at += b.length; }
+  return all.buffer;
+}
+{
+  const xlsx = await import('../src/formats/xlsx.js');
+  assert.equal(xlsx.serialToDate(44927), '2023-01-01');
+  assert.equal(xlsx.serialToDate(46324.4612803125), '2026-10-29 11:04', 'a day number with a time of day');
+  assert.equal(xlsx.serialToDate(46324.99999), '2026-10-30', 'a time that rounds to midnight is the next day');
+  assert.equal(xlsx.serialToDate(42005, true), '2019-01-02', 'the 1904 calendar of old Mac files');
+  for (const bad of [NaN, -1, 1e9]) assert.equal(xlsx.serialToDate(bad), '');
+
+  const strings = ['List', 'Name', 'Description', 'Archived', 'Due complete', 'Due', 'Labels', 'Short link', 'Checklists', 'Backlog', 'Call the plumber', 'No', 'home (blue_light)', 'ab12', 'Doing', 'Yes', 'ef56', 'Total', 'Cards'];
+  const sst = `<sst>${strings.map((t) => `<si><t>${t}</t></si>`).join('')}<si><r><t>Slides </t></r><r><rPr><b/></rPr><t xml:space="preserve">for the review</t></r><rPh><t>ignored</t></rPh></si></sst>`;
+  const c = (ref, i) => `<c r="${ref}" t="s"><v>${i}</v></c>`;
+  const sheet1 = `<worksheet><sheetData>
+    <row r="1">${'ABCDEFGHI'.split('').map((col, i) => c(`${col}1`, i)).join('')}</row>
+    <row r="2">${c('A2', 9)}${c('B2', 10)}<c r="C2" t="inlineStr"><is><t>Ask about the &lt;leak&gt;</t></is></c>${c('D2', 11)}<c r="E2" t="b"><v>0</v></c><c r="F2" s="1"><v>46357</v></c>${c('G2', 12)}${c('H2', 13)}</row>
+    <row r="3"></row>
+    <row r="4">${c('A4', 14)}${c('B4', 19)}${c('D4', 11)}<c r="E4" t="b"><v>1</v></c><c r="F4" s="2"><v>46359.5</v></c>${c('H4', 16)}<c r="I4" t="str"><v>[x] One</v></c><c r="XFD4"><v>9</v></c></row>
+  </sheetData></worksheet>`;
+  const sheet2 = `<worksheet><sheetData><row r="1">${c('A1', 17)}${c('B1', 18)}</row><row r="2">${c('A2', 9)}<c r="B2"><v>2</v></c></row></sheetData></worksheet>`;
+  const book = (sheets) => zip([
+    ['[Content_Types].xml', '<Types/>', 0],
+    ['xl/workbook.xml', `<workbook><sheets>${sheets}</sheets></workbook>`, 8],
+    ['xl/_rels/workbook.xml.rels', '<Relationships><Relationship Id="rId4" Target="worksheets/sheet1.xml"/><Relationship Id="rId5" Target="/xl/worksheets/sheet2.xml"/><Relationship Id="rId6" Target="worksheets/sheet3.xml"/></Relationships>', 8],
+    ['xl/sharedStrings.xml', sst, 8],
+    ['xl/styles.xml', '<styleSheet><numFmts><numFmt numFmtId="164" formatCode="d mmm yyyy, hh:mm"/><numFmt numFmtId="165" formatCode="0.00 &quot;days&quot;"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/><xf numFmtId="14"/><xf numFmtId="165"/></cellXfs></styleSheet>', 8],
+    ['xl/worksheets/sheet1.xml', sheet1, 8], ['xl/worksheets/sheet2.xml', sheet2, 0], ['xl/worksheets/sheet3.xml', sheet2, 8],
+  ]);
+  const two = await imp.readUpload('board.xlsx', book('<sheet name="Cards" sheetId="1" state="visible" r:id="rId4"/><sheet name="Summary" sheetId="2" r:id="rId5"/><sheet name="Secret" sheetId="3" state="hidden" r:id="rId6"/>'));
+  assert.deepEqual([two.kind, two.what, two.parts.map((x) => [x.path[0], x.count]), two.suggested.path[0]], ['parts', 'sheets', [['Cards', 2], ['Summary', 1]], 'Cards'], 'the sheets with rows, the first suggested, the hidden one left out');
+  const t = imp.tableOfPart(two, two.suggested);
+  assert.deepEqual(t.columns, ['List', 'Name', 'Description', 'Archived', 'Due complete', 'Due', 'Labels', 'Short link', 'Checklists']);
+  assert.deepEqual(t.rows, [
+    ['Backlog', 'Call the plumber', 'Ask about the <leak>', 'No', 'FALSE', '2026-12-01', 'home (blue_light)', 'ab12', ''],
+    ['Doing', 'Slides for the review', '', 'No', 'TRUE', '2026-12-03 12:00', '', 'ef56', '[x] One'],
+  ], 'shared and inline text, yes and no, day numbers with a date style, a gap in a row, a cell far to the right ignored');
+  const m = imp.guessMapping(t);
+  assert.deepEqual([m.title, m.list, m.description, m.archived, m.done, m.due, m.labels, m.key, m.checklist], ['Name', 'List', 'Description', 'Archived', 'Due complete', 'Due', 'Labels', 'Short link', 'Checklists']);
+  const x = imp.plan(t, { mapping: m, archived: 'leave', repeats: 'skip' }, { lanes, existing: [], priorities });
+  assert.deepEqual(x.items.map((it) => [it.title, it.due, it.dueTime, it.done, it.subtasks.length]), [['Call the plumber', '2026-12-01', null, false, 0], ['Slides for the review', '2026-12-03', '12:00', true, 1]]);
+  assert.deepEqual(imp.tableOfPart(two, two.parts[1]).rows, [['Backlog', '2']], 'a plain number stays a number');
+  /* a program that writes every element with a prefix */
+  const prefixed = zip([
+    ['xl/workbook.xml', '<x:workbook xmlns:x="m" xmlns:rel="r"><x:sheets><x:sheet name="Tasks" sheetId="1" rel:id="R1"/></x:sheets></x:workbook>', 8],
+    ['xl/_rels/workbook.xml.rels', '<Relationships><Relationship Id="R1" Target="worksheets/s.xml"/></Relationships>', 8],
+    ['xl/worksheets/s.xml', '<x:worksheet><x:sheetData><x:row><x:c t="inlineStr"><x:is><x:t>Title</x:t></x:is></x:c></x:row><x:row><x:c t="inlineStr"><x:is><x:t>Water the plants</x:t></x:is></x:c></x:row></x:sheetData></x:worksheet>', 8],
+  ]);
+  assert.deepEqual((await imp.readUpload('p.xlsx', prefixed)).table, { columns: ['Title'], rows: [['Water the plants']] }, 'prefixed elements, cells with no reference, no styles and no shared strings');
+  /* one sheet: no question */
+  assert.equal((await imp.readUpload('one.xlsx', book('<sheet name="Cards" sheetId="1" r:id="rId4"/>'))).kind, 'table');
+  /* refused, in words */
+  const code = (c2) => (e) => e instanceof imp.GuideError && e.code === c2;
+  await assert.rejects(() => imp.readUpload('notes.xlsx', zip([['a.txt', 'hello', 0]])), code('unreadable'), 'a zip that is not a workbook');
+  await assert.rejects(() => imp.readUpload('fake.xlsx', bytes('Name,List\nA,B')), code('unreadable'), 'a text file named .xlsx');
+  await assert.rejects(() => imp.readUpload('empty.xlsx', book('<sheet name="Empty" sheetId="9" r:id="rId9"/>')), code('empty'));
+  await assert.rejects(() => imp.readUpload('old.xls', new Uint8Array([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0, 0]).buffer), code('old_excel'));
+  await assert.rejects(() => imp.readUpload('book.csv', new Uint8Array([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]).buffer), code('old_excel'), 'whatever it is called');
+  /* a part of a zip is unpacked up to a limit, not to whatever it claims */
+  const docx = await import('../src/docx.js');
+  const big = zip([['xl/workbook.xml', 'x'.repeat(200000), 8]]);
+  await assert.rejects(() => docx.readEntry(big, 'xl/workbook.xml', 1000), /too large/);
+  assert.equal((await docx.readEntry(big, 'xl/workbook.xml', 300000)).length, 200000);
+  assert.equal((await docx.readEntry(big, 'xl/workbook.xml')).length, 200000, 'and with no limit given, as before');
+}
+
+/* ── what the independent review of phase 6 found ────────────────────── */
+{
+  const table = async (name, text) => { const r = await imp.readUpload(name, bytes(text)); return r.kind === 'table' ? r.table : { parts: r.parts.map((p) => imp.partName(p)) }; };
+  /* XML shapes, whatever the names */
+  assert.deepEqual(await table('a.xml', '<tasks version="2"><task title="A" due="2026-12-01"/><task title="B"/></tasks>'), { columns: ['title', 'due'], rows: [['A', '2026-12-01'], ['B', '']] }, 'fields written as attributes');
+  assert.deepEqual(await table('a.xml', '<tasks><task id="1">Buy milk</task><task id="2">Call Ann</task></tasks>'), { columns: ['id', 'text'], rows: [['1', 'Buy milk'], ['2', 'Call Ann']] }, 'an element with attributes and text');
+  assert.deepEqual(await table('a.xml', '<tasks version="2"><task title="Only one"/></tasks>'), { columns: ['title'], rows: [['Only one']] }, 'one task, and a root that says something about the file');
+  assert.deepEqual(await table('a.xml', '<resultset statement="select"><row><field name="title">A</field><field name="due" xsi:nil="true"/></row><row><field name="title">B</field><field name="due">2026-12-01</field></row></resultset>'),
+    { columns: ['title', 'due'], rows: [['A', ''], ['B', '2026-12-01']] }, 'records written as name and value pairs');
+  assert.deepEqual(await table('a.xml', '<rss version="2.0"><channel><title>Board</title><link>x</link><item><title>[A-1] First</title></item><item><title>[A-2] Second</title></item></channel></rss>'),
+    { columns: ['title'], rows: [['[A-1] First'], ['[A-2] Second']] }, 'a list inside the one record of a file');
+  assert.deepEqual(await table('a.xml', '<export><board><cards><card><name>A</name></card><card><name>B</name></card></cards></board></export>'), { columns: ['name'], rows: [['A'], ['B']] }, 'wrappers inside wrappers');
+  assert.deepEqual(await table('a.xml', `<t:tasks xmlns:t="urn:x"><t:task><t:title>A</t:title><t:labels><t:label>home</t:label><t:label>urgent</t:label></t:labels>
+    <t:subtasks><t:subtask><t:name>One</t:name><t:done>true</t:done></t:subtask></t:subtasks><t:owner><t:name>Ann</t:name></t:owner></t:task>
+    <t:task><t:title>B</t:title><t:labels><t:label>home</t:label></t:labels><t:subtasks><t:subtask><t:name>Two</t:name><t:done>false</t:done></t:subtask><t:subtask><t:name>Three</t:name><t:done>yes</t:done></t:subtask></t:subtasks></t:task></t:tasks>`),
+  { columns: ['title', 'labels', 'subtasks', 'owner'], rows: [['A', 'home, urgent', '[x] One', 'Ann'], ['B', 'home', '[ ] Two\n[x] Three', '']] }, 'prefixed names, a wrapped list of labels, one subtask or several, a record given by its name');
+  await assert.rejects(() => imp.readUpload('book.xml', bytes('<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Sheet1"><Table><Row><Cell><Data>x</Data></Cell></Row></Table></Worksheet></Workbook>')),
+    (e) => e.code === 'old_excel' && /XML Spreadsheet 2003/.test(e.message));
+  /* nothing in the name says what the file is */
+  assert.deepEqual(await table('export', 'Name,List\nA,B'), { columns: ['Name', 'List'], rows: [['A', 'B']] });
+  assert.deepEqual(await table('export', '<tasks><task><title>A</title><n>1</n></task></tasks>'), { columns: ['title', 'n'], rows: [['A', '1']] });
+  assert.deepEqual(await table('export', '[{"title":"A"}]'), { columns: ['title'], rows: [['A']] });
+  /* an XML file says what it is written in */
+  const cp1250 = new Uint8Array([...[...'<?xml version="1.0" encoding="windows-1250"?><t><i><n>Za'].map((ch) => ch.charCodeAt(0)), 0xBF, 0xF3, 0xB3, 0xE6, ...[...'</n><m>1</m></i></t>'].map((ch) => ch.charCodeAt(0))]).buffer;
+  assert.deepEqual((await imp.readUpload('pl.xml', cp1250)).table.rows, [['Za\u017C\u00F3\u0142\u0107', '1']]);
+  /* hostile XML that used to take minutes, or gigabytes */
+  const t0 = performance.now();
+  await imp.readUpload('x.xml', bytes(`<r><a ${'x'.repeat(99000)}/><b><c>1</c><d>2</d></b></r>`)).catch(() => {});
+  await imp.readUpload('x.xml', bytes(`<r>${`<a ${'x'.repeat(9000)} />`.repeat(40)}<b><c>1</c></b></r>`)).catch(() => {});
+  await imp.readUpload('x.xml', bytes(`<r>${'<a><b><c/></b></a>'.repeat(40000)}</r>`)).catch(() => {});
+  await imp.readUpload('x.xml', bytes(`<r>${'<a><b>1</b></a><z><b>1</b></z>'.repeat(30000)}</r>`)).catch(() => {});
+  assert.ok(performance.now() - t0 < 2500, `long tags and wide trees are read quickly (${Math.round(performance.now() - t0)} ms)`);
+  await assert.rejects(() => imp.readUpload('x.xml', bytes(`<r>${'<a/>'.repeat(1600000)}</r>`)), (e) => e.code === 'unreadable' && /too many items/.test(e.message));
+
+  /* Excel: which numbers are dates, numbers as typed, text as typed */
+  const cell = (ref, style, v) => `<c r="${ref}" s="${style}"><v>${v}</v></c>`;
+  const formats = ['d/m/yyyy', '_-* #,##0.00\\ _D_i_n_._-;\\-* #,##0.00', '0.00 "h"', 'Standard', '[h]:mm:ss', 'h:mm', 'yyyy\\-mm\\-dd;@', '0.00E+00', '[$-F800]dddd\\,\\ mmmm\\ dd\\,\\ yyyy', '#,##0.00 _d_e_n_.'];
+  const styles = `<styleSheet><numFmts>${formats.map((f, i) => `<numFmt numFmtId="${170 + i}" formatCode="${f.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"/>`).join('')}</numFmts><cellXfs><xf numFmtId="0"/>${formats.map((_, i) => `<xf numFmtId="${170 + i}"/>`).join('')}<xf numFmtId="46"/><xf numFmtId="20"/></cellXfs></styleSheet>`;
+  const head = `<row r="1">${'ABCDEFGHIJKLMNOPQ'.split('').map((col) => `<c r="${col}1" t="inlineStr"><is><t>${col}</t></is></c>`).join('')}</row>`;
+  const values = [['A', 1, 46357], ['B', 2, 12.5], ['C', 3, 12.5], ['D', 4, 12.5], ['E', 5, 1.25], ['F', 6, 0.5], ['G', 7, 46357], ['H', 8, 12.5], ['I', 9, 46357], ['J', 10, 12.5], ['K', 11, 1.25], ['L', 12, 0.75],
+    ['M', 0, '0.30000000000000004'], ['N', 0, '69.989999999999995'], ['O', 0, '1E-3'], ['P', 0, '12345678901234567']];
+  const odd = zip([
+    ['_rels/.rels', '<Relationships><Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="/book/Workbook2.xml"/></Relationships>', 8],
+    ['book/workbook2.xml', '<workbook><sheets><sheet name="Numbers" sheetId="1" r:id="a"/></sheets></workbook>', 8],
+    ['book/_rels/workbook2.xml.rels', '<Relationships><Relationship Id="a" Type="x/worksheet" Target="../book/sheets/one.xml"/><Relationship Id="b" Type="x/sharedStrings" Target="Strings.xml"/><Relationship Id="c" Type="x/styles" Target="look.xml"/><Relationship Id="d" Type="x/hyperlink" Target="https://example.com/" TargetMode="External"/></Relationships>', 8],
+    ['book/strings.xml', '<sst><si><t>line one_x000D_\nline two, a_x005F_b</t></si></sst>', 8],
+    ['book/look.xml', styles, 8],
+    ['book/sheets/one.xml', `<worksheet><sheetData>${head}<row r="2">${values.map(([col, st, v]) => cell(`${col}2`, st, v)).join('')}<c r="Q2" t="s"><v>0</v></c></row><row r="3"><c r="A3" t="s"/></row></sheetData></worksheet>`, 8],
+  ]);
+  assert.deepEqual((await imp.readUpload('odd.xlsx', odd)).table.rows, [[
+    '2026-12-01', '12.5', '12.5', '12.5', '1.25', '12:00', '2026-12-01', '12.5', '2026-12-01', '12.5', '1.25', '18:00',
+    '0.3', '69.99', '0.001', '12345678901234567', 'line one\nline two, a_b',
+  ]], 'dates by their format and nothing else as a date; a time of day; a length of time; numbers as typed; parts found where the file says they are');
+
+  /* a sheet too long does not refuse the file, and says how long it is */
+  const long = (n) => `<worksheet><sheetData>${Array.from({ length: n }, (_, i) => `<row><c t="inlineStr"><is><t>${i ? `Task ${i}` : 'Title'}</t></is></c></row>`).join('')}</sheetData></worksheet>`;
+  const twoSheets = zip([
+    ['xl/workbook.xml', '<workbook><sheets><sheet name="Dump" sheetId="1" r:id="a"/><sheet name="Tasks" sheetId="2" r:id="b"/></sheets></workbook>', 8],
+    ['xl/_rels/workbook.xml.rels', '<Relationships><Relationship Id="a" Target="worksheets/sheet1.xml"/><Relationship Id="b" Target="worksheets/sheet2.xml"/></Relationships>', 8],
+    ['xl/worksheets/sheet1.xml', long(7001), 8], ['xl/worksheets/sheet2.xml', long(3), 8],
+  ]);
+  const r = await imp.readUpload('two.xlsx', twoSheets);
+  assert.deepEqual(r.parts.map((p) => [p.path[0], p.count]), [['Dump', 7000], ['Tasks', 2]]);
+  assert.throws(() => imp.tableOfPart(r, r.parts[0]), (e) => e.code === 'too_many' && /This sheet has 7,000 rows/.test(e.message));
+  assert.equal(imp.tableOfPart(r, r.parts[1]).rows.length, 2);
+  await assert.rejects(() => imp.readUpload('one.xlsx', zip([['xl/workbook.xml', '<workbook><sheets><sheet name="Dump" r:id="a"/></sheets></workbook>', 8], ['xl/_rels/workbook.xml.rels', '<Relationships><Relationship Id="a" Target="worksheets/sheet1.xml"/></Relationships>', 8], ['xl/worksheets/sheet1.xml', long(7001), 8]])),
+    (e) => e.code === 'too_many' && /This file has 7,000 rows/.test(e.message));
+
+  /* a small file that unpacks to a great deal: read up to a limit for the whole workbook */
+  const t1 = performance.now();
+  const filler = (mb) => `<worksheet><sheetData><row><c t="inlineStr"><is><t>Title</t></is></c></row><row><c t="inlineStr"><is><t>A task with a long enough name</t></is></c></row></sheetData>${' '.repeat(mb * 1024 * 1024)}</worksheet>`;
+  const names4 = [1, 2, 3, 4];
+  const bomb = zip([
+    ['xl/workbook.xml', `<workbook><sheets>${names4.map((n) => `<sheet name="S${n}" r:id="r${n}"/>`).join('')}</sheets></workbook>`, 8],
+    ['xl/_rels/workbook.xml.rels', `<Relationships>${names4.map((n) => `<Relationship Id="r${n}" Target="worksheets/sheet${n}.xml"/>`).join('')}</Relationships>`, 8],
+    ...names4.map((n) => [`xl/worksheets/sheet${n}.xml`, filler(30), 8]),
+  ]);
+  assert.ok(bomb.byteLength < 400000, 'the file itself is small');
+  const read = await imp.readUpload('bomb.xlsx', bomb);
+  assert.deepEqual(read.parts.map((p) => p.path[0]), ['S1', 'S2', 'S3'], 'the sheets there was room for');
+  await assert.rejects(() => imp.readUpload('big.xlsx', zip([['xl/workbook.xml', '<workbook><sheets><sheet name="S" r:id="a"/></sheets></workbook>', 8], ['xl/_rels/workbook.xml.rels', '<Relationships><Relationship Id="a" Target="worksheets/sheet1.xml"/></Relationships>', 8], ['xl/worksheets/sheet1.xml', filler(50), 8]])),
+    (e) => e.code === 'unreadable' && /too large/.test(e.message));
+  await assert.rejects(() => imp.readUpload('wide.xlsx', zip([['xl/workbook.xml', `<workbook><sheets>${'<sheet name="S" r:id="a"/>'.repeat(200000)}</sheets></workbook>`, 8]])), (e) => e.code === 'unreadable' && /too large/.test(e.message));
+  console.log(`check-import: workbooks that unpack to 120 MB and more are cut off (${Math.round(performance.now() - t1)} ms)`);
+}
+
+/* ── how a file's bytes become text ──────────────────────────────────── */
+{
+  const utf16 = new Uint8Array([0xFF, 0xFE, ...[...'Name\nCafé'].flatMap((ch) => [ch.charCodeAt(0) & 255, ch.charCodeAt(0) >> 8])]).buffer;
+  assert.deepEqual((await imp.readUpload('u.csv', utf16)).table.rows, [['Café']], 'UTF-16, as some spreadsheets save');
+  const latin = new Uint8Array([...[...'Name\nCaf'].map((ch) => ch.charCodeAt(0)), 0xE9]).buffer;
+  assert.deepEqual((await imp.readUpload('l.csv', latin)).table.rows, [['Café']], 'Windows-1252, where an accent is one byte');
+  assert.deepEqual((await imp.readUpload('b.csv', new Uint8Array([0xEF, 0xBB, 0xBF, ...new TextEncoder().encode('Name\nCafé')]).buffer)).table.rows, [['Café']], 'UTF-8 with a mark');
+  assert.equal((await imp.readUpload('board.json', bytes(JSON.stringify(nested)))).what, 'parts', 'a document of several parts says so');
+}
+
+console.log('check-import: CSV, Excel, XML, values, columns, parts, plans and refusals all pass');

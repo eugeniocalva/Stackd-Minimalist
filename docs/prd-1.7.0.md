@@ -1,7 +1,7 @@
 # PRD: Stack'd Minimalist 1.7.0 — swipe back, a tidier Settings, import and export
 
-Status: **in progress, 2026-11-27.** Phases 1 to 5 of 8 are done and
-agreed. Forty-nine decisions taken by the owner (§02). The decisions
+Status: **in progress, 2026-11-27.** Phases 1 to 6 of 8 are done and
+agreed. Fifty-one decisions taken by the owner (§02). The decisions
 still to take are listed by phase in §11 and are
 asked when their phase starts; each answer is recorded in §02. Branch:
 `release/1.7.0`, cut from `release/1.6.0` at `602b94c`.
@@ -75,6 +75,8 @@ the exported files) are done by the owner on one TestFlight build at the end.
 | 47 | Recognising a card imported before, in a file with no link or number per card | Same title in the lane its list maps to. Review shows how many and offers to import them anyway |
 | 48 | Remembered imports in a backup file | Included, with priorities and labels, and restored with them |
 | 49 | Phase 5, the import guide and Remembered imports as built | Agreed on 2026-11-27 from the pictures of the app, with a Priority field, a new board that gets only the lanes its lists ask for, the limits (5,000 rows, 12 MB, 50 new lanes), the link tied to the file's layout, and no import into a shared board. The owner's real files, a real file picker, a signed-in account and the iPhone are checked on TestFlight |
+| 50 | An Excel file with several sheets | Asked on 2026-11-27 when phase 6 started: the guide asks which sheet, on a page like Which part, with the first sheet chosen. A file with one sheet that has rows is not asked |
+| 51 | Phase 6, import of Excel and XML as built | Agreed on 2026-11-27 from the pictures of the app, with: a remembered import that also applies to a sheet; a sheet of more than 5,000 rows listed and refused only when chosen; a file with no extension judged by its first characters; the limits (96 MB unpacked a workbook, 1.5 million elements an XML file); and the two things known and left (ZIP64 workbooks, a single item beside other things in XML). The owner's real files are checked on TestFlight |
 
 ---
 
@@ -281,20 +283,25 @@ browser.
 
 ### 06.1 Import: the guide
 
-**Built 2026-11-26 and agreed 2026-11-27** (decision 49) for CSV and JSON;
-Excel and XML are phase 6. As built:
+**Built 2026-11-26 and agreed 2026-11-27** (decision 49) for CSV and JSON.
+Excel and XML were built and agreed on 2026-11-27 (phase 6, decisions 50
+and 51). As built:
 
 - **Starting.** Import file in the sheet opens the system's file picker;
   the file is read on the device. A file over 12 MB, an empty one, one with
-  no rows or one that is not CSV or JSON gets a dialog that says so and
-  ends "Nothing was changed."
+  no rows or one that is not CSV, Excel, JSON or XML gets a dialog that
+  says so and ends "Nothing was changed."
 - **Pages** (decision 45), each with "Step n of m", a back arrow that keeps
   the answers, a close button and one button at the bottom. A step that
   does not apply is not shown, so a plain list of tasks can be three steps.
   1. **Which part**, only for a file made of several lists of things
      (decision 46): the guide lists the parts with their sizes, suggests
      the one that holds the tasks, and uses the others to turn ids into
-     names: a task's list, its people, its checklists.
+     names: a task's list, its people, its checklists. For an Excel file
+     with several sheets that have rows the page is **Which sheet**
+     (decision 50): each sheet with its number of rows and first column
+     names, the first one chosen. Hidden sheets and sheets with no rows
+     under their column names are not listed.
   2. **Columns.** Eleven fields: Title, List, Description, Labels,
      Priority, Due date, Start date, Done, Archived, Checklist, Link or
      number. Each shows the column Stack'd placed on it and a sample value;
@@ -340,9 +347,33 @@ Excel and XML are phase 6. As built:
   is what an account holds. An import that would pass that, or that the
   device has no room for, is refused with the reason, adds nothing and
   leaves the guide open.
-- **Other files.** Anything that is not CSV or JSON is refused by name. A
-  file written in UTF-16 or Windows-1252, as some spreadsheets do, is read
-  as such.
+- **Excel** (phase 6). A `.xlsx` file is read without a library: it is a
+  zip of XML, unpacked on the device. Every cell becomes text, as a CSV
+  would have it: a date cell is read as 2026-12-01 or 2026-12-01 09:00
+  whatever format the sheet shows it in, a time of day as 09:00, a ticked
+  cell as TRUE or FALSE, a formula as its last result, a number as it was
+  typed (0.3, not 0.30000000000000004). Amounts of money and lengths of
+  time stay numbers. A sheet with more than 5,000 rows is listed with its
+  size and refused when chosen; the other sheets can still be imported.
+  An older `.xls` file, or one protected with a password, is refused with
+  what to do: open it in Excel and save it as `.xlsx`.
+- **XML** (phase 6). A list of records: each task an element, each field
+  an element or an attribute inside it, whatever the names. Values padded
+  with spaces and line breaks are trimmed. An element that only wraps
+  others of one name (`<cards>` around each `<card>`, `<labels>` around
+  each `<label>`) is read as that list, so a file with one task reads
+  like a file with many. A file with several lists of records gets the
+  Which part page, as a JSON file does. Excel's older "XML Spreadsheet
+  2003" is refused with what to do.
+- **Files are not trusted.** Nothing in a file is run, fetched or
+  expanded: a zip's parts are unpacked up to a limit each and 96 MB for
+  the whole workbook, so a small file cannot fill the device's memory;
+  XML entities a file declares are never looked up; an XML file holds up
+  to 1.5 million elements; reading takes time in proportion to the file's
+  size.
+- **Other files.** Anything that is not CSV, Excel, JSON or XML is refused
+  by name. A file written in UTF-16 or Windows-1252, as some spreadsheets
+  do, is read as such.
 
 Checked in the browser at 375 and 1280 px on made-up files: a table as a
 board tool exports it, a file of several parts, dates read two ways, the
@@ -363,6 +394,26 @@ with a zone, two-digit years). Known and left: when the same list is
 forgotten on one device while a 1.6.0 device and a third device are in
 play, it can come back; and a file's separator is judged on its first six
 rows.
+
+Phase 6 was checked in the browser at 375 and 1280 px on a made-up
+workbook of two sheets and the same cards as XML: the Which sheet page,
+the columns placed, the import, Undo, a second import that skips what is
+there, and the refusals. One independent review of the two readers found
+no way for a file to put markup on the page or to change how records
+behave, and these defects, fixed before the owner saw the result and
+covered by checks: a long tag with no value in it kept the page busy for
+minutes; a 3 MB workbook could hold 3 GB of memory; a wide XML file took
+time that grew with the square of its size; fields written as attributes,
+lists inside a wrapper, a single subtask and name and value pairs were
+lost or misread; amounts in some currencies and lengths of time were
+taken for dates, and a time of day for a day in 1899; numbers kept the
+long tail a computer stores; a workbook whose parts are not at the usual
+places lost its text; one sheet too long refused the whole file. Known
+and left: a workbook written in the ZIP64 form is refused as not a
+workbook; in an XML file, a single item inside an element that also holds
+other things is read as a field, not as a list of one. The owner's own
+files were no longer on the computer when phase 6 was built, so they are
+checked on TestFlight (decision 49).
 
 Formats: CSV, Excel (.xlsx), JSON, XML (decision 2). All read on the
 device; nothing is uploaded. A file is untrusted: every value is rebuilt
@@ -591,7 +642,7 @@ Each phase: options shown → owner agrees → built → shown → owner agrees.
 | 3 | C: task description. **Done and agreed** (decisions 27 to 31) | Mock-ups of the task detail, three options; then the built screens |
 | 4 | D: Data section, the sheet, Backup. **Done and agreed** (decisions 32 to 44) | Mock-ups, then the working pages |
 | 5 | D: Import guide for CSV and JSON, files made of several parts, Remembered imports. **Done and agreed** (decisions 45 to 49) | The guide, step by step, on made-up files |
-| 6 | D: Import of Excel and XML | The same files in those formats |
+| 6 | D: Import of Excel and XML. **Done and agreed** (decisions 50 and 51) | The same files in those formats |
 | 7 | D: Export, six formats | The pages, and one file of each format to open |
 | 8 | iPhone saving, QA, security review, version, release notes. QA includes: no switched-off button and no "being built" line left in the Import and export sheet | TestFlight build |
 
@@ -603,7 +654,6 @@ when its phase starts, and the answer goes into §02.
 
 | Phase | Question | My suggestion |
 |---|---|---|
-| 6 | An Excel file with several sheets | Read the first, offer the others |
 | 7 | Word: a true `.docx`, or a web page saved as `.doc` as the power-up does | True `.docx`: Pages and Google Docs open it properly |
 | 7 | The fields ticked at first in the export | Board, list, title, description, labels, priority, due, start, done, subtasks |
 

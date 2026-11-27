@@ -13,6 +13,8 @@ const SHELL = [
   'src/backup.js',
   'src/files.js',
   'src/formats/csv.js',
+  'src/formats/xlsx.js',
+  'src/formats/xml.js',
   'src/importer.js',
   'src/util.js',
   'src/dates.js',

@@ -45,21 +45,39 @@ function rawData(buffer, entry) {
   return new Uint8Array(buffer, start, entry.compressedSize);
 }
 
-async function inflate(bytes) {
+/* max: stop, with an error, once more than that many bytes have come out:
+   a few kilobytes of zip can claim to unpack to gigabytes. */
+async function inflate(bytes, max = Infinity) {
   const ds = new DecompressionStream('deflate-raw');
   const stream = new Blob([bytes]).stream().pipeThrough(ds);
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  if (max === Infinity) return new Uint8Array(await new Response(stream).arrayBuffer());
+  const reader = stream.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > max) { await reader.cancel().catch(() => {}); throw new Error('too large when unpacked'); }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(size);
+  let p = 0;
+  for (const c of chunks) { out.set(c, p); p += c.length; }
+  return out;
 }
 
-/** The text of one entry (stored or deflated), or null when absent. */
-export async function readEntry(buffer, name) {
+/** The text of one entry (stored or deflated), or null when absent.
+    max: refuse an entry that is, or unpacks to, more bytes than that. */
+export async function readEntry(buffer, name, max = Infinity) {
   const entry = entries(buffer).find((e) => e.name === name);
   if (!entry) return null;
   const raw = rawData(buffer, entry);
+  if (raw.length > max) throw new Error('too large when unpacked');
   if (entry.method === 0) return utf8.decode(raw);
   if (entry.method === 8) {
     if (!canInflate()) throw new Error('This browser cannot read Word files; paste the text instead.');
-    return utf8.decode(await inflate(raw));
+    return utf8.decode(await inflate(raw, max));
   }
   throw new Error(`unsupported compression ${entry.method}`);
 }

@@ -1032,7 +1032,7 @@
   function copyNote(id) {
     const n = noteById(id);
     if (!n) return null;
-    const copy = blankNote({
+    const copy2 = blankNote({
       title: n.title.trim() ? `Copy of ${n.title.trim()}` : "",
       body: n.body,
       color: n.color,
@@ -1040,9 +1040,9 @@
       checklist: n.checklist ? n.checklist.map((c) => ({ id: uid(), text: c.text, done: false })) : null,
       order: Math.min(0, ...activeNotes().map((x) => x.order)) - 1
     });
-    S.notes.push(copy);
+    S.notes.push(copy2);
     commit();
-    return copy;
+    return copy2;
   }
   function archiveNote(id) {
     const n = noteById(id);
@@ -1652,7 +1652,7 @@
     const t = taskById(id);
     if (!t || !isLive(listById(listId))) return null;
     lane = laneOr(listId, lane);
-    const copy = blankTask(listId, t.title, {
+    const copy2 = blankTask(listId, t.title, {
       lane,
       done: lane === DONE_LANE,
       order: nextOrder(),
@@ -1667,10 +1667,10 @@
       reminder: t.reminder,
       recurDay: t.recurDay ?? null
     });
-    armReminder(copy);
-    S.tasks.push(copy);
+    armReminder(copy2);
+    S.tasks.push(copy2);
     commit();
-    return copy;
+    return copy2;
   }
   function nameTaken(kind, name, { listId = null, except = null } = {}) {
     const n = String(name ?? "").trim().toLowerCase();
@@ -2134,12 +2134,12 @@
       }).catch(() => nativePermission);
     }
     if (reminderPermission() !== "default") return Promise.resolve(reminderPermission());
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       let settled = false;
       const done2 = () => {
         if (!settled) {
           settled = true;
-          resolve(reminderPermission());
+          resolve2(reminderPermission());
         }
       };
       try {
@@ -2798,7 +2798,7 @@
     return { ov, close };
   }
   function confirmDialog(title, body, { confirmLabel = "Confirm", danger = false } = {}) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const { ov, close } = overlay(`
       <div class="sheet dialog" role="alertdialog" aria-labelledby="dlg-title">
         <h2 id="dlg-title">${esc(title)}</h2>
@@ -2807,14 +2807,14 @@
           <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
           <button class="btn ${danger ? "btn-danger" : "btn-primary"}" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
-      </div>`, { onClose: (r) => resolve(r === true) });
+      </div>`, { onClose: (r) => resolve2(r === true) });
       ov.querySelector("[data-cancel]").addEventListener("click", () => close(false));
       ov.querySelector("[data-ok]").addEventListener("click", () => close(true));
       ov.querySelector("[data-ok]").focus();
     });
   }
   function noticeDialog(title, body, { label = "OK" } = {}) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const { ov, close } = overlay(`
       <div class="sheet dialog" role="alertdialog" aria-labelledby="dlg-title" aria-describedby="dlg-body">
         <h2 id="dlg-title">${esc(title)}</h2>
@@ -2822,13 +2822,13 @@
         <div class="dialog-actions">
           <button class="btn btn-primary" data-ok><span class="btn-label">${esc(label)}</span></button>
         </div>
-      </div>`, { onClose: () => resolve() });
+      </div>`, { onClose: () => resolve2() });
       ov.querySelector("[data-ok]").addEventListener("click", () => close());
       ov.querySelector("[data-ok]").focus();
     });
   }
   function choiceDialog(title, body, choices) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const { ov, close } = overlay(`
       <div class="sheet dialog" role="alertdialog" aria-labelledby="dlg-title" aria-describedby="dlg-body">
         <h2 id="dlg-title">${esc(title)}</h2>
@@ -2837,14 +2837,14 @@
           <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
           ${choices.map((c) => `<button class="btn ${c.danger ? "btn-danger" : "btn-primary"}" data-choice="${esc(c.id)}"><span class="btn-label">${esc(c.label)}</span></button>`).join("")}
         </div>
-      </div>`, { onClose: (r) => resolve(typeof r === "string" ? r : null) });
+      </div>`, { onClose: (r) => resolve2(typeof r === "string" ? r : null) });
       ov.querySelector("[data-cancel]").addEventListener("click", () => close(null));
       ov.querySelectorAll("[data-choice]").forEach((b) => b.addEventListener("click", () => close(b.dataset.choice)));
       ov.querySelector("[data-cancel]").focus();
     });
   }
   function promptDialog(title, { value = "", placeholder = "", confirmLabel = "Save", allowEmpty = false } = {}) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const { ov, close } = overlay(`
       <div class="sheet dialog" role="dialog" aria-labelledby="dlg-title">
         <h2 id="dlg-title">${esc(title)}</h2>
@@ -2853,7 +2853,7 @@
           <button class="btn btn-secondary" data-cancel><span class="btn-label">Cancel</span></button>
           <button class="btn btn-primary" data-ok><span class="btn-label">${esc(confirmLabel)}</span></button>
         </div>
-      </div>`, { onClose: (r) => resolve(typeof r === "string" && (r.trim() || allowEmpty) ? r.trim() : null) });
+      </div>`, { onClose: (r) => resolve2(typeof r === "string" && (r.trim() || allowEmpty) ? r.trim() : null) });
       ov.classList.add("overlay-top");
       const input = ov.querySelector("[data-field]");
       const okBtn = ov.querySelector("[data-ok]");
@@ -3394,9 +3394,9 @@
   </div>`;
   }
   function bindPinpad(root, { onComplete, onChange: onChange3 = null } = {}) {
-    const pad4 = root.querySelector("[data-pinpad]");
-    const dots = pad4.querySelectorAll(".pin-dot");
-    const live = pad4.querySelector("[data-pin-dots]");
+    const pad5 = root.querySelector("[data-pinpad]");
+    const dots = pad5.querySelectorAll(".pin-dot");
+    const live = pad5.querySelector("[data-pin-dots]");
     let pin = "";
     let busy = false;
     const show3 = () => {
@@ -3405,7 +3405,7 @@
       onChange3?.(pin.length);
     };
     const press = (k) => {
-      if (busy || pad4.classList.contains("is-disabled")) return;
+      if (busy || pad5.classList.contains("is-disabled")) return;
       if (k === "del") pin = pin.slice(0, -1);
       else if (/^\d$/.test(k) && pin.length < PIN_LENGTH) pin += k;
       show3();
@@ -3417,12 +3417,12 @@
         });
       }
     };
-    pad4.addEventListener("click", (e) => {
+    pad5.addEventListener("click", (e) => {
       const b = e.target.closest("[data-key]");
       if (b) press(b.dataset.key);
     });
     const onKey = (e) => {
-      if (!pad4.isConnected) {
+      if (!pad5.isConnected) {
         document.removeEventListener("keydown", onKey);
         return;
       }
@@ -3442,26 +3442,26 @@
         show3();
       },
       error(msg) {
-        pad4.querySelector("[data-pin-error]").textContent = msg || "";
+        pad5.querySelector("[data-pin-error]").textContent = msg || "";
         if (msg) {
-          pad4.classList.remove("shake");
-          void pad4.offsetWidth;
-          pad4.classList.add("shake");
+          pad5.classList.remove("shake");
+          void pad5.offsetWidth;
+          pad5.classList.add("shake");
         }
         pin = "";
         show3();
       },
       label(text2) {
-        pad4.querySelector("[data-pin-label]").textContent = text2;
+        pad5.querySelector("[data-pin-label]").textContent = text2;
       },
       disable(on) {
-        pad4.classList.toggle("is-disabled", on);
-        pad4.querySelectorAll(".pin-key").forEach((b) => {
+        pad5.classList.toggle("is-disabled", on);
+        pad5.querySelectorAll(".pin-key").forEach((b) => {
           b.disabled = on;
         });
       },
       focus() {
-        pad4.querySelector(".pin-key")?.focus();
+        pad5.querySelector(".pin-key")?.focus();
       },
       destroy() {
         document.removeEventListener("keydown", onKey);
@@ -3862,10 +3862,503 @@
     return parse2(s, named ? named[1] : sniff(s));
   }
 
-  // src/importer.js
-  var MAX_ROWS = 5e3;
+  // src/formats/xml.js
+  var NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+  var decode2 = (s) => s.includes("&") ? s.replace(/&(#x[0-9a-fA-F]{1,6}|#\d{1,7}|[a-z]{2,4});/g, (all, e) => {
+    if (e[0] !== "#") return NAMED[e] ?? all;
+    const code = e[1] === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+    return code > 0 && code <= 1114111 && !(code >= 55296 && code <= 57343) ? String.fromCodePoint(code) : "";
+  }) : s;
+  var MAX_TAG = 1e5;
+  var space = (c) => c === " " || c === "\n" || c === "	" || c === "\r";
+  function attrs(tag) {
+    const out = /* @__PURE__ */ Object.create(null);
+    const n = tag.length;
+    let i = 0;
+    while (i < n) {
+      while (i < n && (space(tag[i]) || tag[i] === "/")) i++;
+      const start2 = i;
+      while (i < n && !space(tag[i]) && tag[i] !== "=" && tag[i] !== "/") i++;
+      if (i === start2) {
+        i++;
+        continue;
+      }
+      const name = tag.slice(start2, i);
+      while (i < n && space(tag[i])) i++;
+      if (tag[i] !== "=") continue;
+      i++;
+      while (i < n && space(tag[i])) i++;
+      const quote = tag[i];
+      if (quote !== '"' && quote !== "'") continue;
+      const end = tag.indexOf(quote, i + 1);
+      if (end === -1) break;
+      out[name] = decode2(tag.slice(i + 1, end));
+      i = end + 1;
+    }
+    return out;
+  }
+  function scan(xml, { open: open3, close, text: text2 }) {
+    const n = xml.length;
+    let i = 0;
+    while (i < n) {
+      const lt = xml.indexOf("<", i);
+      if (lt === -1) {
+        if (text2) text2(decode2(xml.slice(i)));
+        break;
+      }
+      if (lt > i && text2) text2(decode2(xml.slice(i, lt)));
+      if (xml.startsWith("<!--", lt)) {
+        const e = xml.indexOf("-->", lt + 4);
+        i = e === -1 ? n : e + 3;
+        continue;
+      }
+      if (xml.startsWith("<![CDATA[", lt)) {
+        const e = xml.indexOf("]]>", lt + 9);
+        if (text2) text2(xml.slice(lt + 9, e === -1 ? n : e));
+        i = e === -1 ? n : e + 3;
+        continue;
+      }
+      if (xml.startsWith("<?", lt)) {
+        const e = xml.indexOf("?>", lt + 2);
+        i = e === -1 ? n : e + 2;
+        continue;
+      }
+      if (xml.startsWith("<!", lt)) {
+        let e = lt + 2, depth = 0;
+        for (; e < n; e++) {
+          const c = xml[e];
+          if (c === "[") depth++;
+          else if (c === "]") depth--;
+          else if (c === ">" && depth <= 0) break;
+        }
+        i = e + 1;
+        continue;
+      }
+      let gt = lt + 1, quote = "";
+      for (; gt < n; gt++) {
+        const c = xml[gt];
+        if (quote) {
+          if (c === quote) quote = "";
+        } else if (c === '"' || c === "'") quote = c;
+        else if (c === ">") break;
+      }
+      if (gt >= n || gt - lt > MAX_TAG) throw new Error("a tag that does not end");
+      let tag = xml.slice(lt + 1, gt);
+      i = gt + 1;
+      if (tag[0] === "/") {
+        if (close) close(tag.slice(1).trim());
+        continue;
+      }
+      const self = tag.endsWith("/");
+      if (self) tag = tag.slice(0, -1);
+      let sp = 0;
+      while (sp < tag.length && !space(tag[sp])) sp++;
+      const name = tag.slice(0, sp);
+      if (!name) throw new Error("a tag with no name");
+      if (open3) open3(name, tag.slice(sp), self);
+      if (self && close) close(name);
+    }
+  }
+  var MAX_DEPTH = 60;
+  var MAX_NODES = 15e5;
+  var NO_KIDS = Object.freeze([]);
+  var NO_ATTRS = Object.freeze(/* @__PURE__ */ Object.create(null));
+  function parseXML(xml) {
+    const top = { name: "", attrs: NO_ATTRS, kids: [], text: "" };
+    const stack = [top];
+    let nodes = 0;
+    scan(String(xml ?? ""), {
+      open: (name, inside) => {
+        if (stack.length > MAX_DEPTH) throw new Error("too deep");
+        if (++nodes > MAX_NODES) throw new Error("too large");
+        const node = { name, attrs: inside.trim() ? attrs(inside) : NO_ATTRS, kids: NO_KIDS, text: "" };
+        const parent = stack.at(-1);
+        if (parent.kids === NO_KIDS) parent.kids = [node];
+        else parent.kids.push(node);
+        stack.push(node);
+      },
+      close: (name) => {
+        if (stack.length > 1 && stack.at(-1).name === name) stack.pop();
+        else throw new Error(`</${name}> does not close what is open`);
+      },
+      text: (t) => {
+        const node = stack.at(-1);
+        if (node !== top) node.text += t;
+      }
+    });
+    if (stack.length !== 1) throw new Error("an element that is not closed");
+    if (top.kids.length !== 1) throw new Error("not one root element");
+    return top.kids[0];
+  }
+  var localName = (name) => {
+    const i = name.lastIndexOf(":");
+    return i === -1 ? name : name.slice(i + 1);
+  };
+  var noise = (name) => name === "xmlns" || name.startsWith("xmlns:") || name.startsWith("xml:") || name.startsWith("xsi:");
+  function toValue(root) {
+    const own2 = (node) => Object.keys(node.attrs).filter((k) => !noise(k));
+    const value = (node, isRoot) => {
+      const a = isRoot ? [] : own2(node);
+      const kids = node.kids;
+      if (!kids.length) {
+        const text2 = node.text.trim();
+        if (!a.length) return text2;
+        const o2 = /* @__PURE__ */ Object.create(null);
+        for (const k of a) o2[localName(k)] = node.attrs[k];
+        if (text2) o2["text" in o2 ? "#text" : "text"] = text2;
+        return o2;
+      }
+      const first = kids[0].name;
+      let same2 = true, pairs2 = true;
+      for (const k of kids) {
+        if (k.name !== first) same2 = false;
+        if (k.kids.length || typeof k.attrs.name !== "string" || !k.attrs.name.trim()) pairs2 = false;
+      }
+      if (same2 && pairs2 && !a.length) {
+        const o2 = /* @__PURE__ */ Object.create(null);
+        for (const k of kids) {
+          const key = k.attrs.name.trim().slice(0, 200);
+          if (!(key in o2)) o2[key] = k.text.trim();
+        }
+        return o2;
+      }
+      if (same2 && !a.length && (kids.length > 1 || kids[0].kids.length > 0 || own2(kids[0]).length > 0)) {
+        const values = kids.map((k) => value(k, false));
+        return values.every(Array.isArray) ? values.flat() : values;
+      }
+      const o = /* @__PURE__ */ Object.create(null);
+      for (const k of a) o[localName(k)] = node.attrs[k];
+      const many = /* @__PURE__ */ new Set();
+      for (const kid of kids) {
+        const v = value(kid, false);
+        const key = localName(kid.name);
+        if (!(key in o)) o[key] = v;
+        else if (many.has(key)) o[key].push(v);
+        else {
+          o[key] = [o[key], v];
+          many.add(key);
+        }
+      }
+      return o;
+    };
+    return value(root, true);
+  }
+
+  // src/docx.js
+  var SIG_EOCD = 101010256;
+  var SIG_CENTRAL = 33639248;
+  var SIG_LOCAL = 67324752;
+  var utf8 = new TextDecoder("utf-8");
+  var canInflate = () => typeof DecompressionStream !== "undefined";
+  function entries(buffer) {
+    const v = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
+    let eocd = -1;
+    for (let i = buffer.byteLength - 22; i >= Math.max(0, buffer.byteLength - 22 - 65535); i--) {
+      if (v.getUint32(i, true) === SIG_EOCD) {
+        eocd = i;
+        break;
+      }
+    }
+    if (eocd === -1) throw new Error("not a zip file");
+    const count2 = v.getUint16(eocd + 10, true);
+    let p = v.getUint32(eocd + 16, true);
+    const out = [];
+    for (let n = 0; n < count2; n++) {
+      if (v.getUint32(p, true) !== SIG_CENTRAL) throw new Error("bad central directory");
+      const method = v.getUint16(p + 10, true);
+      const compressedSize = v.getUint32(p + 20, true);
+      const size = v.getUint32(p + 24, true);
+      const nameLen = v.getUint16(p + 28, true), extraLen = v.getUint16(p + 30, true), commentLen = v.getUint16(p + 32, true);
+      const offset = v.getUint32(p + 42, true);
+      const name = utf8.decode(bytes.subarray(p + 46, p + 46 + nameLen));
+      out.push({ name, method, compressedSize, size, offset });
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+    return out;
+  }
+  function rawData(buffer, entry) {
+    const v = new DataView(buffer);
+    if (v.getUint32(entry.offset, true) !== SIG_LOCAL) throw new Error("bad local header");
+    const nameLen = v.getUint16(entry.offset + 26, true), extraLen = v.getUint16(entry.offset + 28, true);
+    const start2 = entry.offset + 30 + nameLen + extraLen;
+    return new Uint8Array(buffer, start2, entry.compressedSize);
+  }
+  async function inflate(bytes, max = Infinity) {
+    const ds = new DecompressionStream("deflate-raw");
+    const stream = new Blob([bytes]).stream().pipeThrough(ds);
+    if (max === Infinity) return new Uint8Array(await new Response(stream).arrayBuffer());
+    const reader = stream.getReader();
+    const chunks = [];
+    let size = 0;
+    for (; ; ) {
+      const { done: done2, value } = await reader.read();
+      if (done2) break;
+      size += value.length;
+      if (size > max) {
+        await reader.cancel().catch(() => {
+        });
+        throw new Error("too large when unpacked");
+      }
+      chunks.push(value);
+    }
+    const out = new Uint8Array(size);
+    let p = 0;
+    for (const c of chunks) {
+      out.set(c, p);
+      p += c.length;
+    }
+    return out;
+  }
+  async function readEntry(buffer, name, max = Infinity) {
+    const entry = entries(buffer).find((e) => e.name === name);
+    if (!entry) return null;
+    const raw = rawData(buffer, entry);
+    if (raw.length > max) throw new Error("too large when unpacked");
+    if (entry.method === 0) return utf8.decode(raw);
+    if (entry.method === 8) {
+      if (!canInflate()) throw new Error("This browser cannot read Word files; paste the text instead.");
+      return utf8.decode(await inflate(raw, max));
+    }
+    throw new Error(`unsupported compression ${entry.method}`);
+  }
+  var readDocumentXml = (buffer) => readEntry(buffer, "word/document.xml");
+
+  // src/formats/xlsx.js
+  var MB = 1024 * 1024;
+  var MAX_TOTAL = 96 * MB;
+  var MAX_SHEET = 48 * MB;
+  var MAX_SMALL = 4 * MB;
+  var MAX_STYLES = 16 * MB;
+  var MAX_SHEETS = 50;
+  var MAX_ROWS = 6e3;
   var MAX_COLUMNS = 200;
-  var MAX_CELL = 3e4;
+  var MAX_STRINGS = 5e5;
+  var MAX_STYLE_COUNT = 1e5;
+  var MAX_CELL = 32767;
+  var scan2 = (xml, h) => scan(xml, {
+    open: h.open && ((name, inside, self) => h.open(localName(name), inside, self)),
+    close: h.close && ((name) => h.close(localName(name))),
+    text: h.text
+  });
+  var relId = (a) => a["r:id"] || Object.keys(a).filter((k) => k.endsWith(":id")).map((k) => a[k])[0] || a.id || "";
+  var copy = (s) => {
+    const t = s.length > MAX_CELL ? s.slice(0, MAX_CELL) : s;
+    return t.length < 13 ? t : (" " + t).slice(1);
+  };
+  var unescape = (s) => (s.includes("_x") ? s.replace(/_x([0-9A-Fa-f]{4})_/g, (_, h) => String.fromCharCode(parseInt(h, 16))) : s).replace(/\r\n?/g, "\n");
+  var BUILT_IN = /* @__PURE__ */ new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 45, 47, 50, 51, 52, 53, 54, 55, 56, 57, 58]);
+  function kindOfCode(code) {
+    const first = String(code).split(";")[0];
+    if (/\[(h+|m+|s+)\]/i.test(first)) return "number";
+    const bare2 = first.replace(/"[^"]*"/g, "").replace(/\[[^\]]*\]/g, "").replace(/[\\_*]./g, "").replace(/s\.0+/gi, "s");
+    if (/^(general|standard)$/i.test(bare2.trim()) || /[0#?]/.test(bare2)) return "number";
+    return /[dmyhs]/i.test(bare2) ? "date" : "number";
+  }
+  function dateStyles(xml) {
+    const custom = /* @__PURE__ */ new Map();
+    const styles = [];
+    let inXfs = false;
+    scan2(xml, {
+      open: (name, inside) => {
+        if (name === "numFmt") {
+          const a = attrs(inside);
+          if (custom.size < MAX_STYLE_COUNT) custom.set(+a.numFmtId, kindOfCode(a.formatCode || "") === "date");
+        } else if (name === "cellXfs") inXfs = true;
+        else if (name === "xf" && inXfs && styles.length < MAX_STYLE_COUNT) {
+          const id = +(attrs(inside).numFmtId || 0);
+          styles.push(custom.has(id) ? custom.get(id) : BUILT_IN.has(id));
+        }
+      },
+      close: (name) => {
+        if (name === "cellXfs") inXfs = false;
+      }
+    });
+    return styles;
+  }
+  function sharedStrings(xml) {
+    const out = [];
+    let cur = null, inT = false, skip = 0;
+    scan2(xml, {
+      open: (name, _inside, self) => {
+        if (name === "si") cur = "";
+        else if (name === "rPh") skip++;
+        else if (name === "t" && !self && cur !== null && !skip) inT = true;
+      },
+      close: (name) => {
+        if (name === "si") {
+          if (out.length < MAX_STRINGS) out.push(copy(unescape(cur ?? "")));
+          cur = null;
+        } else if (name === "rPh") skip = Math.max(0, skip - 1);
+        else if (name === "t") inT = false;
+      },
+      text: (t) => {
+        if (inT && cur.length <= MAX_CELL) cur += t;
+      }
+    });
+    return out;
+  }
+  var pad3 = (n) => String(n).padStart(2, "0");
+  function serialToDate(serial, date1904 = false) {
+    if (!Number.isFinite(serial) || serial < 0 || serial > 2958465) return "";
+    let days = Math.floor(serial);
+    let minutes = Math.round((serial - days) * 1440);
+    if (minutes >= 1440) {
+      minutes = 0;
+      days += 1;
+    }
+    const time2 = `${pad3(Math.floor(minutes / 60))}:${pad3(minutes % 60)}`;
+    if (days === 0) return time2;
+    const t = new Date(Date.UTC(1899, 11, 30) + (days + (date1904 ? 1462 : 0)) * 864e5);
+    const day = `${t.getUTCFullYear()}-${pad3(t.getUTCMonth() + 1)}-${pad3(t.getUTCDate())}`;
+    return minutes ? `${day} ${time2}` : day;
+  }
+  var tidyNumber = (v) => /[.eE]/.test(v) && /^-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(v) ? String(+(+v).toPrecision(15)) : v;
+  var columnOf = (ref) => {
+    let n = 0;
+    for (let i = 0; i < ref.length && i < 4; i++) {
+      const c = ref.charCodeAt(i);
+      if (c >= 65 && c <= 90) n = n * 26 + (c - 64);
+      else if (c >= 97 && c <= 122) n = n * 26 + (c - 96);
+      else break;
+    }
+    return n - 1;
+  };
+  function sheetRows(xml, strings, styles, date1904) {
+    const rows = [];
+    let total = 0;
+    let row2 = null, filled2 = false, cell = null, inV = false, inT = false, next2 = 0;
+    scan2(xml, {
+      open: (name, inside, self) => {
+        if (name === "row") {
+          row2 = [];
+          filled2 = false;
+          next2 = 0;
+        } else if (name === "c" && row2) {
+          const a = attrs(inside);
+          const at = a.r ? columnOf(a.r) : next2;
+          cell = { at: at >= 0 ? at : next2, t: a.t || "n", s: +(a.s || 0), v: "" };
+          next2 = cell.at + 1;
+        } else if (cell && !self && name === "v") inV = true;
+        else if (cell && !self && name === "t") inT = true;
+      },
+      close: (name) => {
+        if (name === "v") inV = false;
+        else if (name === "t") inT = false;
+        else if (name === "c" && cell) {
+          let v = cell.v;
+          if (cell.t === "s") v = v === "" ? "" : strings[+v] ?? "";
+          else if (cell.t === "b") v = v === "1" ? "TRUE" : v === "0" ? "FALSE" : "";
+          else if (cell.t === "e") v = "";
+          else if (cell.t === "n" && v !== "") v = styles[cell.s] ? serialToDate(+v, date1904) : tidyNumber(v);
+          else if (cell.t !== "n") v = copy(unescape(v));
+          if (row2 && v !== "" && cell.at < MAX_COLUMNS) {
+            filled2 = true;
+            if (rows.length < MAX_ROWS) {
+              while (row2.length < cell.at) row2.push("");
+              row2[cell.at] = String(v);
+            }
+          }
+          cell = null;
+        } else if (name === "row" && row2) {
+          if (filled2) {
+            total++;
+            if (rows.length < MAX_ROWS) rows.push(row2);
+          }
+          row2 = null;
+        }
+      },
+      text: (t) => {
+        if (cell && (inV || inT) && cell.v.length <= MAX_CELL) cell.v += t;
+      }
+    });
+    return { rows, total };
+  }
+  function resolve(dir, target) {
+    const out = [];
+    for (const seg of (target.startsWith("/") ? target.slice(1) : `${dir}/${target}`).split("/")) {
+      if (seg === "" || seg === ".") continue;
+      if (seg === "..") out.pop();
+      else out.push(seg);
+    }
+    return out.join("/");
+  }
+  var dirOf = (path) => path.split("/").slice(0, -1).join("/");
+  var relsOf = (path) => {
+    const parts = path.split("/");
+    const file = parts.pop();
+    return [...parts, "_rels", `${file}.rels`].join("/");
+  };
+  async function readXLSX(buffer) {
+    const names = /* @__PURE__ */ new Map();
+    for (const e of entries(buffer)) if (!names.has(e.name.toLowerCase())) names.set(e.name.toLowerCase(), e.name);
+    let left = MAX_TOTAL;
+    const part = async (path, max) => {
+      const name = names.get(String(path).toLowerCase());
+      if (!name) return null;
+      const text2 = await readEntry(buffer, name, Math.min(max, left));
+      left -= text2.length;
+      return text2;
+    };
+    const relationships = async (path) => {
+      const out2 = [];
+      const xml = await part(path, MAX_SMALL);
+      if (xml) scan2(xml, { open: (name, inside) => {
+        if (name === "Relationship" && out2.length < 1e3) {
+          const a = attrs(inside);
+          out2.push({ id: a.Id || "", type: String(a.Type || ""), target: String(a.Target || ""), outside: a.TargetMode === "External" });
+        }
+      } });
+      return out2.filter((r) => !r.outside && r.target);
+    };
+    const main = (await relationships("_rels/.rels")).find((r) => /\/officeDocument$/.test(r.type));
+    const bookPath = main && names.has(resolve("", main.target).toLowerCase()) ? resolve("", main.target) : "xl/workbook.xml";
+    const workbook = await part(bookPath, MAX_SMALL);
+    if (workbook === null) throw new Error("not an Excel workbook");
+    const sheets = [];
+    let date1904 = false;
+    scan2(workbook, {
+      open: (name, inside) => {
+        if (name === "sheet" && sheets.length < MAX_SHEETS) {
+          const a = attrs(inside);
+          if (a.state !== "hidden" && a.state !== "veryHidden") sheets.push({ name: String(a.name || `Sheet ${sheets.length + 1}`).slice(0, 80), rid: relId(a) });
+        } else if (name === "workbookPr") {
+          const a = attrs(inside);
+          date1904 = a.date1904 === "1" || a.date1904 === "true";
+        }
+      }
+    });
+    const dir = dirOf(bookPath);
+    const rels = await relationships(relsOf(bookPath));
+    const byId = new Map(rels.map((r) => [r.id, resolve(dir, r.target)]));
+    const byType = (end, usual) => {
+      const r = rels.find((x) => x.type.endsWith(end));
+      return r ? resolve(dir, r.target) : resolve(dir, usual);
+    };
+    const stringsXml = await part(byType("/sharedStrings", "sharedStrings.xml"), MAX_SHEET);
+    const strings = stringsXml ? sharedStrings(stringsXml) : [];
+    const stylesXml = await part(byType("/styles", "styles.xml"), MAX_STYLES);
+    const styles = stylesXml ? dateStyles(stylesXml) : [];
+    const out = [];
+    for (const [i, s] of sheets.entries()) {
+      const path = byId.get(s.rid) || (rels.length ? "" : resolve(dir, `worksheets/sheet${i + 1}.xml`));
+      if (!path || !names.has(path.toLowerCase())) continue;
+      let xml;
+      try {
+        xml = await part(path, MAX_SHEET);
+      } catch (e) {
+        if (out.length && /too large/.test(e?.message || "")) break;
+        throw e;
+      }
+      out.push({ name: s.name, ...sheetRows(xml, strings, styles, date1904) });
+    }
+    return { sheets: out };
+  }
+
+  // src/importer.js
+  var MAX_ROWS2 = 5e3;
+  var MAX_COLUMNS2 = 200;
+  var MAX_CELL2 = 3e4;
   var MAX_SUBTASKS = 200;
   var MAX_NEW_LANES = 50;
   var MAX_LABELS = 20;
@@ -3908,7 +4401,7 @@
   var isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
   var scalar = (v) => typeof v === "string" || typeof v === "number" || typeof v === "boolean";
   var str = (v) => v === null || v === void 0 ? "" : String(v);
-  var cellText = (v) => str(v).slice(0, MAX_CELL).trim();
+  var cellText = (v) => str(v).slice(0, MAX_CELL2).trim();
   function uniqueNames(names) {
     const taken = /* @__PURE__ */ new Set();
     return names.map((raw, i) => {
@@ -3921,17 +4414,19 @@
   }
   function tableFromRows(rows) {
     if (!rows.length) throw new GuideError("empty", "This file has no rows.");
-    const columns = uniqueNames(rows[0].slice(0, MAX_COLUMNS));
+    const columns = uniqueNames(rows[0].slice(0, MAX_COLUMNS2));
     const body = rows.slice(1).map((r) => columns.map((_, i) => cellText(r[i])));
     return finish({ columns, rows: body });
   }
+  var tooMany = (n, what = "This file") => new GuideError("too_many", `${what} has ${n.toLocaleString("en-GB")} rows. Stack'd imports up to ${MAX_ROWS2.toLocaleString("en-GB")} at a time.`);
   function finish(table) {
     if (!table.rows.length) throw new GuideError("empty", "This file has column names and no rows under them.");
-    if (table.rows.length > MAX_ROWS) throw new GuideError("too_many", `This file has ${table.rows.length.toLocaleString("en-GB")} rows. Stack'd imports up to ${MAX_ROWS.toLocaleString("en-GB")} at a time.`);
+    if (table.rows.length > MAX_ROWS2) throw tooMany(table.rows.length);
     return table;
   }
   var nameOf = (o) => isObj(o) ? str(o.name ?? o.title ?? o.text ?? o.fullName ?? o.username ?? "") : "";
-  var doneOf = (o) => o.state === "complete" || o.state === "done" || o.checked === true || o.done === true || o.completed === true || o.complete === true;
+  var yes = (v) => v === true || typeof v === "string" && /^(true|yes|y|1|x|done|complete|completed)$/i.test(v.trim());
+  var doneOf = (o) => o.state === "complete" || o.state === "done" || yes(o.checked) || yes(o.done) || yes(o.completed) || yes(o.complete);
   var itemLike = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => isObj(x) && nameOf(x) !== "") && v.some((x) => "state" in x || "checked" in x || "done" in x || "completed" in x || "complete" in x);
   var itemLines = (items) => items.map((x) => `${doneOf(x) ? "[x]" : "[ ]"} ${nameOf(x).replace(/\s+/g, " ")}`).join("\n");
   var itemsIn = (o) => isObj(o) ? Object.values(o).find(itemLike) || null : null;
@@ -3950,7 +4445,7 @@
   var partName = (part) => part.path.join(" › ");
   var getPath = (doc2, path) => path.reduce((o, k) => isObj(o) ? o[k] : void 0, doc2);
   function suggestPart(parts) {
-    const score = (p) => (/^(cards|tasks|items|issues|todos|rows|records|data)$/i.test(p.path.at(-1)) ? 1e9 : 0) + (p.keys.some((k) => NAMES.title.includes(norm(k))) ? 1e8 : 0) + p.count;
+    const score = (p) => (p.path.slice(-2).some((k) => /^(cards?|tasks?|items?|issues?|todos?|rows?|records?|data)$/i.test(k)) ? 1e9 : 0) + (p.keys.some((k) => NAMES.title.includes(norm(k))) ? 1e8 : 0) + p.count;
     return [...parts].sort((a, b) => score(b) - score(a))[0] || null;
   }
   function tableFromRecords(records, others = []) {
@@ -3965,7 +4460,7 @@
     const seen = /* @__PURE__ */ new Set();
     records.forEach((r) => {
       if (isObj(r)) Object.keys(r).forEach((k) => {
-        if (!seen.has(k) && keys.length < MAX_COLUMNS) {
+        if (!seen.has(k) && keys.length < MAX_COLUMNS2) {
           seen.add(k);
           keys.push(k);
         }
@@ -3997,28 +4492,38 @@
     const columns = [], cells = [];
     for (const key of keys) {
       const target = pointsTo(key);
-      const resolve = (v) => {
+      const resolve2 = (v) => {
         const o = target.byId.get(String(v));
         if (!o) return "";
         const items = itemsIn(o);
-        return (items ? itemLines(items) : nameOf(o)).slice(0, MAX_CELL);
+        return (items ? itemLines(items) : nameOf(o)).slice(0, MAX_CELL2);
       };
       const cell = (v) => {
         if (v === null || v === void 0) return "";
-        if (target && scalar(v)) return resolve(v);
+        if (target && scalar(v)) return resolve2(v);
         if (scalar(v)) return cellText(v);
         if (Array.isArray(v)) {
           if (target && v.every(scalar)) {
-            const parts = v.map(resolve).filter(Boolean);
-            return (parts.some((p) => /^\[[ x]\] /.test(p)) ? parts.join("\n") : parts.join(", ")).slice(0, MAX_CELL);
+            const parts = v.map(resolve2).filter(Boolean);
+            return (parts.some((p) => /^\[[ x]\] /.test(p)) ? parts.join("\n") : parts.join(", ")).slice(0, MAX_CELL2);
           }
-          if (itemLike(v)) return itemLines(v).slice(0, MAX_CELL);
-          if (v.every(scalar)) return v.map(String).join(", ").slice(0, MAX_CELL);
+          if (itemLike(v)) return itemLines(v).slice(0, MAX_CELL2);
+          if (v.every(scalar)) return v.map(String).join(", ").slice(0, MAX_CELL2);
           if (v.every(isObj)) {
             const inner = v.map(itemsIn).filter(Boolean);
-            if (inner.length) return inner.map(itemLines).join("\n").slice(0, MAX_CELL);
-            return v.map(nameOf).filter(Boolean).join(", ").slice(0, MAX_CELL);
+            if (inner.length) return inner.map(itemLines).join("\n").slice(0, MAX_CELL2);
+            return v.map(nameOf).filter(Boolean).join(", ").slice(0, MAX_CELL2);
           }
+        }
+        if (isObj(v)) {
+          if (itemLike([v])) return itemLines([v]).slice(0, MAX_CELL2);
+          const items = itemsIn(v);
+          if (items) return itemLines(items).slice(0, MAX_CELL2);
+          if (nameOf(v) !== "") return nameOf(v).slice(0, MAX_CELL2);
+          const keys2 = Object.keys(v);
+          const one = keys2.length === 1 ? v[keys2[0]] : null;
+          if (typeof one === "string") return cellText(one);
+          return "";
         }
         return "";
       };
@@ -4036,30 +4541,98 @@
     return tableFromRecords(records.filter(isObj), others);
   }
   function readFile(name, text2) {
-    const ext = String(name ?? "").toLowerCase().split(".").pop();
+    const base = String(name ?? "").toLowerCase();
+    const ext = base.includes(".") ? base.split(".").pop() : "";
+    const loose = ext === "" || ext === "txt";
     const body = String(text2 ?? "").replace(/^\uFEFF/, "");
     if (!body.trim()) throw new GuideError("empty", "This file is empty.");
-    if (!["csv", "tsv", "txt", "json"].includes(ext) || /^(PK\u0003\u0004|%PDF)/.test(body) || body.slice(0, 4e3).includes("\0")) {
-      throw new GuideError("unreadable", "Stack'd imports CSV and JSON files. This file is neither.");
+    if (!["", "csv", "tsv", "txt", "json", "xml"].includes(ext) || /^(PK\u0003\u0004|%PDF)/.test(body) || body.slice(0, 4e3).includes("\0")) {
+      throw new GuideError("unreadable", "Stack'd imports CSV, Excel (.xlsx), JSON and XML files. This file is none of those.");
     }
-    if (ext === "json" || ext !== "csv" && ext !== "tsv" && /^\s*[[{]/.test(body)) {
+    if (ext === "json" || loose && /^\s*[[{]/.test(body)) {
       let doc2;
       try {
         doc2 = JSON.parse(body);
       } catch {
         throw new GuideError("unreadable", "This file could not be read: it is not valid JSON.");
       }
-      if (Array.isArray(doc2)) {
-        const records = doc2.filter(isObj);
-        if (!records.length) throw new GuideError("empty", "This file has no rows.");
-        return { kind: "table", table: tableFromRecords(records) };
+      return fromDocument(doc2);
+    }
+    if (ext === "xml" || loose && /^\s*<[?!A-Za-z]/.test(body)) {
+      let root;
+      try {
+        root = parseXML(body);
+      } catch (e) {
+        throw new GuideError("unreadable", /too large/.test(e?.message || "") ? "This XML file has too many items to read." : "This file could not be read: it is not valid XML.");
       }
-      const parts = findParts(doc2);
-      if (!parts.length) throw new GuideError("empty", "This file has no list of items in it.");
-      if (parts.length === 1) return { kind: "table", table: tableFromPart(doc2, parts, parts[0].path) };
-      return { kind: "parts", doc: doc2, parts, suggested: suggestPart(parts) };
+      if (localName(root.name) === "Workbook" && Object.values(root.attrs).some((v) => String(v).includes("urn:schemas-microsoft-com:office:spreadsheet"))) {
+        throw new GuideError("old_excel", "This is Excel's older XML format (XML Spreadsheet 2003). Open it in Excel, save it as .xlsx, then import that.");
+      }
+      return fromDocument(toValue(root));
     }
     return { kind: "table", table: tableFromRows(parseCSV(body)) };
+  }
+  function fromDocument(doc2) {
+    if (Array.isArray(doc2) && doc2.length === 1 && isObj(doc2[0]) && findParts(doc2[0]).some((p) => /^(cards?|tasks?|items?|issues?|todos?|rows?|records?|entry|entries)$/i.test(p.path.at(-1)))) doc2 = doc2[0];
+    if (Array.isArray(doc2)) {
+      const records = doc2.filter(isObj);
+      if (!records.length) throw new GuideError("empty", "This file has no rows.");
+      return { kind: "table", table: tableFromRecords(records) };
+    }
+    const parts = findParts(doc2);
+    if (!parts.length) throw new GuideError("empty", "This file has no list of items in it.");
+    if (parts.length === 1) return { kind: "table", table: tableFromPart(doc2, parts, parts[0].path) };
+    return { kind: "parts", what: "parts", doc: doc2, parts, suggested: suggestPart(parts) };
+  }
+  function decodeText(buffer) {
+    const b = new Uint8Array(buffer);
+    if (b[0] === 255 && b[1] === 254) return new TextDecoder("utf-16le").decode(buffer);
+    if (b[0] === 254 && b[1] === 255) return new TextDecoder("utf-16be").decode(buffer);
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    } catch {
+    }
+    const head = String.fromCharCode(...b.subarray(0, 200));
+    const said = /^\s*<\?xml[^>]{0,150}\bencoding\s*=\s*["']([\w.:-]{1,40})["']/i.exec(head);
+    if (said) {
+      try {
+        return new TextDecoder(said[1]).decode(buffer);
+      } catch {
+      }
+    }
+    return new TextDecoder("windows-1252").decode(buffer);
+  }
+  async function readUpload(name, buffer) {
+    const b = new Uint8Array(buffer, 0, Math.min(8, buffer.byteLength));
+    const ext = String(name ?? "").toLowerCase().split(".").pop();
+    if (b[0] === 208 && b[1] === 207 && b[2] === 17 && b[3] === 224) {
+      throw new GuideError("old_excel", "This is an older kind of Excel file (.xls), or one protected with a password. Open it in Excel, save it as .xlsx without a password, then import that.");
+    }
+    const zipped = b[0] === 80 && b[1] === 75 && b[2] === 3 && b[3] === 4;
+    if (ext === "xlsx" || zipped && ext !== "json" && ext !== "csv") {
+      let book;
+      try {
+        if (!zipped) throw new Error("not a zip");
+        book = await readXLSX(buffer);
+      } catch (e) {
+        const why = e?.message || "";
+        throw new GuideError("unreadable", /too large/.test(why) ? "This Excel file is too large to read." : /This browser cannot/.test(why) ? "This browser cannot open Excel files. Save the sheet as CSV and import that." : "This file could not be read: it is not an Excel workbook (.xlsx).");
+      }
+      const sheets = book.sheets.filter((s) => s.rows.length > 1);
+      if (!sheets.length) throw new GuideError("empty", book.sheets.length ? "This Excel file has no sheet with rows under its column names." : "This Excel file has no sheet to read.");
+      if (sheets.length === 1) {
+        if (sheets[0].total - 1 > MAX_ROWS2) throw tooMany(sheets[0].total - 1);
+        return { kind: "table", table: tableFromRows(sheets[0].rows) };
+      }
+      const parts = sheets.map((s) => ({ path: [s.name], count: s.total - 1, keys: s.rows[0].filter(Boolean).map((c) => String(c).slice(0, 40)), rows: s.rows }));
+      return { kind: "parts", what: "sheets", doc: null, parts, suggested: parts[0] };
+    }
+    return readFile(name, decodeText(buffer));
+  }
+  function tableOfPart(read4, part) {
+    if (!part.rows) return tableFromPart(read4.doc, read4.parts, part.path);
+    if (part.count > MAX_ROWS2) throw tooMany(part.count, "This sheet");
+    return tableFromRows(part.rows);
   }
   var column = (table, name) => {
     const i = table.columns.indexOf(name);
@@ -4111,7 +4684,7 @@
     }).slice(0, MAX_LABELS);
   }
   function parseChecklist(cell) {
-    const text2 = str(cell).slice(0, MAX_CELL);
+    const text2 = str(cell).slice(0, MAX_CELL2);
     const lines2 = /\n/.test(text2) || /^\s*(?:[-*•]\s+)?\[[ xX✓]?\]/.test(text2) ? text2.split(/\r?\n/) : text2.split(/[;|]/);
     return lines2.map((raw) => {
       let s = raw.trim().replace(/^[-*•]\s+/, "");
@@ -4134,8 +4707,8 @@
   }
   var MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
   var MONTHS_FULL = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
-  var pad3 = (n) => String(n).padStart(2, "0");
-  var hm = (h, m) => h === void 0 || h === null || +h > 23 || +m > 59 ? null : `${pad3(+h)}:${pad3(+m)}`;
+  var pad4 = (n) => String(n).padStart(2, "0");
+  var hm = (h, m) => h === void 0 || h === null || +h > 23 || +m > 59 ? null : `${pad4(+h)}:${pad4(+m)}`;
   var TIME = "(?:[ ,T]+(\\d{1,2}):(\\d{2})(?::\\d{2}(?:[.,]\\d+)?)?(?:\\s*([AaPp])\\.?[Mm]\\.?)?)?";
   var ZONE = "(?:\\s*(Z|UTC|GMT|[+-]\\d{2}(?::?\\d{2})?))?";
   var RE = {
@@ -4151,7 +4724,7 @@
     m = +m;
     d = +d;
     const t = new Date(y, m - 1, d);
-    return y >= 1900 && y <= 2200 && t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d ? `${y}-${pad3(m)}-${pad3(d)}` : null;
+    return y >= 1900 && y <= 2200 && t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d ? `${y}-${pad4(m)}-${pad4(d)}` : null;
   }
   function clock(h, m, ap) {
     if (h === void 0) return null;
@@ -4179,7 +4752,7 @@
       if (!m[7] || !time2 || time2 === "00:00") return timed(date2, time2);
       const z = /^[+-]/.test(m[7]) ? (m[7][0] === "-" ? -1 : 1) * (+m[7].slice(1, 3) * 60 + +(m[7].replace(":", "").slice(3, 5) || 0)) : 0;
       const t = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +time2.slice(0, 2), +time2.slice(3)) - z * 6e4);
-      return timed(`${t.getFullYear()}-${pad3(t.getMonth() + 1)}-${pad3(t.getDate())}`, hm(t.getHours(), t.getMinutes()));
+      return timed(`${t.getFullYear()}-${pad4(t.getMonth() + 1)}-${pad4(t.getDate())}`, hm(t.getHours(), t.getMinutes()));
     }
     const tail = (mm, at) => {
       const time2 = clock(mm[at], mm[at + 1], mm[at + 2]);
@@ -4793,17 +5366,17 @@ ${title.toLowerCase()}`);
     return data;
   }
   var plural = { list: "lists", task: "tasks", note: "notes", meeting: "meetings" };
-  function collect(state3, { space = null } = {}) {
+  function collect(state3, { space: space2 = null } = {}) {
     const out = /* @__PURE__ */ new Map();
     const shared2 = new Set((state3.lists || []).filter((l) => l.share).map((l) => l.id));
     const inScope = (kind, x) => {
       const board = kind === "list" ? x.id : kind === "task" ? x.listId : null;
-      return space ? board === space && shared2.has(space) : !shared2.has(board);
+      return space2 ? board === space2 && shared2.has(space2) : !shared2.has(board);
     };
-    for (const kind of space ? ["list", "task"] : ["list", "task", "note", "meeting"]) {
+    for (const kind of space2 ? ["list", "task"] : ["list", "task", "note", "meeting"]) {
       for (const x of state3[plural[kind]] || []) if (inScope(kind, x)) out.set(`${kind}:${x.id}`, { kind, id: x.id, data: toWire(kind, x) });
     }
-    if (!space) out.set("settings:settings", { kind: "settings", id: "settings", data: toWire("settings", state3) });
+    if (!space2) out.set("settings:settings", { kind: "settings", id: "settings", data: toWire("settings", state3) });
     return out;
   }
   var nextChangedAt = (now2, offset, previous = 0) => Math.max(Math.round(now2 + offset), previous + 1);
@@ -5014,26 +5587,26 @@ ${title.toLowerCase()}`);
     }
     return [...out.values()];
   }
-  function applyInbound(changes, { space = null } = {}) {
-    const sp = space ? spacesOf()[space] : null;
+  function applyInbound(changes, { space: space2 = null } = {}) {
+    const sp = space2 ? spacesOf()[space2] : null;
     if (sp?.held) changes = latestByKey([...Object.values(sp.held), ...changes]);
     if (!changes.length) return;
-    if (space && S.lists.some((l) => l.id === space && !l.share)) return;
-    const shadow = space ? sp.shadow : doc.shadow;
+    if (space2 && S.lists.some((l) => l.id === space2 && !l.share)) return;
+    const shadow = space2 ? sp.shadow : doc.shadow;
     const upserts = [], deletes = [];
     const incomingLists = changes.filter((c) => c.kind === "list" && !c.deleted).map((c) => c.data);
     const lists = [...S.lists.filter((l) => !incomingLists.some((x) => x?.id === l.id)), ...incomingLists];
-    const boardHere = !space || lists.some((l) => l?.id === space);
+    const boardHere = !space2 || lists.some((l) => l?.id === space2);
     const held = {};
     const settings2 = changes.find((c) => c.kind === "settings" && !c.deleted)?.data;
     const priorities = Array.isArray(settings2?.priorities) ? settings2.priorities : S.priorities;
     const order = { settings: 0, list: 1, task: 2, note: 3, meeting: 4 };
-    const share = space ? S.lists.find((l) => l.id === space)?.share || shared().spaces.find((s) => s.id === space) || { role: "member" } : null;
+    const share = space2 ? S.lists.find((l) => l.id === space2)?.share || shared().spaces.find((s) => s.id === space2) || { role: "member" } : null;
     for (const c of [...changes].sort((a, b) => order[a.kind] - order[b.kind])) {
       const key = `${c.kind}:${c.id}`;
-      if (space && !(c.kind === "list" ? c.id === space : c.kind === "task" && (c.deleted || c.data?.listId === space))) continue;
-      const mine = space && c.kind !== "settings" ? (S[plural[c.kind]] || []).find((x) => x.id === c.id) : null;
-      const foreign = !!mine && (c.kind === "list" ? !mine.share : mine.listId !== space);
+      if (space2 && !(c.kind === "list" ? c.id === space2 : c.kind === "task" && (c.deleted || c.data?.listId === space2))) continue;
+      const mine = space2 && c.kind !== "settings" ? (S[plural[c.kind]] || []).find((x) => x.id === c.id) : null;
+      const foreign = !!mine && (c.kind === "list" ? !mine.share : mine.listId !== space2);
       if (c.deleted) {
         shadow[key] = [null, c.changedAt];
         if (!foreign) deletes.push({ kind: c.kind, id: c.id });
@@ -5044,17 +5617,17 @@ ${title.toLowerCase()}`);
         held[key] = c;
         continue;
       }
-      const prios = space && c.kind === "task" && typeof c.data?.priority === "string" && !priorities.some((p) => p.id === c.data.priority) ? [...priorities, { id: c.data.priority }] : priorities;
+      const prios = space2 && c.kind === "task" && typeof c.data?.priority === "string" && !priorities.some((p) => p.id === c.data.priority) ? [...priorities, { id: c.data.priority }] : priorities;
       let clean;
       try {
         clean = cleanRemote(c.kind, c.data, { lists, priorities: prios });
       } catch {
         continue;
       }
-      if (space && c.kind === "task" && clean.listId !== space) continue;
+      if (space2 && c.kind === "task" && clean.listId !== space2) continue;
       const local = c.kind === "settings" ? null : (S[plural[c.kind]] || []).find((x) => x.id === c.id);
       const record2 = c.kind === "settings" ? clean : fromWire(c.kind, clean, local);
-      if (space && c.kind === "list") record2.share = { role: share.role, ownerEmail: share.ownerEmail, members: share.members || [] };
+      if (space2 && c.kind === "list") record2.share = { role: share.role, ownerEmail: share.ownerEmail, members: share.members || [] };
       let resend = false;
       if (c.kind === "task" && local) {
         for (const field of ["description", "importKey"]) {
@@ -5072,7 +5645,7 @@ ${title.toLowerCase()}`);
       else delete sp.held;
     }
     applyRemote({ upserts, deletes });
-    const now2 = collect(S, { space });
+    const now2 = collect(S, { space: space2 });
     for (const u of upserts) {
       const r = now2.get(u.key);
       if (r) shadow[u.key] = [u.resend ? "" : hash(canonical(r.data)), u.changedAt];
@@ -5148,7 +5721,7 @@ ${title.toLowerCase()}`);
     const history2 = [];
     const { ov, close } = overlay('<div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="step-title"></div>');
     const sheet2 = ov.querySelector(".sheet");
-    let pad4 = null;
+    let pad5 = null;
     let resendTimer = null;
     const go = (step, { back: back2 = false } = {}) => {
       if (!back2) history2.push(st.step);
@@ -5180,8 +5753,8 @@ ${title.toLowerCase()}`);
       <h2 id="step-title" tabindex="-1">${esc(title)}</h2>`;
     }
     function draw3() {
-      pad4?.destroy();
-      pad4 = null;
+      pad5?.destroy();
+      pad5 = null;
       clearInterval(resendTimer);
       if (st.step === "age") {
         const store2 = current2()?.age;
@@ -5354,8 +5927,8 @@ ${title.toLowerCase()}`);
         input.focus();
       }
       if (s.startsWith("pin-")) {
-        pad4 = bindPinpad(sheet2, { onComplete: (pin) => onPin(pin) });
-        pad4.focus();
+        pad5 = bindPinpad(sheet2, { onComplete: (pin) => onPin(pin) });
+        pad5.focus();
         q("[data-forgot]")?.addEventListener("click", () => go("pin-reset"));
       }
       q("[data-reset]")?.addEventListener("click", () => go("pin-reset"));
@@ -5365,7 +5938,7 @@ ${title.toLowerCase()}`);
       const s = st.step;
       if (s === "pin-new" || s === "pin-reset") {
         if (/^(\d)\1{3}$/.test(pin) || "0123456789".includes(pin) || "9876543210".includes(pin)) {
-          pad4.error("Choose a PIN that is not four of the same digit or a straight run.");
+          pad5.error("Choose a PIN that is not four of the same digit or a straight run.");
           return;
         }
         firstPin = pin;
@@ -5380,7 +5953,7 @@ ${title.toLowerCase()}`);
         draw3();
         return;
       }
-      pad4.disable(true);
+      pad5.disable(true);
       try {
         if (s === "pin-confirm") await register(st.email, st.ticket, pin);
         else if (s === "pin-reset-confirm") await resetPin(st.email, st.ticket, pin);
@@ -5401,8 +5974,8 @@ ${title.toLowerCase()}`);
           go(st.known ? "pin-enter" : "age");
           return;
         }
-        pad4.disable(false);
-        pad4.error(e.message);
+        pad5.disable(false);
+        pad5.error(e.message);
         return;
       }
       close();
@@ -5553,7 +6126,7 @@ ${title.toLowerCase()}`);
     });
   }
   function emailsSheet({ title, action, submit }) {
-    return new Promise((resolve) => {
+    return new Promise((resolve2) => {
       const { ov, close } = overlay(`
       <div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="share-title">
         <div class="steps-head"><span></span><span></span><button type="button" class="icon-btn" data-close aria-label="Close">${icon("x")}</button></div>
@@ -5563,7 +6136,7 @@ ${title.toLowerCase()}`);
         <p class="hint">They get an invitation in Stack'd when they sign in with that email. Nothing is sent by email.</p>
         <p class="step-error" role="alert" data-err></p>
         <button type="button" class="btn btn-primary btn-block" data-go>${esc(action)}</button>
-      </div>`, { onClose: (r) => resolve(r === true) });
+      </div>`, { onClose: (r) => resolve2(r === true) });
       const input = ov.querySelector("textarea"), err = ov.querySelector("[data-err]"), go = ov.querySelector("[data-go]");
       ov.querySelector("[data-close]").addEventListener("click", () => close(false));
       go.addEventListener("click", async () => {
@@ -5846,7 +6419,7 @@ ${title.toLowerCase()}`);
   function open() {
     if (!available2()) return Promise.reject(new Error("IndexedDB is not available"));
     if (dbPromise) return dbPromise;
-    dbPromise = new Promise((resolve, reject) => {
+    dbPromise = new Promise((resolve2, reject) => {
       const req = indexedDB.open(DB, VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
@@ -5858,7 +6431,7 @@ ${title.toLowerCase()}`);
           req.result.close();
           dbPromise = null;
         };
-        resolve(req.result);
+        resolve2(req.result);
       };
       req.onerror = () => {
         dbPromise = null;
@@ -5868,13 +6441,13 @@ ${title.toLowerCase()}`);
     });
     return dbPromise;
   }
-  var done = (tx) => new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
+  var done = (tx) => new Promise((resolve2, reject) => {
+    tx.oncomplete = () => resolve2();
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
   });
-  var result = (req) => new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
+  var result = (req) => new Promise((resolve2, reject) => {
+    req.onsuccess = () => resolve2(req.result);
     req.onerror = () => reject(req.error);
   });
   var range = (key) => IDBKeyRange.bound([key, 0], [key, Number.MAX_SAFE_INTEGER]);
@@ -5986,7 +6559,7 @@ ${title.toLowerCase()}`);
     return { code: "provider_unavailable", message: MESSAGES.provider_unavailable };
   }
   var fetchImpl2 = (...args) => globalThis.fetch(...args);
-  var uploadImpl = (url, formData, { headers, onProgress, signal }) => new Promise((resolve, reject) => {
+  var uploadImpl = (url, formData, { headers, onProgress, signal }) => new Promise((resolve2, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
     xhr.withCredentials = true;
@@ -5995,7 +6568,7 @@ ${title.toLowerCase()}`);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress?.(Math.round(100 * e.loaded / e.total));
     };
-    xhr.onload = () => resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, json: async () => JSON.parse(xhr.responseText) });
+    xhr.onload = () => resolve2({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, json: async () => JSON.parse(xhr.responseText) });
     xhr.onerror = () => reject(new TypeError("Network request failed"));
     xhr.onabort = () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
     signal?.addEventListener("abort", () => xhr.abort());
@@ -6693,22 +7266,12 @@ ${title.toLowerCase()}`);
   var refuse = (message) => noticeDialog("The file was not imported", `${message} Nothing was changed.`);
   var G = null;
   var bare = (entries2 = []) => Object.assign(/* @__PURE__ */ Object.create(null), Object.fromEntries(entries2));
-  function decode2(buffer) {
-    const b = new Uint8Array(buffer);
-    if (b[0] === 255 && b[1] === 254) return new TextDecoder("utf-16le").decode(buffer);
-    if (b[0] === 254 && b[1] === 255) return new TextDecoder("utf-16be").decode(buffer);
-    try {
-      return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
-    } catch {
-      return new TextDecoder("windows-1252").decode(buffer);
-    }
-  }
   var guideOpen = () => !!G;
   function startImport() {
     document.querySelectorAll("input[data-import-pick]").forEach((el) => el.remove());
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".csv,.json,text/csv,application/json";
+    input.accept = ".csv,.xlsx,.json,.xml,text/csv,application/json,application/xml,text/xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     input.dataset.importPick = "";
     input.style.display = "none";
     document.body.appendChild(input);
@@ -6727,7 +7290,7 @@ ${title.toLowerCase()}`);
     }
     let read4;
     try {
-      read4 = readFile(file.name, decode2(await file.arrayBuffer()));
+      read4 = await readUpload(file.name, await file.arrayBuffer());
     } catch (e) {
       refuse(e instanceof GuideError ? e.message : "This file could not be read.");
       return;
@@ -6735,7 +7298,7 @@ ${title.toLowerCase()}`);
     const settingsScroll = UI.settingsPage ? UI.settingsScroll : { area: app.querySelector(".scroll-area")?.scrollTop || 0, main: app.querySelector(".main")?.scrollTop || 0 };
     G = {
       fileName: file.name,
-      doc: null,
+      read: null,
       parts: null,
       part: null,
       table: null,
@@ -6753,10 +7316,33 @@ ${title.toLowerCase()}`);
     };
     try {
       if (read4.kind === "parts") {
-        G.doc = read4.doc;
+        G.read = read4;
         G.parts = read4.parts;
-        if (typeof read4.doc.name === "string" && read4.doc.name.trim()) G.where.name = read4.doc.name.trim().slice(0, 80);
-        usePart(read4.suggested.path);
+        if (typeof read4.doc?.name === "string" && read4.doc.name.trim()) G.where.name = read4.doc.name.trim().slice(0, 80);
+        let first = null, why = null;
+        for (const p of [read4.suggested, ...read4.parts.filter((x) => x !== read4.suggested)]) {
+          try {
+            usePart(p);
+            first = p;
+            break;
+          } catch (e) {
+            why ??= e;
+          }
+        }
+        if (!first) throw why;
+        if (!G.trusted && S.importLayouts.length && read4.parts.length <= 12) {
+          const known = read4.parts.find((p) => {
+            try {
+              return p !== first && S.importLayouts.some((l) => l.signature === signature(tableOfPart(read4, p).columns));
+            } catch {
+              return false;
+            }
+          });
+          if (known) {
+            usePart(known);
+            if (!G.trusted) usePart(first);
+          }
+        }
       } else useTable(read4.table);
     } catch (e) {
       G = null;
@@ -6768,9 +7354,9 @@ ${title.toLowerCase()}`);
     UI.settingsPage = "import";
     show2();
   }
-  function usePart(path) {
-    useTable(tableFromPart(G.doc, G.parts, path));
-    G.part = path;
+  function usePart(part) {
+    useTable(tableOfPart(G.read, part));
+    G.part = part.path;
   }
   function useTable(table) {
     G.table = table;
@@ -6858,10 +7444,10 @@ ${title.toLowerCase()}`);
     <div class="guide-foot"><button type="button" class="btn btn-primary btn-block" data-guide-next ${disabled ? "disabled" : ""}>${primary}</button></div>
   </div>`;
   };
-  var pickRow = (name, sample, value, attrs, { none = false } = {}) => `
+  var pickRow = (name, sample, value, attrs2, { none = false } = {}) => `
         <div class="guide-row">
           <div class="guide-left"><span class="set-title">${esc(name)}</span>${sample ? `<span class="guide-sample">${esc(sample)}</span>` : ""}</div>
-          <button type="button" class="guide-pick ${none ? "none" : ""}" ${attrs} aria-haspopup="menu" aria-label="${esc(name)}: ${esc(value)}"><span>${esc(value)}</span>${icon("chevronDown", 16)}</button>
+          <button type="button" class="guide-pick ${none ? "none" : ""}" ${attrs2} aria-haspopup="menu" aria-label="${esc(name)}: ${esc(value)}"><span>${esc(value)}</span>${icon("chevronDown", 16)}</button>
         </div>`;
   var sampleOf = (columnName) => {
     const i = G.table.columns.indexOf(columnName);
@@ -6869,12 +7455,14 @@ ${title.toLowerCase()}`);
     return v.replace(/\s+/g, " ").slice(0, 60);
   };
   function partHTML() {
-    return chrome("Which part", `${esc(G.fileName)} holds several lists of things. Choose the one that holds your tasks; the others are used to fill in names.`, `
-      <div class="card list-card" role="radiogroup" aria-label="The part that holds the tasks">
+    const sheets = G.read.what === "sheets";
+    const lead = sheets ? `${esc(G.fileName)} has ${plural3(G.parts.length, "sheet")} with rows. Choose the one that holds your tasks.` : `${esc(G.fileName)} holds several lists of things. Choose the one that holds your tasks; the others are used to fill in names.`;
+    return chrome(sheets ? "Which sheet" : "Which part", lead, `
+      <div class="card list-card" role="radiogroup" aria-label="The ${sheets ? "sheet" : "part"} that holds the tasks">
         ${G.parts.map((p, i) => `
         <button type="button" class="guide-row guide-choice" role="radio" aria-checked="${p.path.join("/") === G.part.join("/")}" data-part="${i}">
           <span class="guide-radio" aria-hidden="true"></span>
-          <span class="guide-left"><span class="set-title">${esc(partName(p))}</span><span class="guide-sample">${plural3(p.count, "item")} · ${esc(p.keys.slice(0, 4).join(", "))}</span></span>
+          <span class="guide-left"><span class="set-title">${esc(partName(p))}</span><span class="guide-sample">${plural3(p.count, sheets ? "row" : "item")} · ${esc(p.keys.slice(0, 4).join(", "))}</span></span>
         </button>`).join("")}
       </div>`, "Continue");
   }
@@ -7118,7 +7706,7 @@ ${title.toLowerCase()}`);
     q("[data-guide-next]").addEventListener("click", next);
     qa("[data-part]").forEach((b) => b.addEventListener("click", () => {
       try {
-        usePart(G.parts[+b.dataset.part].path);
+        usePart(G.parts[+b.dataset.part]);
       } catch (e) {
         refuse(e instanceof GuideError ? e.message : "That part could not be read.");
         return;
@@ -7247,8 +7835,8 @@ ${title.toLowerCase()}`);
   var countLine = (c) => [plural4(c.boards, "board"), plural4(c.tasks, "task"), plural4(c.notes, "note"), plural4(c.meetings, "meeting")].join(", ");
   var when = (ts) => `${fmtDate(ts, S.dateFormat)} at ${fmtClock(ts)}`;
   var refocus = (selector) => app.querySelector(selector)?.focus({ preventScroll: true });
-  var navRow = (ic, title, sub, attrs) => `
-        <button type="button" class="set-row set-nav" ${attrs}>
+  var navRow = (ic, title, sub, attrs2) => `
+        <button type="button" class="set-row set-nav" ${attrs2}>
           <span class="lrow-icon">${icon(ic, 18)}</span>
           <span class="set-text">
             <span class="set-title">${title}</span>
@@ -7281,7 +7869,7 @@ ${title.toLowerCase()}`);
         <button type="button" class="btn btn-secondary btn-block" data-export-file disabled>Export file</button>
         <button type="button" class="btn btn-secondary btn-block" data-cancel>Cancel</button>
       </div>
-      <p class="hint sheet-note">Import reads CSV and JSON files. Export is being built: its button switches on in a later step of 1.7.0.</p>
+      <p class="hint sheet-note">Import reads CSV, Excel, JSON and XML files. Export is being built: its button switches on in a later step of 1.7.0.</p>
     </div>`, { onClose: () => refocus("[data-open-transfer]") });
     ov.querySelector("[data-cancel]").addEventListener("click", () => close());
     const pick2 = ov.querySelector("[data-import-file]");
@@ -7706,8 +8294,8 @@ ${title.toLowerCase()}`);
       ${legalLinks()}`;
   }
   function askPin(title, { text: text2 = "", check: check2 }) {
-    return new Promise((resolve) => {
-      let pad4;
+    return new Promise((resolve2) => {
+      let pad5;
       const { ov, close } = overlay(`
       <div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="pin-title">
         <div class="steps-head"><span></span><span></span><button type="button" class="icon-btn" data-close aria-label="Close">${icon("x")}</button></div>
@@ -7715,18 +8303,18 @@ ${title.toLowerCase()}`);
         ${text2 ? `<p class="step-text">${esc(text2)}</p>` : ""}
         ${pinpadHTML({ label: title })}
       </div>`, { onClose: (r) => {
-        pad4?.destroy();
-        resolve(typeof r === "string" ? r : null);
+        pad5?.destroy();
+        resolve2(typeof r === "string" ? r : null);
       } });
       ov.querySelector("[data-close]").addEventListener("click", () => close(null));
-      pad4 = bindPinpad(ov, {
+      pad5 = bindPinpad(ov, {
         onComplete: async (pin) => {
           const err = check2 ? await check2(pin) : null;
-          if (err) pad4.error(err);
+          if (err) pad5.error(err);
           else close(pin);
         }
       });
-      pad4.focus();
+      pad5.focus();
     });
   }
   var serverPin = async (pin) => {
@@ -10130,7 +10718,7 @@ ${title.toLowerCase()}`);
   var NAME = "([^:\\n\\d][^:\\n]{0,39}?)";
   var TIMED = new RegExp(`^[\\[(]\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s*[\\])]\\s*${NAME}:\\s*(.*)$`);
   var NAMED_TIMED = new RegExp(`^${NAME}\\s*[\\[(]\\s*(\\d{1,2}:\\d{2}(?::\\d{2})?)\\s*[\\])]\\s*:\\s*(.*)$`);
-  var NAMED = new RegExp(`^${NAME}:\\s+(.*)$`);
+  var NAMED2 = new RegExp(`^${NAME}:\\s+(.*)$`);
   var HEADER = new RegExp(`^${NAME}\\s{2,}(\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s*[AP]M)?)\\s*$`, "i");
   var isName = (s) => s && !/^(https?|mailto|tel|note|nb|ps|todo|re)$/i.test(s.trim());
   function parsePasted(text2) {
@@ -10160,7 +10748,7 @@ ${title.toLowerCase()}`);
         start2(m[1], parseTime(m[2]), "");
         return;
       }
-      if ((m = NAMED.exec(line)) && isName(m[1])) {
+      if ((m = NAMED2.exec(line)) && isName(m[1])) {
         start2(m[1], null, m[2]);
         return;
       }
@@ -10512,64 +11100,6 @@ ${title.toLowerCase()}`);
       });
     });
   }
-
-  // src/docx.js
-  var SIG_EOCD = 101010256;
-  var SIG_CENTRAL = 33639248;
-  var SIG_LOCAL = 67324752;
-  var utf8 = new TextDecoder("utf-8");
-  var canInflate = () => typeof DecompressionStream !== "undefined";
-  function entries(buffer) {
-    const v = new DataView(buffer);
-    const bytes = new Uint8Array(buffer);
-    let eocd = -1;
-    for (let i = buffer.byteLength - 22; i >= Math.max(0, buffer.byteLength - 22 - 65535); i--) {
-      if (v.getUint32(i, true) === SIG_EOCD) {
-        eocd = i;
-        break;
-      }
-    }
-    if (eocd === -1) throw new Error("not a zip file");
-    const count2 = v.getUint16(eocd + 10, true);
-    let p = v.getUint32(eocd + 16, true);
-    const out = [];
-    for (let n = 0; n < count2; n++) {
-      if (v.getUint32(p, true) !== SIG_CENTRAL) throw new Error("bad central directory");
-      const method = v.getUint16(p + 10, true);
-      const compressedSize = v.getUint32(p + 20, true);
-      const size = v.getUint32(p + 24, true);
-      const nameLen = v.getUint16(p + 28, true), extraLen = v.getUint16(p + 30, true), commentLen = v.getUint16(p + 32, true);
-      const offset = v.getUint32(p + 42, true);
-      const name = utf8.decode(bytes.subarray(p + 46, p + 46 + nameLen));
-      out.push({ name, method, compressedSize, size, offset });
-      p += 46 + nameLen + extraLen + commentLen;
-    }
-    return out;
-  }
-  function rawData(buffer, entry) {
-    const v = new DataView(buffer);
-    if (v.getUint32(entry.offset, true) !== SIG_LOCAL) throw new Error("bad local header");
-    const nameLen = v.getUint16(entry.offset + 26, true), extraLen = v.getUint16(entry.offset + 28, true);
-    const start2 = entry.offset + 30 + nameLen + extraLen;
-    return new Uint8Array(buffer, start2, entry.compressedSize);
-  }
-  async function inflate(bytes) {
-    const ds = new DecompressionStream("deflate-raw");
-    const stream = new Blob([bytes]).stream().pipeThrough(ds);
-    return new Uint8Array(await new Response(stream).arrayBuffer());
-  }
-  async function readEntry(buffer, name) {
-    const entry = entries(buffer).find((e) => e.name === name);
-    if (!entry) return null;
-    const raw = rawData(buffer, entry);
-    if (entry.method === 0) return utf8.decode(raw);
-    if (entry.method === 8) {
-      if (!canInflate()) throw new Error("This browser cannot read Word files; paste the text instead.");
-      return utf8.decode(await inflate(raw));
-    }
-    throw new Error(`unsupported compression ${entry.method}`);
-  }
-  var readDocumentXml = (buffer) => readEntry(buffer, "word/document.xml");
 
   // src/ui/sourcesheet.js
   function openPasteSheet({ onUse }) {
@@ -11210,7 +11740,7 @@ ${title.toLowerCase()}`);
     app.querySelector(".detail-title-row .check").addEventListener("change", () => completeTask(t.id, app.querySelector(".detail-title-row")));
     const where3 = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
     const move = () => openMoveCopy({ mode: "move", task: t, onConfirm: (listId, lane) => moveWithFeedback(t.id, listId, lane) });
-    const copy = () => openMoveCopy({ mode: "copy", task: t, onConfirm: (listId, lane) => {
+    const copy2 = () => openMoveCopy({ mode: "copy", task: t, onConfirm: (listId, lane) => {
       const c = copyTask(t.id, listId, lane);
       toast(`Copied to ${where3(listId, lane)}`, { action: { label: "Open", onClick: () => {
         S.currentList = c.listId;
@@ -11222,7 +11752,7 @@ ${title.toLowerCase()}`);
       flushDescription?.();
       openMenu(e.currentTarget, [
         { label: "Move", icon: "move", onClick: move },
-        { label: "Copy", icon: "copy", onClick: copy },
+        { label: "Copy", icon: "copy", onClick: copy2 },
         { label: "Archive", icon: "archive", onClick: () => archiveWithUndo(t.id) },
         { divider: true },
         { label: "Delete", icon: "trash", danger: true, onClick: () => deleteWithUndo(t.id) }
@@ -11929,25 +12459,25 @@ ${title.toLowerCase()}`);
   }
   var waitTimer = null;
   function bindLock() {
-    const pad4 = bindPinpad(app, {
+    const pad5 = bindPinpad(app, {
       onComplete: async (pin) => {
         const r = await unlockWithPin(pin);
         if (r.ok) return;
         if (r.code === "wait" && r.waitMs) {
-          pad4.error(r.message);
-          pad4.disable(true);
+          pad5.error(r.message);
+          pad5.disable(true);
           clearTimeout(waitTimer);
           waitTimer = setTimeout(() => {
-            pad4.disable(false);
-            pad4.error("");
+            pad5.disable(false);
+            pad5.error("");
           }, r.waitMs);
           return;
         }
-        pad4.error(r.message);
+        pad5.error(r.message);
         if (r.code === "pin_locked") app.querySelector("[data-forgot]").textContent = "Reset your PIN with an email code";
       }
     });
-    pad4.focus();
+    pad5.focus();
     app.querySelector("[data-forgot]").addEventListener("click", async () => {
       const ok = await confirmDialog("Reset your PIN?", "We send a code to your email. After the reset, your other devices are signed out.", { confirmLabel: "Send a code" });
       if (ok) openSignIn({ mode: "signin" });

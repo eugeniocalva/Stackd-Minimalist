@@ -10,6 +10,8 @@
    (importTasks). Pure, so scripts/check-import.mjs runs it under Node. */
 
 import { parseCSV } from './formats/csv.js';
+import { parseXML, toValue, localName } from './formats/xml.js';
+import { readXLSX } from './formats/xlsx.js';
 import { sanitize } from './richtext.js';
 
 export const MAX_ROWS = 5000;         // a device's storage holds about ten thousand tasks in all
@@ -19,7 +21,7 @@ const MAX_SUBTASKS = 200;
 const MAX_NEW_LANES = 50;
 const MAX_LABELS = 20;                // on one task
 
-/** code: 'unreadable' | 'empty' | 'too_many' */
+/** code: 'unreadable' | 'empty' | 'too_many' | 'old_excel' */
 export class GuideError extends Error {
   constructor(code, message) { super(message); this.name = 'GuideError'; this.code = code; }
 }
@@ -77,14 +79,16 @@ function tableFromRows(rows) {
   return finish({ columns, rows: body });
 }
 
+const tooMany = (n, what = 'This file') => new GuideError('too_many', `${what} has ${n.toLocaleString('en-GB')} rows. Stack'd imports up to ${MAX_ROWS.toLocaleString('en-GB')} at a time.`);
 function finish(table) {
   if (!table.rows.length) throw new GuideError('empty', 'This file has column names and no rows under them.');
-  if (table.rows.length > MAX_ROWS) throw new GuideError('too_many', `This file has ${table.rows.length.toLocaleString('en-GB')} rows. Stack'd imports up to ${MAX_ROWS.toLocaleString('en-GB')} at a time.`);
+  if (table.rows.length > MAX_ROWS) throw tooMany(table.rows.length);
   return table;
 }
 
 const nameOf = (o) => (isObj(o) ? str(o.name ?? o.title ?? o.text ?? o.fullName ?? o.username ?? '') : '');
-const doneOf = (o) => o.state === 'complete' || o.state === 'done' || o.checked === true || o.done === true || o.completed === true || o.complete === true;
+const yes = (v) => v === true || (typeof v === 'string' && /^(true|yes|y|1|x|done|complete|completed)$/i.test(v.trim()));
+const doneOf = (o) => o.state === 'complete' || o.state === 'done' || yes(o.checked) || yes(o.done) || yes(o.completed) || yes(o.complete);
 const itemLike = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => isObj(x) && nameOf(x) !== '')
   && v.some((x) => 'state' in x || 'checked' in x || 'done' in x || 'completed' in x || 'complete' in x);
 /** Checklist items as text the guide reads back: one per line, "[x] " in front of a ticked one. */
@@ -109,7 +113,7 @@ export const partName = (part) => part.path.join(' › ');
 const getPath = (doc, path) => path.reduce((o, k) => (isObj(o) ? o[k] : undefined), doc);
 /** The part most likely to hold the tasks: a telling name, a title-like field, then the largest. */
 export function suggestPart(parts) {
-  const score = (p) => (/^(cards|tasks|items|issues|todos|rows|records|data)$/i.test(p.path.at(-1)) ? 1e9 : 0)
+  const score = (p) => (p.path.slice(-2).some((k) => /^(cards?|tasks?|items?|issues?|todos?|rows?|records?|data)$/i.test(k)) ? 1e9 : 0)
     + (p.keys.some((k) => NAMES.title.includes(norm(k))) ? 1e8 : 0) + p.count;
   return [...parts].sort((a, b) => score(b) - score(a))[0] || null;
 }
@@ -178,7 +182,18 @@ function tableFromRecords(records, others = []) {
           return v.map(nameOf).filter(Boolean).join(', ').slice(0, MAX_CELL);
         }
       }
-      return '';   // an object, or a mixed list: not a value a task can take
+      if (isObj(v)) {                              // one record where a list could be: a single item, a list given by name
+        if (itemLike([v])) return itemLines([v]).slice(0, MAX_CELL);
+        const items = itemsIn(v);
+        if (items) return itemLines(items).slice(0, MAX_CELL);
+        if (nameOf(v) !== '') return nameOf(v).slice(0, MAX_CELL);
+        /* a wrapper around one piece of text: <labels><label>home</label></labels> */
+        const keys = Object.keys(v);
+        const one = keys.length === 1 ? v[keys[0]] : null;
+        if (typeof one === 'string') return cellText(one);
+        return '';
+      }
+      return '';   // a mixed list: not a value a task can take
     };
     const column = records.map((r) => cell(r?.[key]));
     if (!column.some((c) => c !== '') && records.some((r) => isObj(r?.[key]) || Array.isArray(r?.[key]))) continue;   // only objects: no column
@@ -201,27 +216,101 @@ export function tableFromPart(doc, parts, path) {
     lists of records in it, { kind: 'parts', doc, parts, suggested }.
     Throws a GuideError the guide can show. */
 export function readFile(name, text) {
-  const ext = String(name ?? '').toLowerCase().split('.').pop();
+  const base = String(name ?? '').toLowerCase();
+  const ext = base.includes('.') ? base.split('.').pop() : '';
+  const loose = ext === '' || ext === 'txt';    // nothing in the name says what it is: its first characters do
   const body = String(text ?? '').replace(/^\uFEFF/, '');
   if (!body.trim()) throw new GuideError('empty', 'This file is empty.');
-  /* only CSV and JSON for now; anything else is refused, not read as a table of noise */
-  if (!['csv', 'tsv', 'txt', 'json'].includes(ext) || /^(PK\u0003\u0004|%PDF)/.test(body) || body.slice(0, 4000).includes('\u0000')) {
-    throw new GuideError('unreadable', "Stack'd imports CSV and JSON files. This file is neither.");
+  /* text files only here (an Excel file goes through readUpload); anything else is refused, not read as a table of noise */
+  if (!['', 'csv', 'tsv', 'txt', 'json', 'xml'].includes(ext) || /^(PK\u0003\u0004|%PDF)/.test(body) || body.slice(0, 4000).includes('\u0000')) {
+    throw new GuideError('unreadable', "Stack'd imports CSV, Excel (.xlsx), JSON and XML files. This file is none of those.");
   }
-  if (ext === 'json' || (ext !== 'csv' && ext !== 'tsv' && /^\s*[[{]/.test(body))) {
+  if (ext === 'json' || (loose && /^\s*[[{]/.test(body))) {
     let doc;
     try { doc = JSON.parse(body); } catch { throw new GuideError('unreadable', 'This file could not be read: it is not valid JSON.'); }
-    if (Array.isArray(doc)) {
-      const records = doc.filter(isObj);
-      if (!records.length) throw new GuideError('empty', 'This file has no rows.');
-      return { kind: 'table', table: tableFromRecords(records) };
+    return fromDocument(doc);
+  }
+  if (ext === 'xml' || (loose && /^\s*<[?!A-Za-z]/.test(body))) {
+    let root;
+    try { root = parseXML(body); } catch (e) {
+      throw new GuideError('unreadable', /too large/.test(e?.message || '') ? 'This XML file has too many items to read.' : 'This file could not be read: it is not valid XML.');
     }
-    const parts = findParts(doc);
-    if (!parts.length) throw new GuideError('empty', 'This file has no list of items in it.');
-    if (parts.length === 1) return { kind: 'table', table: tableFromPart(doc, parts, parts[0].path) };
-    return { kind: 'parts', doc, parts, suggested: suggestPart(parts) };
+    if (localName(root.name) === 'Workbook' && Object.values(root.attrs).some((v) => String(v).includes('urn:schemas-microsoft-com:office:spreadsheet'))) {
+      throw new GuideError('old_excel', "This is Excel's older XML format (XML Spreadsheet 2003). Open it in Excel, save it as .xlsx, then import that.");
+    }
+    return fromDocument(toValue(root));
   }
   return { kind: 'table', table: tableFromRows(parseCSV(body)) };
+}
+
+/* A document as JSON or XML gives it: a list of records, or a record that
+   holds one or several lists of records. */
+function fromDocument(doc) {
+  if (Array.isArray(doc) && doc.length === 1 && isObj(doc[0])
+    && findParts(doc[0]).some((p) => /^(cards?|tasks?|items?|issues?|todos?|rows?|records?|entry|entries)$/i.test(p.path.at(-1)))) doc = doc[0];
+  if (Array.isArray(doc)) {
+    const records = doc.filter(isObj);
+    if (!records.length) throw new GuideError('empty', 'This file has no rows.');
+    return { kind: 'table', table: tableFromRecords(records) };
+  }
+  const parts = findParts(doc);
+  if (!parts.length) throw new GuideError('empty', 'This file has no list of items in it.');
+  if (parts.length === 1) return { kind: 'table', table: tableFromPart(doc, parts, parts[0].path) };
+  return { kind: 'parts', what: 'parts', doc, parts, suggested: suggestPart(parts) };
+}
+
+/** A file's bytes → text. Spreadsheets do not all write UTF-8: a file that
+    starts with a UTF-16 mark is read as that, and one that is not valid
+    UTF-8 as Windows-1252, where an accented letter is one byte. */
+export function decodeText(buffer) {
+  const b = new Uint8Array(buffer);
+  if (b[0] === 0xFF && b[1] === 0xFE) return new TextDecoder('utf-16le').decode(buffer);
+  if (b[0] === 0xFE && b[1] === 0xFF) return new TextDecoder('utf-16be').decode(buffer);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buffer); } catch { /* not UTF-8 */ }
+  /* an XML file says what it is written in */
+  const head = String.fromCharCode(...b.subarray(0, 200));
+  const said = /^\s*<\?xml[^>]{0,150}\bencoding\s*=\s*["']([\w.:-]{1,40})["']/i.exec(head);
+  if (said) { try { return new TextDecoder(said[1]).decode(buffer); } catch { /* a name this device does not know */ } }
+  return new TextDecoder('windows-1252').decode(buffer);
+}
+
+/** A chosen file → what readFile gives, for every kind the guide reads:
+    CSV, JSON, XML as text, and Excel (.xlsx), which is a zip. An Excel file
+    with several sheets that have rows comes back as parts, one a sheet,
+    the first suggested (decision 50): { kind: 'parts', what: 'sheets', … }.
+    Use tableOfPart() for the table of a part, whatever the kind. */
+export async function readUpload(name, buffer) {
+  const b = new Uint8Array(buffer, 0, Math.min(8, buffer.byteLength));
+  const ext = String(name ?? '').toLowerCase().split('.').pop();
+  if (b[0] === 0xD0 && b[1] === 0xCF && b[2] === 0x11 && b[3] === 0xE0) {
+    throw new GuideError('old_excel', 'This is an older kind of Excel file (.xls), or one protected with a password. Open it in Excel, save it as .xlsx without a password, then import that.');
+  }
+  const zipped = b[0] === 0x50 && b[1] === 0x4B && b[2] === 0x03 && b[3] === 0x04;
+  if (ext === 'xlsx' || (zipped && ext !== 'json' && ext !== 'csv')) {
+    let book;
+    try { if (!zipped) throw new Error('not a zip'); book = await readXLSX(buffer); } catch (e) {
+      const why = e?.message || '';
+      throw new GuideError('unreadable', /too large/.test(why) ? 'This Excel file is too large to read.'
+        : /This browser cannot/.test(why) ? 'This browser cannot open Excel files. Save the sheet as CSV and import that.'
+          : 'This file could not be read: it is not an Excel workbook (.xlsx).');
+    }
+    const sheets = book.sheets.filter((s) => s.rows.length > 1);
+    if (!sheets.length) throw new GuideError('empty', book.sheets.length ? 'This Excel file has no sheet with rows under its column names.' : 'This Excel file has no sheet to read.');
+    if (sheets.length === 1) {
+      if (sheets[0].total - 1 > MAX_ROWS) throw tooMany(sheets[0].total - 1);
+      return { kind: 'table', table: tableFromRows(sheets[0].rows) };
+    }
+    const parts = sheets.map((s) => ({ path: [s.name], count: s.total - 1, keys: s.rows[0].filter(Boolean).map((c) => String(c).slice(0, 40)), rows: s.rows }));
+    return { kind: 'parts', what: 'sheets', doc: null, parts, suggested: parts[0] };
+  }
+  return readFile(name, decodeText(buffer));
+}
+
+/** The table of one part of a file read as parts: a sheet's rows, or a list of records inside a document. */
+export function tableOfPart(read, part) {
+  if (!part.rows) return tableFromPart(read.doc, read.parts, part.path);
+  if (part.count > MAX_ROWS) throw tooMany(part.count, 'This sheet');
+  return tableFromRows(part.rows);
 }
 
 /* ── Columns → fields ────────────────────────────────────────────────── */

@@ -83,7 +83,7 @@ function openTransferSheet() {
         <button type="button" class="btn btn-secondary btn-block" data-export-file disabled>Export file</button>
         <button type="button" class="btn btn-secondary btn-block" data-cancel>Cancel</button>
       </div>
-      <p class="hint sheet-note">Import reads CSV and JSON files. Export is being built: its button switches on in a later step of 1.7.0.</p>
+      <p class="hint sheet-note">Import reads CSV, Excel, JSON and XML files. Export is being built: its button switches on in a later step of 1.7.0.</p>
     </div>`, { onClose: () => refocus('[data-open-transfer]') });
   ov.querySelector('[data-cancel]').addEventListener('click', () => close());
   /* the picker opens inside this tap, or the phone keeps it shut */
