@@ -46,6 +46,13 @@ const NAMESPACES = [
   'http://www.w3.org/1999/xhtml',
   'http://www.w3.org/1999/xlink',
   'http://www.w3.org/XML/1998/namespace',
+  /* the names inside the Excel and Word files export writes (src/formats/xlsx-write.js, docx-write.js) */
+  'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+  'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+  'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+  'http://schemas.openxmlformats.org/package/2006/content-types',
+  'http://schemas.openxmlformats.org/package/2006/relationships',
+  'http://schemas.microsoft.com/office/word',
 ];
 /* development only: the Developer proxy override and its hint text */
 const LOCAL = /^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/;

@@ -175,7 +175,7 @@ function tableFromRecords(records, others = []) {
           return (parts.some((p) => /^\[[ x]\] /.test(p)) ? parts.join('\n') : parts.join(', ')).slice(0, MAX_CELL);
         }
         if (itemLike(v)) return itemLines(v).slice(0, MAX_CELL);
-        if (v.every(scalar)) return v.map(String).join(', ').slice(0, MAX_CELL);
+        if (v.every(scalar)) return v.map(String).join('\n').slice(0, MAX_CELL);   // one a line: a value may hold a comma
         if (v.every(isObj)) {
           const inner = v.map(itemsIn).filter(Boolean);
           if (inner.length) return inner.map(itemLines).join('\n').slice(0, MAX_CELL);
@@ -240,7 +240,9 @@ export function readFile(name, text) {
     }
     return fromDocument(toValue(root));
   }
-  return { kind: 'table', table: tableFromRows(parseCSV(body)) };
+  /* a ' before =, +, - or @ is how a CSV keeps a spreadsheet from running a cell as a formula (Stack'd's export does it): it is not part of the text */
+  const rows = parseCSV(body).map((r) => r.map((c) => (/^''*[=+\-@\t\r]/.test(c) ? c.slice(1) : c)));
+  return { kind: 'table', table: tableFromRows(rows) };
 }
 
 /* A document as JSON or XML gives it: a list of records, or a record that
@@ -362,7 +364,9 @@ const COLOURS = /^(green|yellow|orange|red|purple|blue|sky|lime|pink|black|grey|
 /** "home (blue_light), Q3; #urgent" → ['home', 'Q3', 'urgent']: a colour in brackets after a name is dropped. */
 export function parseLabels(cell) {
   const seen = new Set();
-  return str(cell).split(/[,;\n]/).map((raw) => {
+  /* one label a line when the cell has lines (a list in JSON or XML, a label with a comma in it); else at commas and semicolons */
+  const text = str(cell);
+  return text.split(/\n/.test(text.trim()) ? /\r?\n/ : /[,;]/).map((raw) => {
     let s = raw.trim().replace(/^#+/, '');
     const m = /^(.*\S)\s*\(([^()]+)\)$/.exec(s);
     if (m && COLOURS.test(m[2].trim())) s = m[1].trim();
@@ -385,7 +389,7 @@ export function parseChecklist(cell) {
     const box = /^\[( |x|X|✓)?\]\s*(.*)$/.exec(s);
     if (box) { done = !!box[1] && box[1] !== ' '; s = box[2]; }
     else if (/^[✓✔]\s*/.test(s)) { done = true; s = s.replace(/^[✓✔]\s*/, ''); }
-    const tail = /^(.*\S)\s*\((done|complete|completed|checked)\)$/i.exec(s);
+    const tail = box ? null : /^(.*\S)\s*\((done|complete|completed|checked)\)$/i.exec(s);
     if (tail) { done = true; s = tail[1]; }
     return { title: s.trim().slice(0, 500), done };
   }).filter((x) => x.title).slice(0, MAX_SUBTASKS);
@@ -479,13 +483,16 @@ export function toDescription(text, max = 20000) {
   for (let keep = max; out.length > max && keep > 0;) { keep = Math.floor(keep * (max / out.length) * 0.98); out = describe(raw.slice(0, keep)); }
   return out;
 }
+/* \*, \_, \~ and \\ are those characters, not marks: kept aside while the marks are read */
+const KEEP = { '\\': '\uE05C', '*': '\uE02A', _: '\uE05F', '~': '\uE07E' };
+const KEPT = Object.fromEntries(Object.entries(KEEP).map(([k, v]) => [v, k]));
 function describe(text) {
-  let s = text.replace(/[&<>"']/g, (c) => ESC[c]);
+  let s = text.replace(/[&<>"']/g, (c) => ESC[c]).replace(/\\([\\*_~])/g, (_, c) => KEEP[c]);
   s = s.replace(/\[([^\][\n]{1,500})\]\(\s*([^\s()]{1,2000})(?:\s+(?:&quot;|&#39;)[^()\n]{0,500})?\s*\)/g, (_, label, url) => (label.trim() === url.trim() ? url : `${label} (${url})`));
   s = s.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/__([^_\n]+)__/g, '<b>$1</b>');
   s = s.replace(/~~([^~\n]+)~~/g, '<s>$1</s>');
-  s = s.replace(/(^|[\s(])\*([^*\s][^*\n]*?)\*(?=[\s).,;:!?]|$)/gm, '$1<i>$2</i>').replace(/(^|[\s(])_([^_\s][^_\n]*?)_(?=[\s).,;:!?]|$)/gm, '$1<i>$2</i>');
-  return sanitize(s.replace(/\n/g, '<br>'));
+  s = s.replace(/\*(?=[^\s*])([^*\n]*?[^\s*])\*/g, '<i>$1</i>').replace(/(^|[\s(])_([^_\s][^_\n]*?)_(?=[\s).,;:!?]|$)/gm, '$1<i>$2</i>');
+  return sanitize(s.replace(/[\uE05C\uE02A\uE05F\uE07E]/g, (c) => KEPT[c]).replace(/\n/g, '<br>'));
 }
 
 /* ── What the file holds, for the guide's questions ──────────────────── */

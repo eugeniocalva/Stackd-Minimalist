@@ -19,6 +19,11 @@ export const decode = (s) => (s.includes('&') ? s.replace(/&(#x[0-9a-fA-F]{1,6}|
   return code > 0 && code <= 0x10FFFF && !(code >= 0xD800 && code <= 0xDFFF) ? String.fromCodePoint(code) : '';
 }) : s);
 
+/* Characters no XML file may hold, and halves of a character on their own. */
+const BAD_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+/** Text → text an XML file can hold, in an element or in a quoted attribute. */
+export const xmlText = (s) => String(s ?? '').replace(BAD_XML, '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
 const MAX_TAG = 100000;
 const space = (c) => c === ' ' || c === '\n' || c === '\t' || c === '\r';
 

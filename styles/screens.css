@@ -456,7 +456,16 @@ button.lrow-icon:active { transform: scale(0.9); }
 .guide-radio-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 44px; margin-left: -6px; cursor: pointer; border-radius: var(--radius-sm); }
 .guide-foot { flex: none; padding: var(--space-3) var(--gutter) calc(var(--space-4) + var(--safe-bottom)); background: var(--bg-base); border-top: 1px solid var(--color-border); }
 .settings-screen.guide .scroll-area { padding-bottom: var(--space-6); }
-.main .guide-foot { padding-left: 0; padding-right: 0; border-top: none; background: none; }
+/* wide screens: the page grows with what it holds and the window scrolls; the button stays at the foot of the window, over the page */
+.main .settings-screen.guide { flex: 0 0 auto; min-height: 100%; }
+.main .settings-screen.guide .scroll-area { flex: 1 0 auto; }
+.main .guide-foot { position: sticky; bottom: calc(-1 * var(--space-8)); z-index: 2; margin-bottom: calc(-1 * var(--space-8)); padding: var(--space-3) 0 var(--space-8); border-top: none; background: var(--bg-base); }
+/* export: a count above the button, rows with a box to tick, a small button under a card */
+.guide-foot-note { margin: 0 0 var(--space-2); font-size: var(--text-sm); color: var(--text-secondary); text-align: center; }
+.guide-check { cursor: pointer; }
+.guide-check .check { flex: none; }
+.guide-check:has(.check:disabled) { cursor: default; }
+.guide-actions { display: flex; justify-content: flex-end; margin: var(--space-2) var(--space-1) 0; }
 .settings-screen .set-input::placeholder { font-weight: 400; }
 .lrow > svg:last-child { color: var(--text-tertiary); flex: none; }
 .side-settings { margin-top: auto; }

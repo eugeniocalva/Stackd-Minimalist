@@ -413,7 +413,7 @@ function zip(files) {   // minimal writer: local headers + central directory + e
   assert.deepEqual(await table('a.xml', `<t:tasks xmlns:t="urn:x"><t:task><t:title>A</t:title><t:labels><t:label>home</t:label><t:label>urgent</t:label></t:labels>
     <t:subtasks><t:subtask><t:name>One</t:name><t:done>true</t:done></t:subtask></t:subtasks><t:owner><t:name>Ann</t:name></t:owner></t:task>
     <t:task><t:title>B</t:title><t:labels><t:label>home</t:label></t:labels><t:subtasks><t:subtask><t:name>Two</t:name><t:done>false</t:done></t:subtask><t:subtask><t:name>Three</t:name><t:done>yes</t:done></t:subtask></t:subtasks></t:task></t:tasks>`),
-  { columns: ['title', 'labels', 'subtasks', 'owner'], rows: [['A', 'home, urgent', '[x] One', 'Ann'], ['B', 'home', '[ ] Two\n[x] Three', '']] }, 'prefixed names, a wrapped list of labels, one subtask or several, a record given by its name');
+  { columns: ['title', 'labels', 'subtasks', 'owner'], rows: [['A', 'home\nurgent', '[x] One', 'Ann'], ['B', 'home', '[ ] Two\n[x] Three', '']] }, 'prefixed names, a wrapped list of labels, one subtask or several, a record given by its name');
   await assert.rejects(() => imp.readUpload('book.xml', bytes('<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Sheet1"><Table><Row><Cell><Data>x</Data></Cell></Row></Table></Worksheet></Workbook>')),
     (e) => e.code === 'old_excel' && /XML Spreadsheet 2003/.test(e.message));
   /* nothing in the name says what the file is */

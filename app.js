@@ -102,7 +102,7 @@ function screenHTML() {
 }
 /* no nav on a detail, nor behind an open composer (its toolbar must stay above the keyboard) */
 const withNav = () => !['detail', 'note', 'meeting'].includes(UI.screen) && !(UI.screen === 'notes' && UI.composer.expanded)
-  && !(UI.screen === 'settings' && UI.settingsPage === 'import');   // the import guide has its own button at the bottom
+  && !(UI.screen === 'settings' && (UI.settingsPage === 'import' || UI.settingsPage === 'export'));   // the import and export pages have their own button at the bottom
 
 function draw() {
   applyTheme();

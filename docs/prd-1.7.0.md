@@ -1,7 +1,7 @@
 # PRD: Stack'd Minimalist 1.7.0 — swipe back, a tidier Settings, import and export
 
-Status: **in progress, 2026-11-27.** Phases 1 to 6 of 8 are done and
-agreed. Fifty-one decisions taken by the owner (§02). The decisions
+Status: **in progress, 2026-11-27.** Phases 1 to 7 of 8 are done and
+agreed. Fifty-six decisions taken by the owner (§02). The decisions
 still to take are listed by phase in §11 and are
 asked when their phase starts; each answer is recorded in §02. Branch:
 `release/1.7.0`, cut from `release/1.6.0` at `602b94c`.
@@ -77,6 +77,11 @@ the exported files) are done by the owner on one TestFlight build at the end.
 | 49 | Phase 5, the import guide and Remembered imports as built | Agreed on 2026-11-27 from the pictures of the app, with a Priority field, a new board that gets only the lanes its lists ask for, the limits (5,000 rows, 12 MB, 50 new lanes), the link tied to the file's layout, and no import into a shared board. The owner's real files, a real file picker, a signed-in account and the iPhone are checked on TestFlight |
 | 50 | An Excel file with several sheets | Asked on 2026-11-27 when phase 6 started: the guide asks which sheet, on a page like Which part, with the first sheet chosen. A file with one sheet that has rows is not asked |
 | 51 | Phase 6, import of Excel and XML as built | Agreed on 2026-11-27 from the pictures of the app, with: a remembered import that also applies to a sheet; a sheet of more than 5,000 rows listed and refused only when chosen; a file with no extension judged by its first characters; the limits (96 MB unpacked a workbook, 1.5 million elements an XML file); and the two things known and left (ZIP64 workbooks, a single item beside other things in XML). The owner's real files are checked on TestFlight |
+| 52 | Word file | Asked on 2026-11-27 when phase 7 started: a true `.docx`, so Word, Pages and Google Docs open it as one |
+| 53 | Fields ticked at first in the export | Board, list, title, description, labels, priority, due date, start date, done, subtasks. Archived, repeat, reminder, created on and completed on are there to tick. Reset goes back to these ten |
+| 54 | Boards shared with the person | Offered in the export, marked "shared with you" and not ticked at first. Export only reads |
+| 55 | Name of the exported file | One board: its name and the day, "Work 2026-11-27.xlsx". Several: "stackd-tasks 2026-11-27.xlsx" |
+| 56 | Phase 7, export as built | Agreed on 2026-11-27 from the pictures of the pages and one file of each format, with: Excel chosen at first and the last choices kept until the app closes; the import and export pages' button bar fixed to the foot of the window on wide screens; a ' in front of a CSV cell that would run as a formula, taken off again on import; and the things known and left (a due time of 00:00, a comma CSV in a semicolon language). Numbers, Pages, Google Sheets and Docs and Preview are checked by the owner on TestFlight |
 
 ---
 
@@ -475,33 +480,80 @@ Notes on the six samples, all read on 2026-11-26:
   list, and none has a checklist, a member, a comment, an attachment or a
   start date. How those are written is still not known (§13).
 
-### 06.2 Export (decision 6)
+### 06.2 Export (decisions 6, 21 and 52 to 55)
 
-Tasks only. Three steps, after the Trello power-up in the screenshots:
+**Built and agreed 2026-11-27** (decision 56). Tasks only. Export file in the
+Import and export sheet opens three pages under Settings, laid out as the
+import guide's (Step n of 3, back, close, one button at the foot):
 
-1. **Boards and tasks.** Tick boards. Switches: include done tasks,
-   include archived tasks. A count: "189 tasks selected".
-2. **Fields.** Tick fields; a sensible set is on at first: board, lane,
-   title, description, labels, priority, due, start, done, subtasks.
-   Reset.
-3. **Type of file** (decision 21). Excel, CSV, PDF, Word, JSON, XML, then
-   **Export**. A preview of the first rows. For PDF and Word, two
-   switches (decision 20): group by list, and checklists as boxes. The
-   board's name is the heading; there is no cover page and no colour.
+1. **Boards and tasks.** Each live board with a box to tick and its number
+   of tasks; the person's own boards are ticked at first, a board shared
+   with them is offered, marked "shared with you", not ticked (decision
+   54). Done tasks: Include or Leave out (Include at first); Archived
+   tasks: Include or Leave out (Leave out at first), as two-way toggles
+   like those in Settings. The foot says "189 tasks selected". Deleted
+   tasks are never in the file; notes and meetings are not exported.
+2. **Fields.** Fifteen fields with a box each, ten ticked at first
+   (decision 53). Title is always in the file. **Reset** goes back to the
+   ten. The foot says how many fields each row has.
+3. **Type of file** (decision 21). Excel, CSV, PDF, Word, JSON and XML,
+   each with a line saying what it is for; Excel is chosen at first. For
+   PDF and Word, two toggles (decision 20): Group by list (By list, One
+   list) and Subtasks (As boxes, As a list). The first three tasks as they
+   will look. For PDF, a line when some tasks hold letters it cannot show.
+   The button says "Export 189 tasks".
+
+After **Export**, the file is made on the device and handed over (a
+download in a browser); Settings comes back with "Exported 189 tasks as
+PDF". The choices are kept for the next export until the app is closed.
+The file is named after the board, or "stackd-tasks" for several, and the
+day (decision 55).
 
 Free for everyone, with no limit on tasks or exports (decision 14).
 
-| Format | Made how | Notes |
+| Format | Made how | As built |
 |---|---|---|
-| CSV | Hand-written | UTF-8 with a mark so Excel reads accents; one row per task |
-| JSON | Hand-written | An array of tasks, field names as in step 2 |
-| XML | Hand-written | One element per task |
-| Excel (.xlsx) | Hand-written zip + sheet XML | One sheet; dates as real dates |
-| Word | A true `.docx` (hand-written zip + document XML), or a web page saved as `.doc` as the power-up does: §11, phase 7 | A heading per board and list, a line per task; subtasks as boxes |
-| PDF | Hand-written (decision 7) | A4, same layout as Word. Letters outside Western European print as "?"; the format step says so |
+| CSV | Hand-written | UTF-8 with a mark so Excel reads accents; one row a task, the field names on the first row; a description with **bold**, *italic* and ~~struck~~ marks, a checklist one item a line with [x] or [ ], dates as 2026-12-01 09:00, Yes and No. A cell that starts with = + - or @ is written with a ' in front, so no spreadsheet runs it as a formula; the import guide takes it off again |
+| JSON | Hand-written | An array of tasks, the field names as keys; labels a list, subtasks a list of { title, done }, true and false |
+| XML | Hand-written | `<tasks>` with a `<task>` each, fields as elements named like the fields (`due-date`), `<labels><label>` and `<subtasks><subtask>` |
+| Excel (.xlsx) | Hand-written zip + sheet XML (`src/formats/xlsx-write.js`) | One sheet, "Tasks"; the field names in bold on a first row that stays in place; a filter on every column; dates as real dates in the person's date format; a description keeps its bold, italic, underline and strike; text cells are never formulas |
+| Word | A true `.docx` (decision 52; `src/formats/docx-write.js`) | A4. Word's own Heading 1 for each board and Heading 2 for each list, so the navigation pane lists them; each task a bold title, a grey line of what is known about it (labels, priority, due, start, done, repeat, reminder, created, completed: the fields ticked), its description with its formatting, its subtasks as boxes or a list |
+| PDF | Hand-written (decision 7; `src/formats/pdf.js`) | A4, the same layout as Word in Helvetica, laid out and wrapped here; a page number at each foot. Letters outside Western European languages print as "?"; the Type of file page says so when it happens |
 
 A file Stack'd exported as CSV, Excel, JSON or XML imports back through
-the guide with every column placed in step 1.
+the guide with every column it has a field for placed in step 1, and the
+same tasks: titles, lists, labels, priority, dates and times, done,
+subtasks and, except from Excel, the description's formatting (Excel's
+formatted text comes back as plain text). Underline is kept only in Word,
+PDF and Excel: other tools write no mark for it.
+
+Checked on made-up boards: every format written and read back
+(`scripts/check-export.mjs`, in `npm run check`); 5,000 tasks in all six
+formats in about a second. The Excel file opened in Excel on Windows with
+no repair, real dates in the person's format, the filter, the bold first
+row and the formatted descriptions; a CSV cell starting with = shown as
+text. The Word file opened in Word on Windows as a current document, not
+in Compatibility Mode, with its headings. The PDF opened in the browser's
+viewer. Numbers, Pages, Google Sheets and Docs, and Preview are checked
+by the owner (§09).
+
+One independent review of the export found no way for a task's text to
+break a file, run as a formula or reach the page unescaped, and these
+defects, fixed before the owner saw the result and covered by checks: a
+task's title could be left alone at the foot of a PDF page; a ' the
+person typed before = + - or @ was lost on the way back; *, _ and ~ typed
+as text came back as formatting, and italic inside a word was lost; a
+label with a comma in it came back as two; a subtask ending "(done)" came
+back ticked; text like _x0041_ turned into a letter in Excel; a board
+deleted while the pages were open was still exported; the PDF's title
+and some letter widths were wrong; a day that does not exist, or one
+before 1900, became another day in Excel; broken old data stopped the
+Type of file page. The fix for the wide-screen button bar also applies to
+the import guide, whose long pages ran under it (phase 5). Known and
+left: a task due at exactly 00:00 comes back with no time; a list called
+Done, Completed or Closed comes back as done (decision 17 reads it so); a
+comma-separated CSV opens in one column in Excel set to a language that
+separates with semicolons, where the Excel export is the one to use.
 
 On iPhone and Android the file goes to the share sheet (Save to Files,
 Mail, AirDrop), through the Filesystem and Share plugins (decision 13). In
@@ -643,7 +695,7 @@ Each phase: options shown → owner agrees → built → shown → owner agrees.
 | 4 | D: Data section, the sheet, Backup. **Done and agreed** (decisions 32 to 44) | Mock-ups, then the working pages |
 | 5 | D: Import guide for CSV and JSON, files made of several parts, Remembered imports. **Done and agreed** (decisions 45 to 49) | The guide, step by step, on made-up files |
 | 6 | D: Import of Excel and XML. **Done and agreed** (decisions 50 and 51) | The same files in those formats |
-| 7 | D: Export, six formats | The pages, and one file of each format to open |
+| 7 | D: Export, six formats. **Done and agreed** (decisions 52 to 56) | The pages, and one file of each format to open |
 | 8 | iPhone saving, QA, security review, version, release notes. QA includes: no switched-off button and no "being built" line left in the Import and export sheet | TestFlight build |
 
 ## 11. Still to decide, asked when the phase starts
@@ -652,10 +704,8 @@ The nine questions of the first draft (O-1 to O-9) were answered on
 2026-11-26 and are decisions 13 to 21. What is left is asked as a question
 when its phase starts, and the answer goes into §02.
 
-| Phase | Question | My suggestion |
-|---|---|---|
-| 7 | Word: a true `.docx`, or a web page saved as `.doc` as the power-up does | True `.docx`: Pages and Google Docs open it properly |
-| 7 | The fields ticked at first in the export | Board, list, title, description, labels, priority, due, start, done, subtasks |
+All of them are answered (decisions 50 to 55 for phases 6 and 7). Anything
+phase 8 brings up is asked the same way.
 
 ## 12. Agreement points
 

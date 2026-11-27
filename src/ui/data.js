@@ -25,6 +25,7 @@ import { icon } from './icons.js';
 import { overlay, choiceDialog, noticeDialog, promptDialog, openMenu, toast } from './primitives.js';
 import { FIELDS } from '../importer.js';
 import { startImport, guideOpen, guideHTML, bindGuide } from './importguide.js';
+import { startExport, exportOpen, exportHTML, bindExport } from './exportguide.js';
 import { bindScrollShadow } from './board.js';
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -68,10 +69,8 @@ export function bindDataSection() {
 /* ── Import and export: the sheet ────────────────────────────────────── */
 
 /* Three buttons, as in Stack'd Finance. Import file opens the system's
-   file picker and then the guide (ui/importguide.js). The pages behind
-   Export file are built in phase 7 of 1.7.0: until then that button is shown
-   switched off (decision 35), and the line under it says why. NOT FOR
-   RELEASE as it is: the line and the `disabled` go when that phase lands. */
+   file picker and then the guide (ui/importguide.js); Export file opens
+   the export's pages (ui/exportguide.js). */
 function openTransferSheet() {
   const { ov, close } = overlay(`
     <div class="sheet" role="dialog" aria-labelledby="xfer-title" aria-describedby="xfer-body">
@@ -80,23 +79,25 @@ function openTransferSheet() {
       <p class="sheet-text" id="xfer-body">Bring tasks in from a file, or send them to another app.</p>
       <div class="sheet-stack">
         <button type="button" class="btn btn-secondary btn-block" data-import-file>Import file</button>
-        <button type="button" class="btn btn-secondary btn-block" data-export-file disabled>Export file</button>
+        <button type="button" class="btn btn-secondary btn-block" data-export-file>Export file</button>
         <button type="button" class="btn btn-secondary btn-block" data-cancel>Cancel</button>
       </div>
-      <p class="hint sheet-note">Import reads CSV, Excel, JSON and XML files. Export is being built: its button switches on in a later step of 1.7.0.</p>
+      <p class="hint sheet-note">Import reads CSV, Excel, JSON and XML files. Export writes those, and PDF and Word.</p>
     </div>`, { onClose: () => refocus('[data-open-transfer]') });
   ov.querySelector('[data-cancel]').addEventListener('click', () => close());
   /* the picker opens inside this tap, or the phone keeps it shut */
   const pick = ov.querySelector('[data-import-file]');
   pick.addEventListener('click', () => { close(); startImport(); });
+  ov.querySelector('[data-export-file]').addEventListener('click', () => { close(); startExport(); });
   pick.focus();
 }
 
 /* ── Pages under Settings ────────────────────────────────────────────── */
 
-const PAGES = ['backup', 'remembered', 'import'];
-/* the guide is a page only while it holds a file: after a reload there is none */
-const onPage = () => (!isLegacyOrigin() && PAGES.includes(UI.settingsPage) && (UI.settingsPage !== 'import' || guideOpen()) ? UI.settingsPage : null);
+const PAGES = ['backup', 'remembered', 'import', 'export'];
+/* the import guide is a page only while it holds a file, the export only while it is open: after a reload neither is */
+const onPage = () => (!isLegacyOrigin() && PAGES.includes(UI.settingsPage)
+  && (UI.settingsPage !== 'import' || guideOpen()) && (UI.settingsPage !== 'export' || exportOpen()) ? UI.settingsPage : null);
 
 function openPage(name) {
   UI.settingsScroll = { area: app.querySelector('.scroll-area')?.scrollTop || 0, main: app.querySelector('.main')?.scrollTop || 0 };
@@ -212,13 +213,14 @@ function bindRemembered() {
 /** The page to draw in place of Settings, or null for Settings itself. */
 export function settingsPageHTML() {
   const page = onPage();
-  return page === 'backup' ? backupPageHTML() : page === 'remembered' ? rememberedPageHTML() : page === 'import' ? guideHTML() : null;
+  return page === 'backup' ? backupPageHTML() : page === 'remembered' ? rememberedPageHTML() : page === 'import' ? guideHTML() : page === 'export' ? exportHTML() : null;
 }
 
 /** Binds the page on show. False when Settings itself is on show. */
 export function bindSettingsPage() {
   if (!onPage()) return false;
   if (onPage() === 'import') { bindGuide(); return true; }
+  if (onPage() === 'export') { bindExport(); return true; }
   bindRemembered();
   bindScrollShadow();
   app.querySelector('[data-sub-back]')?.addEventListener('click', closePage);

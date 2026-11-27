@@ -30,8 +30,8 @@
   function addMonths(iso, n) {
     const [y, m, day] = iso.split("-").map(Number);
     const first = new Date(y, m - 1 + n, 1);
-    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
-    return toISO(new Date(first.getFullYear(), first.getMonth(), Math.min(day, last)));
+    const last2 = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+    return toISO(new Date(first.getFullYear(), first.getMonth(), Math.min(day, last2)));
   }
   var addYears = (iso, n) => addMonths(iso, 12 * n);
   var daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / 864e5);
@@ -60,8 +60,8 @@
   }
   function onDay(iso, day) {
     const [y, m] = iso.split("-").map(Number);
-    const last = new Date(y, m, 0).getDate();
-    return toISO(new Date(y, m - 1, Math.min(day, last)));
+    const last2 = new Date(y, m, 0).getDate();
+    return toISO(new Date(y, m - 1, Math.min(day, last2)));
   }
   var anchorDayOf = (due, recur) => due && (recur === "monthly" || recur === "yearly") ? Number(due.split("-")[2]) : null;
   function isOverdue(due, dueTime = null, now2 = /* @__PURE__ */ new Date()) {
@@ -169,7 +169,7 @@
   var NATIVE_LEAD_MS = 5e3;
   var SUMMARY_AT = 3;
   var LATE_TEXT_MS = 2 * 6e4;
-  var reminderKey = (t) => `${t.due}|${t.dueTime}|${t.reminder}`;
+  var reminderKey = (t2) => `${t2.due}|${t2.dueTime}|${t2.reminder}`;
   function nid(taskId) {
     let h = 2166136261;
     for (let i = 0; i < taskId.length; i++) {
@@ -187,23 +187,23 @@
     return { title: task.title, body: boardName ? `${line} · ${boardName}` : line };
   }
   function planReminders(tasks, lists = []) {
-    const boards2 = new Map(lists.map((l) => [l.id, l.name]));
+    const boards3 = new Map(lists.map((l) => [l.id, l.name]));
     const away = new Set(lists.filter((l) => l.status === "archived" || l.status === "deleted").map((l) => l.id));
-    return tasks.filter((t) => t.status === "active" && !away.has(t.listId) && !t.done && t.due && t.reminder !== null && t.reminder !== void 0).map((t) => {
-      const fireAt = reminderInstant(t.due, t.dueTime, t.reminder);
+    return tasks.filter((t2) => t2.status === "active" && !away.has(t2.listId) && !t2.done && t2.due && t2.reminder !== null && t2.reminder !== void 0).map((t2) => {
+      const fireAt = reminderInstant(t2.due, t2.dueTime, t2.reminder);
       if (fireAt === null) return null;
-      const board = boards2.get(t.listId) || null;
-      const { title, body } = reminderText(t, board, fireAt);
+      const board = boards3.get(t2.listId) || null;
+      const { title, body } = reminderText(t2, board, fireAt);
       return {
-        taskId: t.id,
+        taskId: t2.id,
         fireAt,
         title,
         body,
         board,
-        key: reminderKey(t),
-        due: t.due,
-        dueTime: t.dueTime,
-        firedAt: t.reminderFiredAt ?? null
+        key: reminderKey(t2),
+        due: t2.due,
+        dueTime: t2.dueTime,
+        firedAt: t2.reminderFiredAt ?? null
       };
     }).filter(Boolean).sort((a, b) => a.fireAt - b.fireAt);
   }
@@ -232,10 +232,10 @@
   }
   var pastUnfired = (plan2, now2) => plan2.filter((e) => e.firedAt === null && e.fireAt <= now2);
   function deliveredSince(record2, pendingTaskIds, tasks, now2) {
-    const byId = new Map(tasks.map((t) => [t.id, t]));
+    const byId = new Map(tasks.map((t2) => [t2.id, t2]));
     return Object.entries(record2).filter(([taskId, r]) => r.fireAt <= now2 && !pendingTaskIds.has(taskId)).filter(([taskId, r]) => {
-      const t = byId.get(taskId);
-      return t && t.reminderFiredAt == null && reminderKey(t) === r.key;
+      const t2 = byId.get(taskId);
+      return t2 && t2.reminderFiredAt == null && reminderKey(t2) === r.key;
     }).map(([taskId, r]) => ({ taskId, fireAt: r.fireAt }));
   }
   function heldRequests(plan2, pendingByTask, record2) {
@@ -303,7 +303,7 @@
     const src = String(html ?? "").replace(DROP_CONTENT, "");
     const out = [];
     const open3 = [];
-    let last = 0, atStart = true, boundary = false;
+    let last2 = 0, atStart = true, boundary = false;
     const flushBoundary = () => {
       if (boundary && !atStart) out.push("<br>");
       boundary = false;
@@ -322,8 +322,8 @@
       while (open3.length > i) out.push(`</${open3.pop()}>`);
     };
     for (const m of src.matchAll(TOKEN)) {
-      pushText(src.slice(last, m.index));
-      last = m.index + m[0].length;
+      pushText(src.slice(last2, m.index));
+      last2 = m.index + m[0].length;
       const raw = m[1] ? m[1].toLowerCase() : null;
       if (!raw) continue;
       const closing = m[0][1] === "/";
@@ -345,7 +345,7 @@
         open3.push(mapped);
       }
     }
-    pushText(src.slice(last));
+    pushText(src.slice(last2));
     while (open3.length) out.push(`</${open3.pop()}>`);
     return out.join("").replace(/^(?:\s|<br>)+/, "").replace(/(?:<br>|\s)+((?:<\/[bius]>)*)$/, "$1").replace(/(?:<br>){3,}/g, "<br><br>").replace(/<([bius])><\/\1>/g, "");
   }
@@ -360,25 +360,25 @@
   });
   function toText(html) {
     const src = String(html ?? "").replace(DROP_CONTENT, "");
-    let s = "", last = 0, boundary = false;
-    const text2 = (t) => {
-      if (!t) return;
-      if (t.trim() && boundary) {
+    let s = "", last2 = 0, boundary = false;
+    const text2 = (t2) => {
+      if (!t2) return;
+      if (t2.trim() && boundary) {
         s += "\n";
         boundary = false;
       }
-      s += t;
+      s += t2;
     };
     for (const m of src.matchAll(TOKEN)) {
-      text2(src.slice(last, m.index));
-      last = m.index + m[0].length;
+      text2(src.slice(last2, m.index));
+      last2 = m.index + m[0].length;
       const raw = m[1] ? m[1].toLowerCase() : null;
       if (raw === "br") {
         s += "\n";
         boundary = false;
       } else if (raw && BLOCK.has(raw)) boundary = true;
     }
-    text2(src.slice(last));
+    text2(src.slice(last2));
     return decode(s).replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
   }
   var firstLine = (html) => toText(html).split("\n").find((l) => l.trim()) || "";
@@ -433,7 +433,7 @@
   }
   var laneOr = (listId, laneId) => lanesOf(listId).some((l) => l.id === laneId) ? laneId : workLane(listId);
   var validLane = (listId, laneId) => lanesOf(listId).some((l) => l.id === laneId) ? laneId : firstLane(listId);
-  var laneTaskCount = (listId, laneId) => S.tasks.filter((t) => t.status === "active" && t.listId === listId && t.lane === laneId).length;
+  var laneTaskCount = (listId, laneId) => S.tasks.filter((t2) => t2.status === "active" && t2.listId === listId && t2.lane === laneId).length;
   var TASK_SORTS = [
     ["manual", "Manual", "Sort"],
     ["due-asc", "Due date · soonest first", "Due · soonest"],
@@ -621,12 +621,12 @@
     return {
       ...v1,
       version: 2,
-      tasks: (v1.tasks || []).map((t) => {
-        const time2 = V1_REMINDER_TIME[t.reminder];
-        const hasSchedule = !!(t.due && time2);
+      tasks: (v1.tasks || []).map((t2) => {
+        const time2 = V1_REMINDER_TIME[t2.reminder];
+        const hasSchedule = !!(t2.due && time2);
         const task = {
-          ...blankTask(t.listId, t.title),
-          ...t,
+          ...blankTask(t2.listId, t2.title),
+          ...t2,
           dueTime: hasSchedule ? time2 : null,
           reminder: hasSchedule ? 0 : null,
           createdAt: now2,
@@ -732,7 +732,7 @@
   function seed() {
     const work = "work", personal = "personal", shopping = "shopping", family = "family";
     let o = 0;
-    const t = (listId, title, extra = {}) => blankTask(listId, title, { order: o++, ...extra });
+    const t2 = (listId, title, extra = {}) => blankTask(listId, title, { order: o++, ...extra });
     return {
       version: 2,
       onboarded: false,
@@ -747,7 +747,7 @@
         { id: family, name: "Family" }
       ],
       tasks: [
-        t(work, "Prepare Q3 review deck", {
+        t2(work, "Prepare Q3 review deck", {
           due: daysFrom(7),
           dueTime: "09:00",
           reminder: 0,
@@ -761,47 +761,47 @@
             { id: uid(), title: "Dry-run with team", done: false }
           ]
         }),
-        t(work, "Email vendor about contract renewal", { due: daysFrom(0), tags: ["vendor"], lane: "inprogress" }),
-        t(work, "Book 1:1s for next sprint", { priority: "medium", tags: ["team"] }),
-        t(work, "Draft launch announcement", { due: daysFrom(9), tags: ["launch", "comms"] }),
-        t(work, "Research analytics tools", { priority: "low", tags: ["tooling"] }),
-        t(work, "Send weekly status update", { done: true, lane: "done" }),
-        t(personal, "Call the dentist", { due: daysFrom(0), tags: ["health"] }),
-        t(personal, "Pick up dry cleaning", { tags: ["errand"] }),
-        t(personal, "Plan weekend trip", {}),
-        t(personal, "Water the plants", { done: true, lane: "done" }),
-        t(shopping, "Milk and eggs", {}),
-        t(shopping, "Birthday card for Sam", { due: daysFrom(2) }),
-        t(shopping, "Replace desk lamp", { priority: "low" }),
-        t(family, "Schedule school pickup rotation", { due: daysFrom(1) }),
-        t(family, "Fix the bike tire", {})
+        t2(work, "Email vendor about contract renewal", { due: daysFrom(0), tags: ["vendor"], lane: "inprogress" }),
+        t2(work, "Book 1:1s for next sprint", { priority: "medium", tags: ["team"] }),
+        t2(work, "Draft launch announcement", { due: daysFrom(9), tags: ["launch", "comms"] }),
+        t2(work, "Research analytics tools", { priority: "low", tags: ["tooling"] }),
+        t2(work, "Send weekly status update", { done: true, lane: "done" }),
+        t2(personal, "Call the dentist", { due: daysFrom(0), tags: ["health"] }),
+        t2(personal, "Pick up dry cleaning", { tags: ["errand"] }),
+        t2(personal, "Plan weekend trip", {}),
+        t2(personal, "Water the plants", { done: true, lane: "done" }),
+        t2(shopping, "Milk and eggs", {}),
+        t2(shopping, "Birthday card for Sam", { due: daysFrom(2) }),
+        t2(shopping, "Replace desk lamp", { priority: "low" }),
+        t2(family, "Schedule school pickup rotation", { due: daysFrom(1) }),
+        t2(family, "Fix the bike tire", {})
       ]
     };
   }
   var listById = (id) => S.lists.find((l) => l.id === id);
-  var taskById = (id) => S.tasks.find((t) => t.id === id);
+  var taskById = (id) => S.tasks.find((t2) => t2.id === id);
   var isLive = (l) => !!l && (l.status ?? "active") === "active";
   var activeLists = () => S.lists.filter(isLive);
   var folderBoards = (status2) => {
     const key = status2 === "archived" ? "archivedAt" : "deletedAt";
     return S.lists.filter((l) => l.status === status2).sort((a, b) => b[key] - a[key]);
   };
-  var boardCardCount = (listId) => S.tasks.filter((t) => t.listId === listId && t.status === "active").length;
+  var boardCardCount = (listId) => S.tasks.filter((t2) => t2.listId === listId && t2.status === "active").length;
   var active = () => {
     const away = new Set(S.lists.filter((l) => !isLive(l)).map((l) => l.id));
-    return S.tasks.filter((t) => t.status === "active" && !away.has(t.listId));
+    return S.tasks.filter((t2) => t2.status === "active" && !away.has(t2.listId));
   };
-  var tasksOf = (listId) => active().filter((t) => t.listId === listId);
-  var openCount = (listId) => tasksOf(listId).filter((t) => !t.done).length;
+  var tasksOf = (listId) => active().filter((t2) => t2.listId === listId);
+  var openCount = (listId) => tasksOf(listId).filter((t2) => !t2.done).length;
   var isGone = (x) => x.status === "deleted" || x.listId !== void 0 && listById(x.listId)?.status === "deleted";
   function folderTasks(status2) {
     const key = status2 === "archived" ? "archivedAt" : "deletedAt";
-    return S.tasks.filter((t) => t.status === status2).sort((a, b) => b[key] - a[key]);
+    return S.tasks.filter((t2) => t2.status === status2).sort((a, b) => b[key] - a[key]);
   }
   var tagged = () => [...S.tasks, ...S.notes].filter((x) => !isGone(x));
   var allTags = () => normalizeTags([...S.labels, ...tagged().flatMap((x) => x.tags)]);
   var sameTag = (a, b) => a.toLowerCase() === b.toLowerCase();
-  var tagUseCount = (name) => tagged().filter((x) => x.tags.some((t) => sameTag(t, name))).length;
+  var tagUseCount = (name) => tagged().filter((x) => x.tags.some((t2) => sameTag(t2, name))).length;
   var noteById = (id) => S.notes.find((n) => n.id === id);
   var activeNotes = () => S.notes.filter((n) => n.status === "active");
   function sortedNotes(sort = S.notesSort) {
@@ -847,20 +847,20 @@
   var meetingIsEmpty = (m) => !m.recording && !m.transcript && !m.title.trim();
   var folderCount = (status2) => folderTasks(status2).length + folderNotes(status2).length + folderMeetings(status2).length + folderBoards(status2).length;
   var tagUseCounts = (name) => ({
-    tasks: S.tasks.filter((t) => !isGone(t) && t.tags.some((x) => sameTag(x, name))).length,
+    tasks: S.tasks.filter((t2) => !isGone(t2) && t2.tags.some((x) => sameTag(x, name))).length,
     notes: S.notes.filter((n) => n.status !== "deleted" && n.tags.some((x) => sameTag(x, name))).length
   });
   var priorityById = (id) => S.priorities.find((p) => p.id === id);
   var priorityIdByName = (name) => S.priorities.find((p) => p.name.toLowerCase() === String(name ?? "").trim().toLowerCase())?.id || "none";
   var priorityName = (id) => priorityById(id)?.name || "None";
-  var priorityUseCount = (id) => S.tasks.filter((t) => !isGone(t) && t.priority === id).length;
+  var priorityUseCount = (id) => S.tasks.filter((t2) => !isGone(t2) && t2.priority === id).length;
   function sortedTasks(listId) {
     const n = S.priorities.length;
     const rank = (p) => {
       const i = S.priorities.findIndex((x) => x.id === p);
       return i === -1 ? 0 : n - i;
     };
-    const when2 = (t) => `${t.due} ${t.dueTime || "24:00"}`;
+    const when2 = (t2) => `${t2.due} ${t2.dueTime || "24:00"}`;
     const [field, dir] = S.sort === "manual" ? [null, 1] : [S.sort.split("-")[0], S.sort.endsWith("asc") ? 1 : -1];
     const ts = tasksOf(listId).slice();
     ts.sort((a, b) => {
@@ -877,10 +877,10 @@
     });
     return ts;
   }
-  var touch = (t) => {
-    t.updatedAt = Date.now();
+  var touch = (t2) => {
+    t2.updatedAt = Date.now();
   };
-  var nextOrder = () => Math.max(0, ...S.tasks.map((t) => t.order + 1));
+  var nextOrder = () => Math.max(0, ...S.tasks.map((t2) => t2.order + 1));
   var leaveDetail = (id) => {
     if (UI.detailId === id) {
       UI.detailId = null;
@@ -888,62 +888,62 @@
     }
   };
   var doneOrigin = /* @__PURE__ */ new Map();
-  var rememberOrigin = (t) => {
-    if (t.lane !== DONE_LANE) doneOrigin.set(t.id, { listId: t.listId, lane: t.lane });
+  var rememberOrigin = (t2) => {
+    if (t2.lane !== DONE_LANE) doneOrigin.set(t2.id, { listId: t2.listId, lane: t2.lane });
   };
-  function reopenLane(t) {
-    const o = doneOrigin.get(t.id);
-    doneOrigin.delete(t.id);
-    return o && o.listId === t.listId && o.lane !== DONE_LANE && lanesOf(t.listId).some((l) => l.id === o.lane) ? o.lane : workLane(t.listId);
+  function reopenLane(t2) {
+    const o = doneOrigin.get(t2.id);
+    doneOrigin.delete(t2.id);
+    return o && o.listId === t2.listId && o.lane !== DONE_LANE && lanesOf(t2.listId).some((l) => l.id === o.lane) ? o.lane : workLane(t2.listId);
   }
   function toggleDone(id) {
-    const t = taskById(id);
-    if (!t) return;
-    if (!t.done && t.recur !== "none" && t.due) {
+    const t2 = taskById(id);
+    if (!t2) return;
+    if (!t2.done && t2.recur !== "none" && t2.due) {
       rollForward(id);
       return;
     }
-    if (!t.done) {
-      rememberOrigin(t);
-      t.done = true;
-      t.lane = DONE_LANE;
+    if (!t2.done) {
+      rememberOrigin(t2);
+      t2.done = true;
+      t2.lane = DONE_LANE;
       S.lastAuto = Date.now();
     } else {
-      t.done = false;
-      if (t.lane === DONE_LANE) t.lane = reopenLane(t);
-      armReminder(t);
+      t2.done = false;
+      if (t2.lane === DONE_LANE) t2.lane = reopenLane(t2);
+      armReminder(t2);
     }
-    touch(t);
+    touch(t2);
     commit();
   }
   function reorderTask(id, beforeId) {
-    const ordered = sortedTasks(taskById(id).listId).filter((t) => t.id !== id);
-    const idx = ordered.findIndex((t) => t.id === beforeId);
+    const ordered = sortedTasks(taskById(id).listId).filter((t2) => t2.id !== id);
+    const idx = ordered.findIndex((t2) => t2.id === beforeId);
     ordered.splice(idx === -1 ? ordered.length : idx, 0, taskById(id));
-    ordered.forEach((t, i) => {
-      t.order = i;
+    ordered.forEach((t2, i) => {
+      t2.order = i;
     });
     commit();
   }
   function moveToLane(id, lane) {
-    const t = taskById(id);
-    if (!t || !lane) return;
-    if (!lanesOf(t.listId).some((l) => l.id === lane)) lane = workLane(t.listId);
-    if (lane === DONE_LANE && t.recur !== "none" && t.due) {
+    const t2 = taskById(id);
+    if (!t2 || !lane) return;
+    if (!lanesOf(t2.listId).some((l) => l.id === lane)) lane = workLane(t2.listId);
+    if (lane === DONE_LANE && t2.recur !== "none" && t2.due) {
       rollForward(id);
       return;
     }
-    const wasDone = t.done;
-    if (lane === DONE_LANE) rememberOrigin(t);
-    else doneOrigin.delete(t.id);
-    t.lane = lane;
-    t.done = lane === "done";
-    if (wasDone && !t.done) armReminder(t);
-    touch(t);
+    const wasDone = t2.done;
+    if (lane === DONE_LANE) rememberOrigin(t2);
+    else doneOrigin.delete(t2.id);
+    t2.lane = lane;
+    t2.done = lane === "done";
+    if (wasDone && !t2.done) armReminder(t2);
+    touch(t2);
     commit();
   }
   function addTask(draft2) {
-    const t = blankTask(draft2.listId, draft2.title, {
+    const t2 = blankTask(draft2.listId, draft2.title, {
       priority: draft2.priority,
       tags: normalizeTags(draft2.tags || []),
       start: draft2.start || null,
@@ -955,18 +955,18 @@
       order: nextOrder(),
       from: draft2.from || null
     });
-    t.recurDay = anchorDayOf(t.due, t.recur);
-    t.done = t.lane === DONE_LANE;
-    armReminder(t);
-    S.tasks.push(t);
+    t2.recurDay = anchorDayOf(t2.due, t2.recur);
+    t2.done = t2.lane === DONE_LANE;
+    armReminder(t2);
+    S.tasks.push(t2);
     commit();
-    return t;
+    return t2;
   }
   function setPriority(id, priority) {
-    const t = taskById(id);
-    if (!t) return;
-    t.priority = priority;
-    touch(t);
+    const t2 = taskById(id);
+    if (!t2) return;
+    t2.priority = priority;
+    touch(t2);
     commit();
   }
   var cleanChecklist = (items) => items === null || items === void 0 ? null : items.map((c) => ({ id: c.id || uid(), text: String(c.text ?? "").trim(), done: !!c.done })).filter((c) => c.text);
@@ -1187,11 +1187,11 @@
   }
   function renameSpeaker(id, label, name) {
     const m = meetingById(id);
-    const t = m?.transcript;
-    if (!t || !Object.hasOwn(t.speakers, label)) return;
+    const t2 = m?.transcript;
+    if (!t2 || !Object.hasOwn(t2.speakers, label)) return;
     const n = String(name ?? "").trim();
-    t.speakers[label] = n || null;
-    t.updatedAt = Date.now();
+    t2.speakers[label] = n || null;
+    t2.updatedAt = Date.now();
     touchMeeting(m);
     commit();
   }
@@ -1308,22 +1308,22 @@
     const a = actionOf(m, actionId);
     if (!a || a.status !== "proposed" || !isLive(listById(draft2.listId))) return null;
     a.title = String(draft2.title ?? a.title).trim() || a.title;
-    const t = addTask({ ...draft2, title: a.title, from: { meetingId: id, actionId } });
+    const t2 = addTask({ ...draft2, title: a.title, from: { meetingId: id, actionId } });
     a.status = "added";
-    a.taskId = t.id;
-    a.due = t.due;
-    a.priority = t.priority;
+    a.taskId = t2.id;
+    a.due = t2.due;
+    a.priority = t2.priority;
     touchMeeting(m);
     commit();
-    return t;
+    return t2;
   }
   function editSegment(id, segmentId, text2) {
     const m = meetingById(id);
     const seg = m?.transcript?.segments.find((s) => s.id === segmentId);
     if (!seg || m.status !== "active") return;
-    const t = String(text2 ?? "").trim();
-    if (!t || t === seg.text) return;
-    seg.text = t;
+    const t2 = String(text2 ?? "").trim();
+    if (!t2 || t2 === seg.text) return;
+    seg.text = t2;
     m.transcript.updatedAt = Date.now();
     touchMeeting(m);
     persistQuiet();
@@ -1381,7 +1381,7 @@
   var CLOCK = /^\d{2}:\d{2}$/;
   var RECORDS_MAX = 2e4;
   var importRoom = () => Math.max(0, RECORDS_MAX - S.tasks.length - S.notes.length - S.meetings.length);
-  function importTasks({ boardId = null, newBoard: newBoard2 = null, items = [], show: show3 = false }) {
+  function importTasks({ boardId = null, newBoard: newBoard2 = null, items = [], show: show4 = false }) {
     const made = { listId: null, boardMade: false, laneIds: [], taskIds: [] };
     let list3 = boardId ? listById(boardId) : null;
     if (boardId && (!isLive(list3) || list3.share)) return { error: "board" };
@@ -1428,7 +1428,7 @@
       if (done2) lane = DONE_LANE;
       const due = ISO_DAY.test(it.due) ? it.due : null;
       const start2 = ISO_DAY.test(it.start) && (!due || it.start <= due) ? it.start : null;
-      const t = blankTask(list3.id, title, {
+      const t2 = blankTask(list3.id, title, {
         lane,
         done: done2,
         order: order++,
@@ -1443,14 +1443,14 @@
         // not shown anywhere: it tells a second import this card is here
       });
       if (it.archived) {
-        t.status = "archived";
-        t.archivedAt = now2;
-        t.origin = { listId: t.listId, lane: t.lane, order: t.order };
+        t2.status = "archived";
+        t2.archivedAt = now2;
+        t2.origin = { listId: t2.listId, lane: t2.lane, order: t2.order };
       }
-      S.tasks.push(t);
-      made.taskIds.push(t.id);
+      S.tasks.push(t2);
+      made.taskIds.push(t2.id);
     }
-    if (show3) {
+    if (show4) {
       S.currentList = list3.id;
       UI.screen = "list";
       UI.settingsPage = null;
@@ -1473,12 +1473,12 @@
   function undoImport(made) {
     if (!made) return;
     const gone = new Set(made.taskIds);
-    S.tasks = S.tasks.filter((t) => !gone.has(t.id));
+    S.tasks = S.tasks.filter((t2) => !gone.has(t2.id));
     const list3 = listById(made.listId);
     if (list3) {
-      const inUse = new Set(S.tasks.filter((t) => t.listId === list3.id).map((t) => t.lane));
+      const inUse = new Set(S.tasks.filter((t2) => t2.listId === list3.id).map((t2) => t2.lane));
       list3.lanes = list3.lanes.filter((l) => !made.laneIds.includes(l.id) || inUse.has(l.id));
-      if (made.boardMade && !S.tasks.some((t) => t.listId === list3.id) && S.lists.some((l) => l.id !== list3.id && isLive(l))) {
+      if (made.boardMade && !S.tasks.some((t2) => t2.listId === list3.id) && S.lists.some((l) => l.id !== list3.id && isLive(l))) {
         S.lists = S.lists.filter((l) => l.id !== list3.id);
         if (S.currentList === list3.id) S.currentList = activeLists()[0].id;
       }
@@ -1522,21 +1522,21 @@
     commit();
   }
   function setTitle(id, title) {
-    const t = taskById(id);
-    if (!t || !title.trim()) return;
-    t.title = title.trim();
-    touch(t);
+    const t2 = taskById(id);
+    if (!t2 || !title.trim()) return;
+    t2.title = title.trim();
+    touch(t2);
     commit();
   }
   var DESCRIPTION_MAX = 2e4;
-  var hasDescription = (t) => !!t.description && !isEmpty(t.description);
+  var hasDescription = (t2) => !!t2.description && !isEmpty(t2.description);
   function setDescription(id, html, { quiet = false } = {}) {
-    const t = taskById(id);
-    if (!t || t.status !== "active") return;
+    const t2 = taskById(id);
+    if (!t2 || t2.status !== "active") return;
     const next2 = sanitize(String(html ?? "").slice(0, DESCRIPTION_MAX));
-    if (next2 === (t.description || "")) return;
-    t.description = next2;
-    touch(t);
+    if (next2 === (t2.description || "")) return;
+    t2.description = next2;
+    touch(t2);
     if (quiet) persistQuiet();
     else commit();
   }
@@ -1550,19 +1550,19 @@
     });
   }
   function setTags(id, tags) {
-    const t = taskById(id);
-    if (!t) return;
-    t.tags = normalizeTags(tags);
-    touch(t);
+    const t2 = taskById(id);
+    if (!t2) return;
+    t2.tags = normalizeTags(tags);
+    touch(t2);
     commit();
   }
-  function armReminder(t, now2 = Date.now()) {
-    const at = reminderInstant(t.due, t.dueTime, t.reminder);
-    t.reminderFiredAt = at !== null && at <= now2 ? now2 : null;
+  function armReminder(t2, now2 = Date.now()) {
+    const at = reminderInstant(t2.due, t2.dueTime, t2.reminder);
+    t2.reminderFiredAt = at !== null && at <= now2 ? now2 : null;
   }
   function markReminderFired(id, at = Date.now()) {
-    const t = taskById(id);
-    if (t) t.reminderFiredAt = at;
+    const t2 = taskById(id);
+    if (t2) t2.reminderFiredAt = at;
     try {
       const doc2 = JSON.parse(localStorage.getItem(STORE_KEY));
       const stored = doc2?.tasks?.find((x) => x.id === id);
@@ -1574,98 +1574,98 @@
     }
   }
   function setSchedule(id, { start: start2 = null, due = null, dueTime = null, recur = "none", reminder = null }) {
-    const t = taskById(id);
-    if (!t) return;
-    const before = reminderKey(t);
-    const was = { due: t.due, recur: t.recur };
-    t.due = due || null;
-    t.dueTime = t.due ? dueTime || null : null;
-    t.start = start2 && (!t.due || start2 <= t.due) ? start2 : null;
-    t.recur = t.due ? recur : "none";
-    if (t.due !== was.due || t.recur !== was.recur || !t.recurDay) t.recurDay = anchorDayOf(t.due, t.recur);
-    t.reminder = t.due ? reminder : null;
-    if (reminderKey(t) !== before) armReminder(t);
-    touch(t);
+    const t2 = taskById(id);
+    if (!t2) return;
+    const before = reminderKey(t2);
+    const was = { due: t2.due, recur: t2.recur };
+    t2.due = due || null;
+    t2.dueTime = t2.due ? dueTime || null : null;
+    t2.start = start2 && (!t2.due || start2 <= t2.due) ? start2 : null;
+    t2.recur = t2.due ? recur : "none";
+    if (t2.due !== was.due || t2.recur !== was.recur || !t2.recurDay) t2.recurDay = anchorDayOf(t2.due, t2.recur);
+    t2.reminder = t2.due ? reminder : null;
+    if (reminderKey(t2) !== before) armReminder(t2);
+    touch(t2);
     commit();
   }
   var clearSchedule = (id) => setSchedule(id, {});
   function rollForward(id) {
-    const t = taskById(id);
-    if (!t || t.status !== "active" || t.recur === "none" || !t.due) return null;
+    const t2 = taskById(id);
+    if (!t2 || t2.status !== "active" || t2.recur === "none" || !t2.due) return null;
     const prev = {
-      start: t.start,
-      due: t.due,
-      subtasks: t.subtasks.map((s) => s.done),
-      completedCount: t.completedCount,
-      lastCompletedAt: t.lastCompletedAt,
-      reminderFiredAt: t.reminderFiredAt
+      start: t2.start,
+      due: t2.due,
+      subtasks: t2.subtasks.map((s) => s.done),
+      completedCount: t2.completedCount,
+      lastCompletedAt: t2.lastCompletedAt,
+      reminderFiredAt: t2.reminderFiredAt
     };
-    const nextDue = nextOccurrence(t.due, t.recur, void 0, t.recurDay);
-    if (t.start) t.start = addDays(t.start, daysBetween(t.due, nextDue));
-    t.due = nextDue;
-    armReminder(t);
-    t.subtasks.forEach((s) => {
+    const nextDue = nextOccurrence(t2.due, t2.recur, void 0, t2.recurDay);
+    if (t2.start) t2.start = addDays(t2.start, daysBetween(t2.due, nextDue));
+    t2.due = nextDue;
+    armReminder(t2);
+    t2.subtasks.forEach((s) => {
       s.done = false;
     });
-    t.completedCount += 1;
-    t.lastCompletedAt = Date.now();
-    touch(t);
+    t2.completedCount += 1;
+    t2.lastCompletedAt = Date.now();
+    touch(t2);
     commit();
-    return { prev, next: { due: t.due, start: t.start } };
+    return { prev, next: { due: t2.due, start: t2.start } };
   }
   function undoRollForward(id, prev) {
-    const t = taskById(id);
-    if (!t) return;
-    t.start = prev.start;
-    t.due = prev.due;
-    t.reminderFiredAt = prev.reminderFiredAt;
-    t.subtasks.forEach((s, i) => {
+    const t2 = taskById(id);
+    if (!t2) return;
+    t2.start = prev.start;
+    t2.due = prev.due;
+    t2.reminderFiredAt = prev.reminderFiredAt;
+    t2.subtasks.forEach((s, i) => {
       s.done = !!prev.subtasks[i];
     });
-    t.completedCount = prev.completedCount;
-    t.lastCompletedAt = prev.lastCompletedAt;
-    touch(t);
+    t2.completedCount = prev.completedCount;
+    t2.lastCompletedAt = prev.lastCompletedAt;
+    touch(t2);
     commit();
   }
   function moveTask(id, listId, lane) {
-    const t = taskById(id);
-    if (!t || !isLive(listById(listId))) return;
+    const t2 = taskById(id);
+    if (!t2 || !isLive(listById(listId))) return;
     lane = laneOr(listId, lane);
-    if (lane === DONE_LANE && t.recur !== "none" && t.due) {
-      lane = laneOr(listId, t.lane);
+    if (lane === DONE_LANE && t2.recur !== "none" && t2.due) {
+      lane = laneOr(listId, t2.lane);
       if (lane === DONE_LANE) lane = workLane(listId);
     }
-    if (t.listId === listId && t.lane === lane) return;
-    const wasDone = t.done;
-    if (lane === DONE_LANE && t.listId === listId) rememberOrigin(t);
-    else doneOrigin.delete(t.id);
-    t.listId = listId;
-    t.lane = lane;
-    t.order = nextOrder();
-    t.done = lane === "done";
-    if (wasDone && !t.done) armReminder(t);
+    if (t2.listId === listId && t2.lane === lane) return;
+    const wasDone = t2.done;
+    if (lane === DONE_LANE && t2.listId === listId) rememberOrigin(t2);
+    else doneOrigin.delete(t2.id);
+    t2.listId = listId;
+    t2.lane = lane;
+    t2.order = nextOrder();
+    t2.done = lane === "done";
+    if (wasDone && !t2.done) armReminder(t2);
     S.currentList = listId;
-    touch(t);
+    touch(t2);
     commit();
   }
   function copyTask(id, listId, lane) {
-    const t = taskById(id);
-    if (!t || !isLive(listById(listId))) return null;
+    const t2 = taskById(id);
+    if (!t2 || !isLive(listById(listId))) return null;
     lane = laneOr(listId, lane);
-    const copy2 = blankTask(listId, t.title, {
+    const copy2 = blankTask(listId, t2.title, {
       lane,
       done: lane === DONE_LANE,
       order: nextOrder(),
-      priority: t.priority,
-      tags: [...t.tags],
-      subtasks: t.subtasks.map((s) => ({ id: uid(), title: s.title, done: false })),
-      description: t.description || "",
-      start: t.start,
-      due: t.due,
-      dueTime: t.dueTime,
-      recur: t.recur,
-      reminder: t.reminder,
-      recurDay: t.recurDay ?? null
+      priority: t2.priority,
+      tags: [...t2.tags],
+      subtasks: t2.subtasks.map((s) => ({ id: uid(), title: s.title, done: false })),
+      description: t2.description || "",
+      start: t2.start,
+      due: t2.due,
+      dueTime: t2.dueTime,
+      recur: t2.recur,
+      reminder: t2.reminder,
+      recurDay: t2.recurDay ?? null
     });
     armReminder(copy2);
     S.tasks.push(copy2);
@@ -1709,7 +1709,7 @@
   function removeSharedBoard(id) {
     const l = listById(id);
     if (!l) return false;
-    S.tasks = S.tasks.filter((t) => t.listId !== id);
+    S.tasks = S.tasks.filter((t2) => t2.listId !== id);
     S.lists = S.lists.filter((x) => x.id !== id);
     if (!S.lists.length) S.lists.push({ id: uid(), name: "Board", lanes: defaultLanes(), status: "active", archivedAt: null, deletedAt: null });
     if (S.currentList === id) S.currentList = activeLists()[0].id;
@@ -1756,14 +1756,14 @@
       l.status = "active";
       l.archivedAt = null;
       l.deletedAt = null;
-      S.tasks.forEach((t) => {
-        if (t.listId === id && t.status === "active" && t.reminderFiredAt === null) armReminder(t);
+      S.tasks.forEach((t2) => {
+        if (t2.listId === id && t2.status === "active" && t2.reminderFiredAt === null) armReminder(t2);
       });
     }
     commit();
   }
   function dropList(id) {
-    S.tasks = S.tasks.filter((t) => !(t.listId === id && t.status === "active"));
+    S.tasks = S.tasks.filter((t2) => !(t2.listId === id && t2.status === "active"));
     S.lists = S.lists.filter((l) => l.id !== id);
   }
   function deleteListForever(id) {
@@ -1799,25 +1799,25 @@
     list3.lanes = list3.lanes.filter((l) => l.id !== laneId);
     let moved = 0, binned = 0;
     const now2 = Date.now();
-    S.tasks.forEach((t) => {
-      if (t.listId === listId && (t.lane === laneId || t.origin?.listId === listId && t.origin.lane === laneId)) {
-        undo.tasks.push({ id: t.id, lane: t.lane, status: t.status, deletedAt: t.deletedAt, archivedAt: t.archivedAt, origin: t.origin ? { ...t.origin } : null });
+    S.tasks.forEach((t2) => {
+      if (t2.listId === listId && (t2.lane === laneId || t2.origin?.listId === listId && t2.origin.lane === laneId)) {
+        undo.tasks.push({ id: t2.id, lane: t2.lane, status: t2.status, deletedAt: t2.deletedAt, archivedAt: t2.archivedAt, origin: t2.origin ? { ...t2.origin } : null });
       }
-      if (t.listId === listId && t.lane === laneId) {
+      if (t2.listId === listId && t2.lane === laneId) {
         if (to) {
-          t.lane = to;
-          if (t.status === "active") moved += 1;
-        } else if (t.status === "active") {
-          snapshotOrigin(t);
-          t.status = "deleted";
-          t.deletedAt = now2;
-          t.archivedAt = null;
-          leaveDetail(t.id);
-          touch(t);
+          t2.lane = to;
+          if (t2.status === "active") moved += 1;
+        } else if (t2.status === "active") {
+          snapshotOrigin(t2);
+          t2.status = "deleted";
+          t2.deletedAt = now2;
+          t2.archivedAt = null;
+          leaveDetail(t2.id);
+          touch(t2);
           binned += 1;
         }
       }
-      if (to && t.origin?.listId === listId && t.origin.lane === laneId) t.origin.lane = to;
+      if (to && t2.origin?.listId === listId && t2.origin.lane === laneId) t2.origin.lane = to;
     });
     commit();
     return { moved, binned, to, undo };
@@ -1829,10 +1829,10 @@
     const at = Math.min(undo.index, done2 === -1 ? list3.lanes.length : done2);
     list3.lanes.splice(Math.max(0, at), 0, { ...undo.lane });
     undo.tasks.forEach((u) => {
-      const t = taskById(u.id);
-      if (!t || t.listId !== listId) return;
-      Object.assign(t, { lane: u.lane, status: u.status, deletedAt: u.deletedAt, archivedAt: u.archivedAt, origin: u.origin ? { ...u.origin } : null });
-      touch(t);
+      const t2 = taskById(u.id);
+      if (!t2 || t2.listId !== listId) return;
+      Object.assign(t2, { lane: u.lane, status: u.status, deletedAt: u.deletedAt, archivedAt: u.archivedAt, origin: u.origin ? { ...u.origin } : null });
+      touch(t2);
     });
     commit();
     return true;
@@ -1883,10 +1883,10 @@
   }
   function deletePriority(id) {
     S.priorities = S.priorities.filter((p) => p.id !== id);
-    S.tasks.forEach((t) => {
-      if (t.priority === id) {
-        t.priority = "none";
-        touch(t);
+    S.tasks.forEach((t2) => {
+      if (t2.priority === id) {
+        t2.priority = "none";
+        touch(t2);
       }
     });
     commit();
@@ -1902,84 +1902,84 @@
     if (!label || label === from) return;
     const swap = (tags) => normalizeTags(tags.map((x) => sameTag(x, from) ? label : x));
     S.labels = swap(S.labels);
-    [...S.tasks, ...S.notes].forEach((t) => {
-      if (t.tags.some((x) => sameTag(x, from))) {
-        t.tags = swap(t.tags);
-        touch(t);
+    [...S.tasks, ...S.notes].forEach((t2) => {
+      if (t2.tags.some((x) => sameTag(x, from))) {
+        t2.tags = swap(t2.tags);
+        touch(t2);
       }
     });
     commit();
   }
   function deleteLabel(name) {
     S.labels = S.labels.filter((x) => !sameTag(x, name));
-    [...S.tasks, ...S.notes].forEach((t) => {
-      if (t.tags.some((x) => sameTag(x, name))) {
-        t.tags = t.tags.filter((x) => !sameTag(x, name));
-        touch(t);
+    [...S.tasks, ...S.notes].forEach((t2) => {
+      if (t2.tags.some((x) => sameTag(x, name))) {
+        t2.tags = t2.tags.filter((x) => !sameTag(x, name));
+        touch(t2);
       }
     });
     commit();
   }
-  function snapshotOrigin(t) {
-    if (!t.origin) t.origin = { listId: t.listId, lane: t.lane, order: t.order };
+  function snapshotOrigin(t2) {
+    if (!t2.origin) t2.origin = { listId: t2.listId, lane: t2.lane, order: t2.order };
   }
   function archiveTask(id) {
-    const t = taskById(id);
-    if (!t || t.status !== "active") return;
-    snapshotOrigin(t);
-    t.status = "archived";
-    t.archivedAt = Date.now();
+    const t2 = taskById(id);
+    if (!t2 || t2.status !== "active") return;
+    snapshotOrigin(t2);
+    t2.status = "archived";
+    t2.archivedAt = Date.now();
     leaveDetail(id);
-    touch(t);
+    touch(t2);
     commit();
   }
   function softDelete(id) {
-    const t = taskById(id);
-    if (!t || t.status === "deleted") return null;
-    const prev = { status: t.status, archivedAt: t.archivedAt };
-    snapshotOrigin(t);
-    t.status = "deleted";
-    t.deletedAt = Date.now();
-    t.archivedAt = null;
+    const t2 = taskById(id);
+    if (!t2 || t2.status === "deleted") return null;
+    const prev = { status: t2.status, archivedAt: t2.archivedAt };
+    snapshotOrigin(t2);
+    t2.status = "deleted";
+    t2.deletedAt = Date.now();
+    t2.archivedAt = null;
     leaveDetail(id);
-    touch(t);
+    touch(t2);
     commit();
     return prev;
   }
   function returnToArchive(id, archivedAt) {
-    const t = taskById(id);
-    if (!t || t.status !== "deleted") return;
-    t.status = "archived";
-    t.archivedAt = archivedAt;
-    t.deletedAt = null;
-    touch(t);
+    const t2 = taskById(id);
+    if (!t2 || t2.status !== "deleted") return;
+    t2.status = "archived";
+    t2.archivedAt = archivedAt;
+    t2.deletedAt = null;
+    touch(t2);
     commit();
   }
   function restoreTask(id, { keepPosition = false } = {}) {
-    const t = taskById(id);
-    if (!t || t.status === "active") return null;
-    const o = t.origin || { listId: t.listId, lane: t.lane, order: t.order };
+    const t2 = taskById(id);
+    if (!t2 || t2.status === "active") return null;
+    const o = t2.origin || { listId: t2.listId, lane: t2.lane, order: t2.order };
     const fellBack = !isLive(listById(o.listId));
-    t.listId = fellBack ? activeLists()[0].id : o.listId;
-    t.lane = !fellBack && lanesOf(t.listId).some((l) => l.id === o.lane) ? o.lane : workLane(t.listId);
-    t.order = keepPosition ? o.order : nextOrder();
-    t.done = t.lane === DONE_LANE;
-    t.status = "active";
-    t.archivedAt = null;
-    t.deletedAt = null;
-    t.origin = null;
-    armReminder(t);
-    touch(t);
+    t2.listId = fellBack ? activeLists()[0].id : o.listId;
+    t2.lane = !fellBack && lanesOf(t2.listId).some((l) => l.id === o.lane) ? o.lane : workLane(t2.listId);
+    t2.order = keepPosition ? o.order : nextOrder();
+    t2.done = t2.lane === DONE_LANE;
+    t2.status = "active";
+    t2.archivedAt = null;
+    t2.deletedAt = null;
+    t2.origin = null;
+    armReminder(t2);
+    touch(t2);
     commit();
-    return { listId: t.listId, lane: t.lane, fellBack };
+    return { listId: t2.listId, lane: t2.lane, fellBack };
   }
   function deleteForever(id) {
-    S.tasks = S.tasks.filter((t) => t.id !== id);
+    S.tasks = S.tasks.filter((t2) => t2.id !== id);
     commit();
   }
   function emptyDeleted() {
     folderBoards("deleted").forEach((l) => dropList(l.id));
-    S.tasks = S.tasks.filter((t) => t.status !== "deleted");
+    S.tasks = S.tasks.filter((t2) => t2.status !== "deleted");
     S.notes = S.notes.filter((n) => n.status !== "deleted");
     dropMedia(S.meetings.filter((m) => m.status === "deleted"));
     S.meetings = S.meetings.filter((m) => m.status !== "deleted");
@@ -1999,9 +1999,9 @@
   }
   function isUntouchedSeed(state3 = S) {
     const s = seed();
-    const titles = new Set(s.tasks.map((t) => t.title));
-    const boards2 = new Set(s.lists.map((l) => l.id));
-    return !state3.notes.length && !state3.meetings.length && !state3.labels.length && state3.lists.length === s.lists.length && state3.lists.every((l) => boards2.has(l.id) && (l.status ?? "active") === "active") && state3.tasks.length === s.tasks.length && state3.tasks.every((t) => titles.has(t.title) && t.status === "active" && t.updatedAt === t.createdAt);
+    const titles = new Set(s.tasks.map((t2) => t2.title));
+    const boards3 = new Set(s.lists.map((l) => l.id));
+    return !state3.notes.length && !state3.meetings.length && !state3.labels.length && state3.lists.length === s.lists.length && state3.lists.every((l) => boards3.has(l.id) && (l.status ?? "active") === "active") && state3.tasks.length === s.tasks.length && state3.tasks.every((t2) => titles.has(t2.title) && t2.status === "active" && t2.updatedAt === t2.createdAt);
   }
   var KIND_LIST = { list: "lists", task: "tasks", note: "notes", meeting: "meetings" };
   function applyRemote({ upserts = [], deletes = [] }) {
@@ -2070,8 +2070,8 @@
     const now2 = Date.now();
     S.lists = lists;
     S.tasks = tasks;
-    S.tasks.forEach((t) => {
-      if (t.reminderFiredAt === null) armReminder(t, now2);
+    S.tasks.forEach((t2) => {
+      if (t2.reminderFiredAt === null) armReminder(t2, now2);
     });
     S.notes = notes;
     S.meetings = meetings.map((m) => {
@@ -2197,17 +2197,17 @@
     }
   }
   async function show({ title, body, tag, taskId }) {
-    const options = { body, tag, data: { taskId }, icon: new URL("icons/icon-192.png", document.baseURI).href, lang: "en" };
+    const options2 = { body, tag, data: { taskId }, icon: new URL("icons/icon-192.png", document.baseURI).href, lang: "en" };
     try {
       const reg = await navigator.serviceWorker?.getRegistration?.();
       if (reg?.active) {
-        await reg.showNotification(title, options);
+        await reg.showNotification(title, options2);
         return;
       }
     } catch {
     }
     try {
-      const n = new Notification(title, options);
+      const n = new Notification(title, options2);
       n.onclick = () => {
         window.focus();
         openTaskFn(taskId);
@@ -2218,7 +2218,7 @@
   }
   function startWebClock() {
     if (typeof Notification === "undefined" || reminderPermission() === "file") return;
-    const run2 = () => {
+    const run3 = () => {
       checkNow();
       setInterval(checkNow, CHECK_MS);
       document.addEventListener("visibilitychange", () => {
@@ -2228,8 +2228,8 @@
       addEventListener("pageshow", checkNow);
     };
     if (navigator.locks?.request) {
-      navigator.locks.request("stackd-reminder-clock", () => new Promise(() => run2())).catch(run2);
-    } else run2();
+      navigator.locks.request("stackd-reminder-clock", () => new Promise(() => run3())).catch(run3);
+    } else run3();
   }
   var syncing = null;
   var dirty = false;
@@ -2553,7 +2553,7 @@
           if (scrollV && !raf) raf = requestAnimationFrame(autoScroll);
         }
       };
-      const finish5 = () => {
+      const finish6 = () => {
         clearTimeout(holdTimer);
         clearTimeout(armTimer);
         el.removeEventListener("pointermove", move);
@@ -2571,7 +2571,7 @@
       };
       const up = (ev) => {
         const wasDragging = dragging;
-        finish5();
+        finish6();
         endDrag();
         if (wasDragging || held) swallowClick();
         if (wasDragging) onDrop?.(ev);
@@ -2581,7 +2581,7 @@
         }
       };
       const cancel = () => {
-        finish5();
+        finish6();
         endDrag();
       };
       el.addEventListener("touchmove", blockScroll, { passive: false });
@@ -2624,11 +2624,11 @@
       if (s?.live) return;
       drop();
       if (e.touches.length !== 1) return;
-      const t = e.touches[0];
-      const edge = dir > 0 ? t.clientX <= EDGE_PX : t.clientX >= window.innerWidth - EDGE_PX;
+      const t2 = e.touches[0];
+      const edge = dir > 0 ? t2.clientX <= EDGE_PX : t2.clientX >= window.innerWidth - EDGE_PX;
       const scroller = sideways(e.target);
-      if (!canStart(e.target, t.clientX, edge) || !edge && scroller) return;
-      const touch3 = s = { x: t.clientX, y: t.clientY, live: null, last: [t.clientX, performance.now()], v: 0, scroller };
+      if (!canStart(e.target, t2.clientX, edge) || !edge && scroller) return;
+      const touch3 = s = { x: t2.clientX, y: t2.clientY, live: null, last: [t2.clientX, performance.now()], v: 0, scroller };
       if (prepare) setTimeout(() => {
         if (s === touch3 && !touch3.live) prepare();
       }, 0);
@@ -2639,8 +2639,8 @@
     };
     root.addEventListener("touchmove", (e) => {
       if (!s) return;
-      const t = e.touches[0];
-      const dx = dir * (t.clientX - s.x), dy = t.clientY - s.y;
+      const t2 = e.touches[0];
+      const dx = dir * (t2.clientX - s.x), dy = t2.clientY - s.y;
       if (!s.live) {
         if (lifted || armed) {
           drop();
@@ -2665,14 +2665,14 @@
           return;
         }
         hold(s.scroller);
-        s.x = t.clientX - dir;
+        s.x = t2.clientX - dir;
       }
       e.preventDefault();
       const now2 = performance.now();
-      s.v = dir * (t.clientX - s.last[0]) / Math.max(1, now2 - s.last[1]);
-      s.last = [t.clientX, now2];
+      s.v = dir * (t2.clientX - s.last[0]) / Math.max(1, now2 - s.last[1]);
+      s.last = [t2.clientX, now2];
       swipedAt = now2;
-      s.live.move(Math.max(0, Math.min(1, dir * (t.clientX - s.x) / window.innerWidth)));
+      s.live.move(Math.max(0, Math.min(1, dir * (t2.clientX - s.x) / window.innerWidth)));
     }, { passive: false });
     const end = (cancelled2) => {
       if (!s) return;
@@ -2934,8 +2934,8 @@
   var longDate = (iso) => (/* @__PURE__ */ new Date(iso + "T00:00:00")).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   var pad2 = (n) => String(n).padStart(2, "0");
   var momentLabel = (ms) => {
-    const t = new Date(ms);
-    return `${fmtDateLong(toISO(t))} at ${pad2(t.getHours())}:${pad2(t.getMinutes())}`;
+    const t2 = new Date(ms);
+    return `${fmtDateLong(toISO(t2))} at ${pad2(t2.getHours())}:${pad2(t2.getMinutes())}`;
   };
   function reminderHint(d, done2) {
     const at = d.due ? reminderInstant(d.due, d.dueTime, d.reminder) : null;
@@ -3082,14 +3082,14 @@
       }
       if (e.key !== "Tab") return;
       const items = [...sheet2.querySelectorAll(TABBABLE)];
-      const first = items[0], last = items[items.length - 1];
+      const first = items[0], last2 = items[items.length - 1];
       if (!sheet2.contains(document.activeElement)) {
         e.preventDefault();
         first.focus();
       } else if (e.shiftKey && document.activeElement === first) {
         e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
+        last2.focus();
+      } else if (!e.shiftKey && document.activeElement === last2) {
         e.preventDefault();
         first.focus();
       }
@@ -3249,7 +3249,7 @@
     <div class="chip-group">
       <span class="microlabel">Tags</span>
       <div class="chip-row" data-tags>
-        ${allTags2.map((t) => `<button class="chip ${draft2.tags.includes(t) ? "on" : ""}" data-val="${esc(t)}">#${esc(t)}</button>`).join("")}
+        ${allTags2.map((t2) => `<button class="chip ${draft2.tags.includes(t2) ? "on" : ""}" data-val="${esc(t2)}">#${esc(t2)}</button>`).join("")}
         <button class="chip" data-addtag>+ Add tag</button>
       </div>
     </div>
@@ -3343,7 +3343,7 @@
       }
       chip.classList.toggle("on");
       const v = chip.dataset.val;
-      draft2.tags = chip.classList.contains("on") ? [...draft2.tags, v] : draft2.tags.filter((t) => t !== v);
+      draft2.tags = chip.classList.contains("on") ? [...draft2.tags, v] : draft2.tags.filter((t2) => t2 !== v);
     });
     q("[data-list]").addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
@@ -3394,21 +3394,21 @@
   </div>`;
   }
   function bindPinpad(root, { onComplete, onChange: onChange3 = null } = {}) {
-    const pad5 = root.querySelector("[data-pinpad]");
-    const dots = pad5.querySelectorAll(".pin-dot");
-    const live = pad5.querySelector("[data-pin-dots]");
+    const pad6 = root.querySelector("[data-pinpad]");
+    const dots = pad6.querySelectorAll(".pin-dot");
+    const live = pad6.querySelector("[data-pin-dots]");
     let pin = "";
     let busy = false;
-    const show3 = () => {
+    const show4 = () => {
       dots.forEach((d, i) => d.classList.toggle("on", i < pin.length));
       live.setAttribute("aria-label", `${pin.length} of ${PIN_LENGTH} digits entered`);
       onChange3?.(pin.length);
     };
     const press = (k) => {
-      if (busy || pad5.classList.contains("is-disabled")) return;
+      if (busy || pad6.classList.contains("is-disabled")) return;
       if (k === "del") pin = pin.slice(0, -1);
       else if (/^\d$/.test(k) && pin.length < PIN_LENGTH) pin += k;
-      show3();
+      show4();
       if (pin.length === PIN_LENGTH) {
         const done2 = pin;
         busy = true;
@@ -3417,12 +3417,12 @@
         });
       }
     };
-    pad5.addEventListener("click", (e) => {
+    pad6.addEventListener("click", (e) => {
       const b = e.target.closest("[data-key]");
       if (b) press(b.dataset.key);
     });
     const onKey = (e) => {
-      if (!pad5.isConnected) {
+      if (!pad6.isConnected) {
         document.removeEventListener("keydown", onKey);
         return;
       }
@@ -3439,29 +3439,29 @@
     return {
       clear() {
         pin = "";
-        show3();
+        show4();
       },
       error(msg) {
-        pad5.querySelector("[data-pin-error]").textContent = msg || "";
+        pad6.querySelector("[data-pin-error]").textContent = msg || "";
         if (msg) {
-          pad5.classList.remove("shake");
-          void pad5.offsetWidth;
-          pad5.classList.add("shake");
+          pad6.classList.remove("shake");
+          void pad6.offsetWidth;
+          pad6.classList.add("shake");
         }
         pin = "";
-        show3();
+        show4();
       },
       label(text2) {
-        pad5.querySelector("[data-pin-label]").textContent = text2;
+        pad6.querySelector("[data-pin-label]").textContent = text2;
       },
       disable(on) {
-        pad5.classList.toggle("is-disabled", on);
-        pad5.querySelectorAll(".pin-key").forEach((b) => {
+        pad6.classList.toggle("is-disabled", on);
+        pad6.querySelectorAll(".pin-key").forEach((b) => {
           b.disabled = on;
         });
       },
       focus() {
-        pad5.querySelector(".pin-key")?.focus();
+        pad6.querySelector(".pin-key")?.focus();
       },
       destroy() {
         document.removeEventListener("keydown", onKey);
@@ -3476,8 +3476,8 @@
     return p === "ios" || p === "android" ? p : "web";
   };
   var bearer = null;
-  function setBearer(t) {
-    bearer = t || null;
+  function setBearer(t2) {
+    bearer = t2 || null;
   }
   function authHeaders() {
     const h = { "X-Stackd-Client": client() };
@@ -3604,9 +3604,9 @@
     onSignedOut(() => {
       if (state) forget({ keepData: true, reason: "signed_out" });
     });
-    if (state && client() !== "web") ready = get(TOKEN_KEY).then((t) => {
-      setBearer(t);
-      if (!t) forget({ keepData: true });
+    if (state && client() !== "web") ready = get(TOKEN_KEY).then((t2) => {
+      setBearer(t2);
+      if (!t2) forget({ keepData: true });
     });
   }
   function availability() {
@@ -3869,6 +3869,8 @@
     const code = e[1] === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
     return code > 0 && code <= 1114111 && !(code >= 55296 && code <= 57343) ? String.fromCodePoint(code) : "";
   }) : s;
+  var BAD_XML = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+  var xmlText = (s) => String(s ?? "").replace(BAD_XML, "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   var MAX_TAG = 1e5;
   var space = (c) => c === " " || c === "\n" || c === "	" || c === "\r";
   function attrs(tag) {
@@ -3897,36 +3899,36 @@
     }
     return out;
   }
-  function scan(xml, { open: open3, close, text: text2 }) {
-    const n = xml.length;
+  function scan(xml2, { open: open3, close, text: text2 }) {
+    const n = xml2.length;
     let i = 0;
     while (i < n) {
-      const lt = xml.indexOf("<", i);
+      const lt = xml2.indexOf("<", i);
       if (lt === -1) {
-        if (text2) text2(decode2(xml.slice(i)));
+        if (text2) text2(decode2(xml2.slice(i)));
         break;
       }
-      if (lt > i && text2) text2(decode2(xml.slice(i, lt)));
-      if (xml.startsWith("<!--", lt)) {
-        const e = xml.indexOf("-->", lt + 4);
+      if (lt > i && text2) text2(decode2(xml2.slice(i, lt)));
+      if (xml2.startsWith("<!--", lt)) {
+        const e = xml2.indexOf("-->", lt + 4);
         i = e === -1 ? n : e + 3;
         continue;
       }
-      if (xml.startsWith("<![CDATA[", lt)) {
-        const e = xml.indexOf("]]>", lt + 9);
-        if (text2) text2(xml.slice(lt + 9, e === -1 ? n : e));
+      if (xml2.startsWith("<![CDATA[", lt)) {
+        const e = xml2.indexOf("]]>", lt + 9);
+        if (text2) text2(xml2.slice(lt + 9, e === -1 ? n : e));
         i = e === -1 ? n : e + 3;
         continue;
       }
-      if (xml.startsWith("<?", lt)) {
-        const e = xml.indexOf("?>", lt + 2);
+      if (xml2.startsWith("<?", lt)) {
+        const e = xml2.indexOf("?>", lt + 2);
         i = e === -1 ? n : e + 2;
         continue;
       }
-      if (xml.startsWith("<!", lt)) {
+      if (xml2.startsWith("<!", lt)) {
         let e = lt + 2, depth = 0;
         for (; e < n; e++) {
-          const c = xml[e];
+          const c = xml2[e];
           if (c === "[") depth++;
           else if (c === "]") depth--;
           else if (c === ">" && depth <= 0) break;
@@ -3936,14 +3938,14 @@
       }
       let gt = lt + 1, quote = "";
       for (; gt < n; gt++) {
-        const c = xml[gt];
+        const c = xml2[gt];
         if (quote) {
           if (c === quote) quote = "";
         } else if (c === '"' || c === "'") quote = c;
         else if (c === ">") break;
       }
       if (gt >= n || gt - lt > MAX_TAG) throw new Error("a tag that does not end");
-      let tag = xml.slice(lt + 1, gt);
+      let tag = xml2.slice(lt + 1, gt);
       i = gt + 1;
       if (tag[0] === "/") {
         if (close) close(tag.slice(1).trim());
@@ -3963,11 +3965,11 @@
   var MAX_NODES = 15e5;
   var NO_KIDS = Object.freeze([]);
   var NO_ATTRS = Object.freeze(/* @__PURE__ */ Object.create(null));
-  function parseXML(xml) {
+  function parseXML(xml2) {
     const top = { name: "", attrs: NO_ATTRS, kids: [], text: "" };
     const stack = [top];
     let nodes = 0;
-    scan(String(xml ?? ""), {
+    scan(String(xml2 ?? ""), {
       open: (name, inside) => {
         if (stack.length > MAX_DEPTH) throw new Error("too deep");
         if (++nodes > MAX_NODES) throw new Error("too large");
@@ -3981,9 +3983,9 @@
         if (stack.length > 1 && stack.at(-1).name === name) stack.pop();
         else throw new Error(`</${name}> does not close what is open`);
       },
-      text: (t) => {
+      text: (t2) => {
         const node = stack.at(-1);
-        if (node !== top) node.text += t;
+        if (node !== top) node.text += t2;
       }
     });
     if (stack.length !== 1) throw new Error("an element that is not closed");
@@ -4136,15 +4138,15 @@
   var MAX_STRINGS = 5e5;
   var MAX_STYLE_COUNT = 1e5;
   var MAX_CELL = 32767;
-  var scan2 = (xml, h) => scan(xml, {
+  var scan2 = (xml2, h) => scan(xml2, {
     open: h.open && ((name, inside, self) => h.open(localName(name), inside, self)),
     close: h.close && ((name) => h.close(localName(name))),
     text: h.text
   });
   var relId = (a) => a["r:id"] || Object.keys(a).filter((k) => k.endsWith(":id")).map((k) => a[k])[0] || a.id || "";
   var copy = (s) => {
-    const t = s.length > MAX_CELL ? s.slice(0, MAX_CELL) : s;
-    return t.length < 13 ? t : (" " + t).slice(1);
+    const t2 = s.length > MAX_CELL ? s.slice(0, MAX_CELL) : s;
+    return t2.length < 13 ? t2 : (" " + t2).slice(1);
   };
   var unescape = (s) => (s.includes("_x") ? s.replace(/_x([0-9A-Fa-f]{4})_/g, (_, h) => String.fromCharCode(parseInt(h, 16))) : s).replace(/\r\n?/g, "\n");
   var BUILT_IN = /* @__PURE__ */ new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 45, 47, 50, 51, 52, 53, 54, 55, 56, 57, 58]);
@@ -4155,31 +4157,31 @@
     if (/^(general|standard)$/i.test(bare2.trim()) || /[0#?]/.test(bare2)) return "number";
     return /[dmyhs]/i.test(bare2) ? "date" : "number";
   }
-  function dateStyles(xml) {
+  function dateStyles(xml2) {
     const custom = /* @__PURE__ */ new Map();
-    const styles = [];
+    const styles2 = [];
     let inXfs = false;
-    scan2(xml, {
+    scan2(xml2, {
       open: (name, inside) => {
         if (name === "numFmt") {
           const a = attrs(inside);
           if (custom.size < MAX_STYLE_COUNT) custom.set(+a.numFmtId, kindOfCode(a.formatCode || "") === "date");
         } else if (name === "cellXfs") inXfs = true;
-        else if (name === "xf" && inXfs && styles.length < MAX_STYLE_COUNT) {
+        else if (name === "xf" && inXfs && styles2.length < MAX_STYLE_COUNT) {
           const id = +(attrs(inside).numFmtId || 0);
-          styles.push(custom.has(id) ? custom.get(id) : BUILT_IN.has(id));
+          styles2.push(custom.has(id) ? custom.get(id) : BUILT_IN.has(id));
         }
       },
       close: (name) => {
         if (name === "cellXfs") inXfs = false;
       }
     });
-    return styles;
+    return styles2;
   }
-  function sharedStrings(xml) {
+  function sharedStrings(xml2) {
     const out = [];
     let cur = null, inT = false, skip = 0;
-    scan2(xml, {
+    scan2(xml2, {
       open: (name, _inside, self) => {
         if (name === "si") cur = "";
         else if (name === "rPh") skip++;
@@ -4192,25 +4194,25 @@
         } else if (name === "rPh") skip = Math.max(0, skip - 1);
         else if (name === "t") inT = false;
       },
-      text: (t) => {
-        if (inT && cur.length <= MAX_CELL) cur += t;
+      text: (t2) => {
+        if (inT && cur.length <= MAX_CELL) cur += t2;
       }
     });
     return out;
   }
   var pad3 = (n) => String(n).padStart(2, "0");
-  function serialToDate(serial, date1904 = false) {
-    if (!Number.isFinite(serial) || serial < 0 || serial > 2958465) return "";
-    let days = Math.floor(serial);
-    let minutes = Math.round((serial - days) * 1440);
+  function serialToDate(serial2, date1904 = false) {
+    if (!Number.isFinite(serial2) || serial2 < 0 || serial2 > 2958465) return "";
+    let days = Math.floor(serial2);
+    let minutes = Math.round((serial2 - days) * 1440);
     if (minutes >= 1440) {
       minutes = 0;
       days += 1;
     }
     const time2 = `${pad3(Math.floor(minutes / 60))}:${pad3(minutes % 60)}`;
     if (days === 0) return time2;
-    const t = new Date(Date.UTC(1899, 11, 30) + (days + (date1904 ? 1462 : 0)) * 864e5);
-    const day = `${t.getUTCFullYear()}-${pad3(t.getUTCMonth() + 1)}-${pad3(t.getUTCDate())}`;
+    const t2 = new Date(Date.UTC(1899, 11, 30) + (days + (date1904 ? 1462 : 0)) * 864e5);
+    const day = `${t2.getUTCFullYear()}-${pad3(t2.getUTCMonth() + 1)}-${pad3(t2.getUTCDate())}`;
     return minutes ? `${day} ${time2}` : day;
   }
   var tidyNumber = (v) => /[.eE]/.test(v) && /^-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(v) ? String(+(+v).toPrecision(15)) : v;
@@ -4224,11 +4226,11 @@
     }
     return n - 1;
   };
-  function sheetRows(xml, strings, styles, date1904) {
+  function sheetRows(xml2, strings, styles2, date1904) {
     const rows = [];
     let total = 0;
     let row2 = null, filled2 = false, cell = null, inV = false, inT = false, next2 = 0;
-    scan2(xml, {
+    scan2(xml2, {
       open: (name, inside, self) => {
         if (name === "row") {
           row2 = [];
@@ -4250,7 +4252,7 @@
           if (cell.t === "s") v = v === "" ? "" : strings[+v] ?? "";
           else if (cell.t === "b") v = v === "1" ? "TRUE" : v === "0" ? "FALSE" : "";
           else if (cell.t === "e") v = "";
-          else if (cell.t === "n" && v !== "") v = styles[cell.s] ? serialToDate(+v, date1904) : tidyNumber(v);
+          else if (cell.t === "n" && v !== "") v = styles2[cell.s] ? serialToDate(+v, date1904) : tidyNumber(v);
           else if (cell.t !== "n") v = copy(unescape(v));
           if (row2 && v !== "" && cell.at < MAX_COLUMNS) {
             filled2 = true;
@@ -4268,8 +4270,8 @@
           row2 = null;
         }
       },
-      text: (t) => {
-        if (cell && (inV || inT) && cell.v.length <= MAX_CELL) cell.v += t;
+      text: (t2) => {
+        if (cell && (inV || inT) && cell.v.length <= MAX_CELL) cell.v += t2;
       }
     });
     return { rows, total };
@@ -4302,8 +4304,8 @@
     };
     const relationships = async (path) => {
       const out2 = [];
-      const xml = await part(path, MAX_SMALL);
-      if (xml) scan2(xml, { open: (name, inside) => {
+      const xml2 = await part(path, MAX_SMALL);
+      if (xml2) scan2(xml2, { open: (name, inside) => {
         if (name === "Relationship" && out2.length < 1e3) {
           const a = attrs(inside);
           out2.push({ id: a.Id || "", type: String(a.Type || ""), target: String(a.Target || ""), outside: a.TargetMode === "External" });
@@ -4338,19 +4340,19 @@
     const stringsXml = await part(byType("/sharedStrings", "sharedStrings.xml"), MAX_SHEET);
     const strings = stringsXml ? sharedStrings(stringsXml) : [];
     const stylesXml = await part(byType("/styles", "styles.xml"), MAX_STYLES);
-    const styles = stylesXml ? dateStyles(stylesXml) : [];
+    const styles2 = stylesXml ? dateStyles(stylesXml) : [];
     const out = [];
     for (const [i, s] of sheets.entries()) {
       const path = byId.get(s.rid) || (rels.length ? "" : resolve(dir, `worksheets/sheet${i + 1}.xml`));
       if (!path || !names.has(path.toLowerCase())) continue;
-      let xml;
+      let xml2;
       try {
-        xml = await part(path, MAX_SHEET);
+        xml2 = await part(path, MAX_SHEET);
       } catch (e) {
         if (out.length && /too large/.test(e?.message || "")) break;
         throw e;
       }
-      out.push({ name: s.name, ...sheetRows(xml, strings, styles, date1904) });
+      out.push({ name: s.name, ...sheetRows(xml2, strings, styles2, date1904) });
     }
     return { sheets: out };
   }
@@ -4508,7 +4510,7 @@
             return (parts.some((p) => /^\[[ x]\] /.test(p)) ? parts.join("\n") : parts.join(", ")).slice(0, MAX_CELL2);
           }
           if (itemLike(v)) return itemLines(v).slice(0, MAX_CELL2);
-          if (v.every(scalar)) return v.map(String).join(", ").slice(0, MAX_CELL2);
+          if (v.every(scalar)) return v.map(String).join("\n").slice(0, MAX_CELL2);
           if (v.every(isObj)) {
             const inner = v.map(itemsIn).filter(Boolean);
             if (inner.length) return inner.map(itemLines).join("\n").slice(0, MAX_CELL2);
@@ -4527,10 +4529,10 @@
         }
         return "";
       };
-      const column2 = records.map((r) => cell(r?.[key]));
-      if (!column2.some((c) => c !== "") && records.some((r) => isObj(r?.[key]) || Array.isArray(r?.[key]))) continue;
+      const column3 = records.map((r) => cell(r?.[key]));
+      if (!column3.some((c) => c !== "") && records.some((r) => isObj(r?.[key]) || Array.isArray(r?.[key]))) continue;
       columns.push(target && !seen.has(target.name) && !columns.includes(target.name) ? target.name : key);
-      cells.push(column2);
+      cells.push(column3);
     }
     return finish({ columns: uniqueNames(columns), rows: records.map((_, i) => cells.map((c) => c[i])) });
   }
@@ -4570,7 +4572,8 @@
       }
       return fromDocument(toValue(root));
     }
-    return { kind: "table", table: tableFromRows(parseCSV(body)) };
+    const rows = parseCSV(body).map((r) => r.map((c) => /^''*[=+\-@\t\r]/.test(c) ? c.slice(1) : c));
+    return { kind: "table", table: tableFromRows(rows) };
   }
   function fromDocument(doc2) {
     if (Array.isArray(doc2) && doc2.length === 1 && isObj(doc2[0]) && findParts(doc2[0]).some((p) => /^(cards?|tasks?|items?|issues?|todos?|rows?|records?|entry|entries)$/i.test(p.path.at(-1)))) doc2 = doc2[0];
@@ -4671,7 +4674,8 @@
   var COLOURS = /^(green|yellow|orange|red|purple|blue|sky|lime|pink|black|grey|gray|white|brown|teal|violet|amber)(_(light|dark))?$/i;
   function parseLabels(cell) {
     const seen = /* @__PURE__ */ new Set();
-    return str(cell).split(/[,;\n]/).map((raw) => {
+    const text2 = str(cell);
+    return text2.split(/\n/.test(text2.trim()) ? /\r?\n/ : /[,;]/).map((raw) => {
       let s = raw.trim().replace(/^#+/, "");
       const m = /^(.*\S)\s*\(([^()]+)\)$/.exec(s);
       if (m && COLOURS.test(m[2].trim())) s = m[1].trim();
@@ -4697,7 +4701,7 @@
         done2 = true;
         s = s.replace(/^[✓✔]\s*/, "");
       }
-      const tail = /^(.*\S)\s*\((done|complete|completed|checked)\)$/i.exec(s);
+      const tail = box ? null : /^(.*\S)\s*\((done|complete|completed|checked)\)$/i.exec(s);
       if (tail) {
         done2 = true;
         s = tail[1];
@@ -4723,8 +4727,8 @@
     y = +y;
     m = +m;
     d = +d;
-    const t = new Date(y, m - 1, d);
-    return y >= 1900 && y <= 2200 && t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d ? `${y}-${pad4(m)}-${pad4(d)}` : null;
+    const t2 = new Date(y, m - 1, d);
+    return y >= 1900 && y <= 2200 && t2.getFullYear() === y && t2.getMonth() === m - 1 && t2.getDate() === d ? `${y}-${pad4(m)}-${pad4(d)}` : null;
   }
   function clock(h, m, ap) {
     if (h === void 0) return null;
@@ -4751,8 +4755,8 @@
       if (m[4] !== void 0 && !time2) return null;
       if (!m[7] || !time2 || time2 === "00:00") return timed(date2, time2);
       const z = /^[+-]/.test(m[7]) ? (m[7][0] === "-" ? -1 : 1) * (+m[7].slice(1, 3) * 60 + +(m[7].replace(":", "").slice(3, 5) || 0)) : 0;
-      const t = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +time2.slice(0, 2), +time2.slice(3)) - z * 6e4);
-      return timed(`${t.getFullYear()}-${pad4(t.getMonth() + 1)}-${pad4(t.getDate())}`, hm(t.getHours(), t.getMinutes()));
+      const t2 = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +time2.slice(0, 2), +time2.slice(3)) - z * 6e4);
+      return timed(`${t2.getFullYear()}-${pad4(t2.getMonth() + 1)}-${pad4(t2.getDate())}`, hm(t2.getHours(), t2.getMinutes()));
     }
     const tail = (mm, at) => {
       const time2 = clock(mm[at], mm[at + 1], mm[at + 2]);
@@ -4801,13 +4805,15 @@
     }
     return out;
   }
+  var KEEP = { "\\": "", "*": "", _: "", "~": "" };
+  var KEPT = Object.fromEntries(Object.entries(KEEP).map(([k, v]) => [v, k]));
   function describe(text2) {
-    let s = text2.replace(/[&<>"']/g, (c) => ESC2[c]);
+    let s = text2.replace(/[&<>"']/g, (c) => ESC2[c]).replace(/\\([\\*_~])/g, (_, c) => KEEP[c]);
     s = s.replace(/\[([^\][\n]{1,500})\]\(\s*([^\s()]{1,2000})(?:\s+(?:&quot;|&#39;)[^()\n]{0,500})?\s*\)/g, (_, label, url) => label.trim() === url.trim() ? url : `${label} (${url})`);
     s = s.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/__([^_\n]+)__/g, "<b>$1</b>");
     s = s.replace(/~~([^~\n]+)~~/g, "<s>$1</s>");
-    s = s.replace(/(^|[\s(])\*([^*\s][^*\n]*?)\*(?=[\s).,;:!?]|$)/gm, "$1<i>$2</i>").replace(/(^|[\s(])_([^_\s][^_\n]*?)_(?=[\s).,;:!?]|$)/gm, "$1<i>$2</i>");
-    return sanitize(s.replace(/\n/g, "<br>"));
+    s = s.replace(/\*(?=[^\s*])([^*\n]*?[^\s*])\*/g, "<i>$1</i>").replace(/(^|[\s(])_([^_\s][^_\n]*?)_(?=[\s).,;:!?]|$)/gm, "$1<i>$2</i>");
+    return sanitize(s.replace(/[\uE05C\uE02A\uE05F\uE07E]/g, (c) => KEPT[c]).replace(/\n/g, "<br>"));
   }
   var tally = (values) => {
     const m = /* @__PURE__ */ new Map();
@@ -4822,7 +4828,7 @@
     const placed = new Set(Object.values(mapping).filter(Boolean));
     return {
       rows: table.rows.length,
-      untitled: titles.filter((t) => !t.trim()).length,
+      untitled: titles.filter((t2) => !t2.trim()).length,
       lists: lists ? tally(lists.map((v) => v.trim()).filter(Boolean)) : [],
       labels: labels ? tally(labels.flatMap(parseLabels)) : [],
       dates: dateOrderOf([...col("due") || [], ...col("start") || []]),
@@ -4844,9 +4850,9 @@
     const get2 = (row2, key) => idx[key] === -1 ? "" : str(row2[idx[key]]);
     const order = answers2.dateOrder === "mdy" ? "mdy" : "dmy";
     const fallback = ctx.lanes.find((l) => l.id !== "done") ? { id: ctx.lanes.find((l) => l.id !== "done").id } : { name: "Backlog" };
-    const keysHere = new Set(ctx.existing.map((t) => t.importKey).filter(Boolean));
-    const titlesHere = new Set(ctx.existing.map((t) => `${t.lane}
-${str(t.title).trim().toLowerCase()}`));
+    const keysHere = new Set(ctx.existing.map((t2) => t2.importKey).filter(Boolean));
+    const titlesHere = new Set(ctx.existing.map((t2) => `${t2.lane}
+${str(t2.title).trim().toLowerCase()}`));
     const out = { items: [], skipped: 0, leftOut: { untitled: 0, archived: 0, priority: 0 }, counts: { done: 0, lanes: 0, labels: 0 } };
     const newLanes = /* @__PURE__ */ new Set(), labelsUsed = /* @__PURE__ */ new Set();
     for (const row2 of table.rows) {
@@ -4918,7 +4924,7 @@ ${title.toLowerCase()}`);
       });
       if (done2) out.counts.done++;
       if (lane.name) newLanes.add(lane.name.toLowerCase());
-      tags.forEach((t) => labelsUsed.add(t.toLowerCase()));
+      tags.forEach((t2) => labelsUsed.add(t2.toLowerCase()));
     }
     out.counts.lanes = newLanes.size;
     out.counts.labels = labelsUsed.size;
@@ -4957,7 +4963,7 @@ ${title.toLowerCase()}`);
     const shared2 = new Set(S.lists.filter((l) => l.share).map((l) => l.id));
     if (shared2.size) {
       doc2.records.lists = doc2.records.lists.filter((l) => !shared2.has(l.id));
-      doc2.records.tasks = doc2.records.tasks.filter((t) => !shared2.has(t.listId));
+      doc2.records.tasks = doc2.records.tasks.filter((t2) => !shared2.has(t2.listId));
     }
     return doc2;
   }
@@ -5170,7 +5176,7 @@ ${title.toLowerCase()}`);
   }
   var laneChoice = (v) => !isObj2(v) ? null : v.kind === "done" ? { kind: "done" } : (v.kind === "new" || v.kind === "lane") && text(v.name, 80).trim() ? { kind: v.kind, name: text(v.name, 80).trim() } : null;
   var labelChoice = (v) => v === "drop" ? "drop" : isObj2(v) && typeof v.priority === "string" && ID.test(v.priority) ? { priority: v.priority } : "keep";
-  var pairs = (v, max, clean) => (Array.isArray(v) ? v : []).slice(0, max).filter((p) => Array.isArray(p) && typeof p[0] === "string" && p[0].trim()).map((p) => [p[0].slice(0, 200), clean(p[1])]).filter((p) => p[1] !== null);
+  var pairs = (v, max, clean2) => (Array.isArray(v) ? v : []).slice(0, max).filter((p) => Array.isArray(p) && typeof p[0] === "string" && p[0].trim()).map((p) => [p[0].slice(0, 200), clean2(p[1])]).filter((p) => p[1] !== null);
   function cleanLayouts(v) {
     const seen = /* @__PURE__ */ new Set();
     return (Array.isArray(v) ? v : []).slice(0, 50).flatMap((r) => {
@@ -5344,8 +5350,8 @@ ${title.toLowerCase()}`);
   }
   function toWire(kind, x) {
     if (kind === "task") {
-      const { reminderFiredAt, ...t } = x;
-      return t;
+      const { reminderFiredAt, ...t2 } = x;
+      return t2;
     }
     if (kind === "meeting") {
       const { recording, jobs, lastError, ...m } = x;
@@ -5618,26 +5624,26 @@ ${title.toLowerCase()}`);
         continue;
       }
       const prios = space2 && c.kind === "task" && typeof c.data?.priority === "string" && !priorities.some((p) => p.id === c.data.priority) ? [...priorities, { id: c.data.priority }] : priorities;
-      let clean;
+      let clean2;
       try {
-        clean = cleanRemote(c.kind, c.data, { lists, priorities: prios });
+        clean2 = cleanRemote(c.kind, c.data, { lists, priorities: prios });
       } catch {
         continue;
       }
-      if (space2 && c.kind === "task" && clean.listId !== space2) continue;
+      if (space2 && c.kind === "task" && clean2.listId !== space2) continue;
       const local = c.kind === "settings" ? null : (S[plural[c.kind]] || []).find((x) => x.id === c.id);
-      const record2 = c.kind === "settings" ? clean : fromWire(c.kind, clean, local);
+      const record2 = c.kind === "settings" ? clean2 : fromWire(c.kind, clean2, local);
       if (space2 && c.kind === "list") record2.share = { role: share.role, ownerEmail: share.ownerEmail, members: share.members || [] };
       let resend = false;
       if (c.kind === "task" && local) {
         for (const field of ["description", "importKey"]) {
-          if (!(field in clean) && local[field]) {
+          if (!(field in clean2) && local[field]) {
             record2[field] = local[field];
             resend = true;
           }
         }
       }
-      if (c.kind === "settings" && !("imports" in clean) && S.importLayouts?.length) resend = true;
+      if (c.kind === "settings" && !("imports" in clean2) && S.importLayouts?.length) resend = true;
       upserts.push({ kind: c.kind, record: record2, key, changedAt: c.changedAt, resend });
     }
     if (sp) {
@@ -5721,7 +5727,7 @@ ${title.toLowerCase()}`);
     const history2 = [];
     const { ov, close } = overlay('<div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="step-title"></div>');
     const sheet2 = ov.querySelector(".sheet");
-    let pad5 = null;
+    let pad6 = null;
     let resendTimer = null;
     const go = (step, { back: back2 = false } = {}) => {
       if (!back2) history2.push(st.step);
@@ -5753,8 +5759,8 @@ ${title.toLowerCase()}`);
       <h2 id="step-title" tabindex="-1">${esc(title)}</h2>`;
     }
     function draw3() {
-      pad5?.destroy();
-      pad5 = null;
+      pad6?.destroy();
+      pad6 = null;
       clearInterval(resendTimer);
       if (st.step === "age") {
         const store2 = current2()?.age;
@@ -5927,8 +5933,8 @@ ${title.toLowerCase()}`);
         input.focus();
       }
       if (s.startsWith("pin-")) {
-        pad5 = bindPinpad(sheet2, { onComplete: (pin) => onPin(pin) });
-        pad5.focus();
+        pad6 = bindPinpad(sheet2, { onComplete: (pin) => onPin(pin) });
+        pad6.focus();
         q("[data-forgot]")?.addEventListener("click", () => go("pin-reset"));
       }
       q("[data-reset]")?.addEventListener("click", () => go("pin-reset"));
@@ -5938,7 +5944,7 @@ ${title.toLowerCase()}`);
       const s = st.step;
       if (s === "pin-new" || s === "pin-reset") {
         if (/^(\d)\1{3}$/.test(pin) || "0123456789".includes(pin) || "9876543210".includes(pin)) {
-          pad5.error("Choose a PIN that is not four of the same digit or a straight run.");
+          pad6.error("Choose a PIN that is not four of the same digit or a straight run.");
           return;
         }
         firstPin = pin;
@@ -5953,7 +5959,7 @@ ${title.toLowerCase()}`);
         draw3();
         return;
       }
-      pad5.disable(true);
+      pad6.disable(true);
       try {
         if (s === "pin-confirm") await register(st.email, st.ticket, pin);
         else if (s === "pin-reset-confirm") await resetPin(st.email, st.ticket, pin);
@@ -5974,8 +5980,8 @@ ${title.toLowerCase()}`);
           go(st.known ? "pin-enter" : "age");
           return;
         }
-        pad5.disable(false);
-        pad5.error(e.message);
+        pad6.disable(false);
+        pad6.error(e.message);
         return;
       }
       close();
@@ -6279,12 +6285,12 @@ ${title.toLowerCase()}`);
     }));
   }
   function sharedSectionHTML() {
-    const boards2 = sharedBoards2();
-    if (!signedIn() || !boards2.length) return "";
+    const boards3 = sharedBoards2();
+    if (!signedIn() || !boards3.length) return "";
     return `
       <span class="section-title list-label" id="settings-shared">Shared boards</span>
       <div class="card list-card">
-        ${boards2.map((l) => {
+        ${boards3.map((l) => {
       const me = current()?.email;
       const ppl = (l.share.members || []).filter((m) => m.email !== me && m.role !== "owner").map((m) => `${m.email}${m.state === "pending" ? " (invited)" : ""}`).join(", ") || "nobody yet";
       return `
@@ -6302,7 +6308,7 @@ ${title.toLowerCase()}`);
 
   // src/ui/actions.js
   var where = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
-  var isRecurring = (t) => t.recur !== "none" && !!t.due;
+  var isRecurring = (t2) => t2.recur !== "none" && !!t2.due;
   function archiveWithUndo(id) {
     archiveTask(id);
     toast("Archived", { action: { label: "Undo", onClick: () => restoreTask(id, { keepPosition: true }) } });
@@ -6319,10 +6325,10 @@ ${title.toLowerCase()}`);
     toast(r.fellBack ? `Board no longer exists — restored to ${where(r.listId, r.lane)}` : `Restored to ${where(r.listId, r.lane)}`);
   }
   function moveWithFeedback(id, listId, lane) {
-    const t = taskById(id);
-    if (!t) return;
-    if (lane === "done" && isRecurring(t) && !t.done) {
-      if (listId !== t.listId) moveTask(id, listId, t.lane);
+    const t2 = taskById(id);
+    if (!t2) return;
+    if (lane === "done" && isRecurring(t2) && !t2.done) {
+      if (listId !== t2.listId) moveTask(id, listId, t2.lane);
       completeTask(id);
       return;
     }
@@ -6390,9 +6396,9 @@ ${title.toLowerCase()}`);
   }
   var rolling = /* @__PURE__ */ new Set();
   function completeTask(id, el = null) {
-    const t = taskById(id);
-    if (!t || rolling.has(id)) return;
-    if (t.done || !isRecurring(t)) {
+    const t2 = taskById(id);
+    if (!t2 || rolling.has(id)) return;
+    if (t2.done || !isRecurring(t2)) {
       toggleDone(id);
       return;
     }
@@ -6649,12 +6655,12 @@ ${title.toLowerCase()}`);
     const timer2 = setTimeout(() => ac.abort(), REQUEST_TIMEOUT_MS);
     apply(meetingId, reduce(m, { type: "start", step: "summarise", id: uid(), at: now2 }));
     try {
-      const t = m.transcript;
+      const t2 = m.transcript;
       const data = await call("/v1/summarise", {
         method: "POST",
         signal: ac.signal,
         body: {
-          transcript: { segments: t.segments.map((s) => ({ speaker: s.speaker, startMs: s.startMs, text: s.text })), speakers: t.speakers },
+          transcript: { segments: t2.segments.map((s) => ({ speaker: s.speaker, startMs: s.startMs, text: s.text })), speakers: t2.speakers },
           meetingDate: toISO(new Date(m.createdAt)),
           priorities: S.priorities.map((p) => p.name)
         }
@@ -6808,8 +6814,8 @@ ${title.toLowerCase()}`);
     S.meetings.forEach((m) => {
       const running2 = STEPS.filter((s) => inflight.has(`${m.id}:${s}`) || inflight.has(`${m.id}:${s}:poll`));
       apply(m.id, reduce(m, { type: "resume", inflight: running2, at: now2 }));
-      const t = m.jobs?.transcribe;
-      if (t && t.phase === "wait" && /^job_/.test(t.id || "") && !running2.includes("transcribe") && isOnline()) pollTranscription(m.id, t.id);
+      const t2 = m.jobs?.transcribe;
+      if (t2 && t2.phase === "wait" && /^job_/.test(t2.id || "") && !running2.includes("transcribe") && isOnline()) pollTranscription(m.id, t2.id);
     });
   }
 
@@ -6978,7 +6984,7 @@ ${title.toLowerCase()}`);
     </div>
   </div>
   <div class="plan-cards">
-    ${PAID_TIERS.map((t) => cardHTML(t, current4)).join("")}
+    ${PAID_TIERS.map((t2) => cardHTML(t2, current4)).join("")}
   </div>
   <p class="hint set-hint">${available3() ? "Monthly subscriptions renew automatically until cancelled in your store account. The allowance resets on the renewal date; unused minutes and summaries do not carry over." : "Subscribe in the Stack’d app on iPhone or Android; the plan then applies there. Monthly subscriptions renew until cancelled."}
     <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>`;
@@ -7017,7 +7023,7 @@ ${title.toLowerCase()}`);
     root.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", () => purchase(b.dataset.buy, b)));
     if (available3() && !Object.keys(prices).length) {
       offerings().then((o) => {
-        const next2 = Object.fromEntries(Object.entries(o).map(([t, v]) => [t, v.price]).filter(([, v]) => v));
+        const next2 = Object.fromEntries(Object.entries(o).map(([t2, v]) => [t2, v.price]).filter(([, v]) => v));
         if (Object.keys(next2).length) {
           prices = next2;
           rerender();
@@ -7081,7 +7087,7 @@ ${title.toLowerCase()}`);
       <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
     </div>
     <p class="plan-intro">${esc(STEP_TEXT[step] || "")}</p>
-    <div class="plan-cards">${PAID_TIERS.map((t) => cardHTML(t, S.plan.tier)).join("")}</div>
+    <div class="plan-cards">${PAID_TIERS.map((t2) => cardHTML(t2, S.plan.tier)).join("")}</div>
     ${available3() ? "" : '<p class="hint">Subscribe in the Stack’d app on iPhone or Android.</p>'}
     <p class="hint">Renews monthly until cancelled · <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>
   </div>`);
@@ -7422,7 +7428,7 @@ ${title.toLowerCase()}`);
       lanes: targetLanes(),
       keyPrefix: keyPrefix(),
       /* a link or number is looked for on every task; a title only on the board the tasks go to */
-      existing: S.tasks.filter((t) => t.status !== "deleted" && (t.importKey || boardId && t.listId === boardId && t.status === "active")).map((t) => ({ title: t.listId === boardId ? t.title : "", lane: t.lane, importKey: t.importKey || null })),
+      existing: S.tasks.filter((t2) => t2.status !== "deleted" && (t2.importKey || boardId && t2.listId === boardId && t2.status === "active")).map((t2) => ({ title: t2.listId === boardId ? t2.title : "", lane: t2.lane, importKey: t2.importKey || null })),
       priorities: S.priorities
     });
   }
@@ -7560,7 +7566,7 @@ ${title.toLowerCase()}`);
     ].filter(Boolean).join(" · ");
     const about = (it) => [
       laneOf(it),
-      ...it.tags.map((t) => `#${t}`),
+      ...it.tags.map((t2) => `#${t2}`),
       it.priority !== "none" ? priorityById(it.priority)?.name : "",
       it.due ? `due ${fmtDate(it.due, S.dateFormat)}` : "",
       it.description ? "description" : "",
@@ -7830,9 +7836,1156 @@ ${title.toLowerCase()}`);
     ]));
   }
 
+  // src/formats/zip.js
+  var enc = new TextEncoder();
+  var TABLE = null;
+  function crc32(bytes) {
+    if (!TABLE) {
+      TABLE = new Uint32Array(256);
+      for (let n = 0; n < 256; n++) {
+        let c2 = n;
+        for (let k = 0; k < 8; k++) c2 = c2 & 1 ? 3988292384 ^ c2 >>> 1 : c2 >>> 1;
+        TABLE[n] = c2 >>> 0;
+      }
+    }
+    let c = 4294967295;
+    for (let i = 0; i < bytes.length; i++) c = TABLE[(c ^ bytes[i]) & 255] ^ c >>> 8;
+    return (c ^ 4294967295) >>> 0;
+  }
+  function zipStore(files) {
+    const parts = [], central = [];
+    let offset = 0;
+    const time2 = 0, date2 = 2026 - 1980 << 9 | 1 << 5 | 1;
+    for (const [name, content] of files) {
+      const nameB = enc.encode(name);
+      const data = typeof content === "string" ? enc.encode(content) : content;
+      const crc = crc32(data);
+      const head = new DataView(new ArrayBuffer(30));
+      head.setUint32(0, 67324752, true);
+      head.setUint16(4, 20, true);
+      head.setUint16(6, 2048, true);
+      head.setUint16(8, 0, true);
+      head.setUint16(10, time2, true);
+      head.setUint16(12, date2, true);
+      head.setUint32(14, crc, true);
+      head.setUint32(18, data.length, true);
+      head.setUint32(22, data.length, true);
+      head.setUint16(26, nameB.length, true);
+      head.setUint16(28, 0, true);
+      const dir = new DataView(new ArrayBuffer(46));
+      dir.setUint32(0, 33639248, true);
+      dir.setUint16(4, 20, true);
+      dir.setUint16(6, 20, true);
+      dir.setUint16(8, 2048, true);
+      dir.setUint16(10, 0, true);
+      dir.setUint16(12, time2, true);
+      dir.setUint16(14, date2, true);
+      dir.setUint32(16, crc, true);
+      dir.setUint32(20, data.length, true);
+      dir.setUint32(24, data.length, true);
+      dir.setUint16(28, nameB.length, true);
+      dir.setUint32(42, offset, true);
+      parts.push(new Uint8Array(head.buffer), nameB, data);
+      central.push(new Uint8Array(dir.buffer), nameB);
+      offset += 30 + nameB.length + data.length;
+    }
+    const size = central.reduce((n, b) => n + b.length, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 101010256, true);
+    end.setUint16(8, files.length, true);
+    end.setUint16(10, files.length, true);
+    end.setUint32(12, size, true);
+    end.setUint32(16, offset, true);
+    const all = [...parts, ...central, new Uint8Array(end.buffer)];
+    const out = new Uint8Array(all.reduce((n, b) => n + b.length, 0));
+    let at = 0;
+    for (const b of all) {
+      out.set(b, at);
+      at += b.length;
+    }
+    return out;
+  }
+
+  // src/formats/xlsx-write.js
+  var MAX_CELL3 = 32767;
+  var WIDTH = { board: 18, list: 16, title: 40, description: 50, labels: 20, priority: 12, due: 18, start: 14, done: 8, subtasks: 36, archived: 10, repeat: 10, reminder: 18, created: 18, completed: 18 };
+  var DAY_CODE = { dmy: "dd/mm/yyyy", mdy: "mm/dd/yyyy", ymd: "yyyy-mm-dd" };
+  var HEAD = 1;
+  var DATE = 2;
+  var DATETIME = 3;
+  var TEXT = 4;
+  var WRAP = 5;
+  var literal = (s) => s.replace(/_x([0-9A-Fa-f]{4})_/g, "_x005F_x$1_");
+  var column2 = (i) => {
+    let s = "";
+    for (let n = i + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s;
+    return s;
+  };
+  var serial = ({ date: date2, time: time2 }) => {
+    const [y, m, d] = date2.split("-").map(Number);
+    const days = (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5;
+    if (!time2) return days;
+    const [h, min] = time2.split(":").map(Number);
+    return days + (h * 60 + min) / 1440;
+  };
+  var XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  var MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+  var REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  function styles(dateFormat) {
+    const day = DAY_CODE[dateFormat] || DAY_CODE.dmy;
+    return `${XML}<styleSheet xmlns="${MAIN}"><numFmts count="2"><numFmt numFmtId="164" formatCode="${day}"/><numFmt numFmtId="165" formatCode="${day} hh:mm"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="left" vertical="top"/></xf><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="left" vertical="top"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  }
+  function writeXLSX(records, fields, { label, text: text2, rich, dateFormat, zip }) {
+    const str2 = (ref, s, style) => {
+      const t2 = String(s ?? "");
+      return t2 === "" ? "" : `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xmlText(literal(t2.slice(0, MAX_CELL3)))}</t></is></c>`;
+    };
+    const formatted = (ref, lines2) => {
+      if (!lines2.length) return "";
+      let room = MAX_CELL3;
+      const runs = [];
+      lines2.forEach((line, i) => {
+        for (const r of i ? [{ text: "\n" }, ...line] : line) {
+          if (room <= 0) break;
+          const piece = r.text.slice(0, room);
+          room -= piece.length;
+          const props = `${r.b ? "<b/>" : ""}${r.i ? "<i/>" : ""}${r.s ? "<strike/>" : ""}${r.u ? "<u/>" : ""}<sz val="11"/><rFont val="Calibri"/><family val="2"/>`;
+          runs.push(`<r><rPr>${props}</rPr><t xml:space="preserve">${xmlText(literal(piece))}</t></r>`);
+        }
+      });
+      return `<c r="${ref}" s="${WRAP}" t="inlineStr"><is>${runs.join("")}</is></c>`;
+    };
+    const rows = [`<row r="1">${fields.map((k, i) => str2(`${column2(i)}1`, label[k], HEAD)).join("")}</row>`];
+    records.forEach((r, n) => {
+      const at = n + 2;
+      rows.push(`<row r="${at}">${fields.map((k, i) => {
+        const ref = `${column2(i)}${at}`;
+        const v = r[k];
+        if (v && typeof v === "object" && "date" in v) return v.date >= "1900-03-01" ? `<c r="${ref}" s="${v.time ? DATETIME : DATE}"><v>${serial(v)}</v></c>` : str2(ref, text2(k, v), TEXT);
+        if (k === "description" && rich) return formatted(ref, rich(v));
+        return str2(ref, text2(k, v), k === "description" || k === "subtasks" || k === "title" ? WRAP : TEXT);
+      }).join("")}</row>`);
+    });
+    const last2 = `${column2(fields.length - 1)}${records.length + 1}`;
+    const sheet2 = `${XML}<worksheet xmlns="${MAIN}" xmlns:r="${REL}"><dimension ref="A1:${last2}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>${fields.map((k, i) => `<col min="${i + 1}" max="${i + 1}" width="${WIDTH[k] || 14}" customWidth="1"/>`).join("")}</cols><sheetData>${rows.join("")}</sheetData><autoFilter ref="A1:${last2}"/></worksheet>`;
+    const workbook = `${XML}<workbook xmlns="${MAIN}" xmlns:r="${REL}"><bookViews><workbookView/></bookViews><sheets><sheet name="Tasks" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">Tasks!$A$1:$${column2(fields.length - 1)}$${records.length + 1}</definedName></definedNames></workbook>`;
+    return zip([
+      ["[Content_Types].xml", `${XML}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`],
+      ["_rels/.rels", `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+      ["xl/workbook.xml", workbook],
+      ["xl/_rels/workbook.xml.rels", `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${REL}/styles" Target="styles.xml"/></Relationships>`],
+      ["xl/styles.xml", styles(dateFormat)],
+      ["xl/worksheets/sheet1.xml", sheet2]
+    ]);
+  }
+
+  // src/formats/docx-write.js
+  var XML2 = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  var W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+  var REL2 = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  var t = (s) => `<w:t xml:space="preserve">${xmlText(s)}</w:t>`;
+  var run2 = (s, props = "") => `<w:r>${props ? `<w:rPr>${props}</w:rPr>` : ""}${t(s)}</w:r>`;
+  var para = (style, inner) => `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr>${inner}</w:p>`;
+  var STYLES = `${XML2}<w:styles xmlns:w="${W}"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Calibri" w:cs="Calibri"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="en-GB"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="264" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="9"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="360" w:after="120"/><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:bCs/><w:sz w:val="36"/><w:szCs w:val="36"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:uiPriority w:val="9"/><w:unhideWhenUsed/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="280" w:after="60"/><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/><w:bCs/><w:sz w:val="26"/><w:szCs w:val="26"/></w:rPr></w:style><w:style w:type="paragraph" w:customStyle="1" w:styleId="TaskTitle"><w:name w:val="Task title"/><w:basedOn w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="200"/></w:pPr><w:rPr><w:b/><w:bCs/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:style><w:style w:type="paragraph" w:customStyle="1" w:styleId="TaskMeta"><w:name w:val="Task details"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/></w:pPr><w:rPr><w:color w:val="666666"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style><w:style w:type="paragraph" w:customStyle="1" w:styleId="TaskText"><w:name w:val="Task description"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:before="60"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style><w:style w:type="paragraph" w:customStyle="1" w:styleId="Subtask"><w:name w:val="Subtask"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:before="40"/><w:ind w:left="284" w:hanging="284"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style></w:styles>`;
+  function writeDOCX(doc2, { boxes = true, zip }) {
+    const body = [];
+    for (const b of doc2) {
+      body.push(para("Heading1", run2(b.board || "Board")));
+      for (const g of b.groups) {
+        if (g.list !== null) body.push(para("Heading2", run2(g.list || "No list")));
+        for (const task of g.tasks) {
+          body.push(para("TaskTitle", run2(task.title)));
+          if (task.meta.length) body.push(para("TaskMeta", run2(task.meta.join(" · "))));
+          if (task.lines.length) {
+            const inner = task.lines.map((runs, i) => (i ? "<w:r><w:br/></w:r>" : "") + runs.map((r) => run2(r.text, `${r.b ? "<w:b/>" : ""}${r.i ? "<w:i/>" : ""}${r.s ? "<w:strike/>" : ""}${r.u ? '<w:u w:val="single"/>' : ""}`)).join("")).join("");
+            body.push(para("TaskText", inner));
+          }
+          for (const s of task.subtasks) {
+            body.push(para("Subtask", boxes ? `${run2(s.done ? "☑" : "☐", '<w:rFonts w:ascii="Segoe UI Symbol" w:hAnsi="Segoe UI Symbol"/>')}${run2("	")}${run2(s.title)}` : `${run2("•	")}${run2(s.title)}${s.done ? run2(" (done)", '<w:color w:val="666666"/>') : ""}`));
+          }
+        }
+      }
+    }
+    const document2 = `${XML2}<w:document xmlns:w="${W}" xmlns:r="${REL2}"><w:body>${body.join("")}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+    return zip([
+      ["[Content_Types].xml", `${XML2}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/></Types>`],
+      ["_rels/.rels", `${XML2}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL2}/officeDocument" Target="word/document.xml"/></Relationships>`],
+      ["word/document.xml", document2],
+      ["word/_rels/document.xml.rels", `${XML2}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL2}/styles" Target="styles.xml"/><Relationship Id="rId2" Type="${REL2}/settings" Target="settings.xml"/></Relationships>`],
+      ["word/styles.xml", STYLES],
+      /* without this, Word opens the file in Compatibility Mode, as if an older Word had made it */
+      ["word/settings.xml", `${XML2}<w:settings xmlns:w="${W}"><w:defaultTabStop w:val="284"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`]
+    ]);
+  }
+
+  // src/formats/pdf.js
+  var REGULAR = [
+    278,
+    278,
+    355,
+    556,
+    556,
+    889,
+    667,
+    191,
+    333,
+    333,
+    389,
+    584,
+    278,
+    333,
+    278,
+    278,
+    556,
+    556,
+    556,
+    556,
+    556,
+    556,
+    556,
+    556,
+    556,
+    556,
+    278,
+    278,
+    584,
+    584,
+    584,
+    556,
+    1015,
+    667,
+    667,
+    722,
+    722,
+    667,
+    611,
+    778,
+    722,
+    278,
+    500,
+    667,
+    556,
+    833,
+    722,
+    778,
+    667,
+    778,
+    722,
+    667,
+    611,
+    722,
+    667,
+    944,
+    667,
+    667,
+    611,
+    278,
+    278,
+    278,
+    469,
+    556,
+    333,
+    556,
+    556,
+    500,
+    556,
+    556,
+    278,
+    556,
+    556,
+    222,
+    222,
+    500,
+    222,
+    833,
+    556,
+    556,
+    556,
+    556,
+    333,
+    500,
+    278,
+    556,
+    500,
+    722,
+    500,
+    500,
+    500,
+    334,
+    260,
+    334,
+    584
+  ];
+  var BOLD = [
+    278,
+    333,
+    474,
+    556,
+    556,
+    889,
+    722,
+    238,
+    333,
+    333,
+    389,
+    584,
+    278,
+    333,
+    278,
+    278,
+    556,
+    556,
+    556,
+    556,
+    556,
+    556,
+    556,
+    556,
+    556,
+    556,
+    333,
+    333,
+    584,
+    584,
+    584,
+    611,
+    975,
+    722,
+    722,
+    722,
+    722,
+    667,
+    611,
+    778,
+    722,
+    278,
+    556,
+    722,
+    611,
+    833,
+    722,
+    778,
+    667,
+    778,
+    722,
+    667,
+    611,
+    722,
+    667,
+    944,
+    667,
+    667,
+    611,
+    333,
+    278,
+    333,
+    584,
+    556,
+    333,
+    556,
+    611,
+    556,
+    611,
+    556,
+    333,
+    611,
+    611,
+    278,
+    278,
+    556,
+    278,
+    889,
+    611,
+    611,
+    611,
+    611,
+    389,
+    556,
+    333,
+    611,
+    556,
+    778,
+    556,
+    556,
+    500,
+    389,
+    280,
+    389,
+    584
+  ];
+  var HIGH = {
+    8364: 128,
+    8218: 130,
+    402: 131,
+    8222: 132,
+    8230: 133,
+    8224: 134,
+    8225: 135,
+    710: 136,
+    8240: 137,
+    352: 138,
+    8249: 139,
+    338: 140,
+    381: 142,
+    8216: 145,
+    8217: 146,
+    8220: 147,
+    8221: 148,
+    8226: 149,
+    8211: 150,
+    8212: 151,
+    732: 152,
+    8482: 153,
+    353: 154,
+    8250: 155,
+    339: 156,
+    382: 158,
+    376: 159
+  };
+  var SHARED = {
+    128: 556,
+    131: 556,
+    133: 1e3,
+    134: 556,
+    135: 556,
+    136: 333,
+    137: 1e3,
+    139: 333,
+    140: 1e3,
+    149: 350,
+    150: 556,
+    151: 1e3,
+    152: 333,
+    153: 1e3,
+    155: 333,
+    156: 944,
+    160: 278,
+    162: 556,
+    163: 556,
+    164: 556,
+    165: 556,
+    167: 556,
+    169: 737,
+    171: 556,
+    172: 584,
+    173: 333,
+    174: 737,
+    176: 400,
+    177: 584,
+    178: 333,
+    179: 333,
+    181: 556,
+    185: 333,
+    187: 556,
+    188: 834,
+    189: 834,
+    190: 834,
+    198: 1e3,
+    208: 722,
+    215: 584,
+    216: 778,
+    222: 667,
+    247: 584
+  };
+  var WIDE = {
+    R: { ...SHARED, 130: 222, 132: 333, 145: 222, 146: 222, 147: 333, 148: 333, 161: 333, 166: 260, 182: 537, 191: 611, 223: 611, 230: 889, 240: 556, 248: 611, 254: 556 },
+    B: { ...SHARED, 130: 278, 132: 500, 145: 278, 146: 278, 147: 500, 148: 500, 161: 333, 166: 280, 182: 556, 191: 611, 223: 611, 230: 889, 240: 611, 248: 611, 254: 611 }
+  };
+  var CHAR_OF = Object.fromEntries(Object.entries(HIGH).map(([cp, b]) => [b, String.fromCodePoint(+cp)]));
+  var byteOf = (cp) => cp >= 32 && cp <= 126 || cp >= 160 && cp <= 255 ? cp : HIGH[cp] ?? -1;
+  var pdfCannotShow = (s) => {
+    for (const ch of String(s ?? "").normalize("NFC")) {
+      const cp = ch.codePointAt(0);
+      if (cp > 31 && byteOf(cp) === -1) return true;
+    }
+    return false;
+  };
+  var bytesOf = (s) => {
+    const out = [];
+    for (const ch of String(s).normalize("NFC")) {
+      const cp = ch.codePointAt(0);
+      out.push(cp === 9 || cp === 10 ? 32 : byteOf(cp) === -1 ? 63 : byteOf(cp));
+    }
+    return out;
+  };
+  function widthOf(b, bold) {
+    if (b >= 32 && b <= 126) return (bold ? BOLD : REGULAR)[b - 32];
+    const wide = WIDE[bold ? "B" : "R"][b];
+    if (wide) return wide;
+    const base = (CHAR_OF[b] || String.fromCharCode(b)).normalize("NFD").charCodeAt(0);
+    return base >= 32 && base <= 126 ? (bold ? BOLD : REGULAR)[base - 32] : 556;
+  }
+  var measure = (bytes, bold, size) => bytes.reduce((n, b) => n + widthOf(b, bold), 0) * size / 1e3;
+  var pdfString = (bytes) => `(${bytes.map((b) => b === 40 || b === 41 || b === 92 ? `\\${String.fromCharCode(b)}` : b < 32 || b > 126 ? `\\${b.toString(8).padStart(3, "0")}` : String.fromCharCode(b)).join("")})`;
+  var PAGE_W = 595.28;
+  var PAGE_H = 841.89;
+  var MARGIN = 56.7;
+  var FOOT = 34;
+  var WIDTH2 = PAGE_W - 2 * MARGIN;
+  var FONT = { R: "F1", B: "F2", I: "F3", BI: "F4" };
+  var face = (r) => r.b && r.i ? "BI" : r.b ? "B" : r.i ? "I" : "R";
+  var fmt = (n) => (Math.round(n * 100) / 100).toString();
+  function writePDF(doc2, { boxes = true, title = "" } = {}) {
+    const pages = [];
+    let ops = null, y = 0;
+    const newPage = () => {
+      ops = [];
+      pages.push(ops);
+      y = PAGE_H - MARGIN;
+    };
+    newPage();
+    const atTop = () => y >= PAGE_H - MARGIN - 0.01;
+    const need = (h) => {
+      if (y - h < MARGIN + FOOT * 0.5 && !atTop()) newPage();
+    };
+    const space2 = (h) => {
+      if (!atTop()) y -= h;
+    };
+    const wrap = (runs, size, room) => {
+      const width = room * 0.985;
+      const lines2 = [[]];
+      let w = 0;
+      const push = (bytes, r) => {
+        const pw = measure(bytes, r.b, size);
+        lines2.at(-1).push({ bytes, r, w: pw });
+        w += pw;
+      };
+      for (const r of runs) {
+        for (const tok of r.text.replace(/\t/g, " ").match(/\S+|\s+/g) || []) {
+          let bytes = bytesOf(tok);
+          if (/^\s+$/.test(tok)) {
+            if (lines2.at(-1).length) push([32], r);
+            continue;
+          }
+          let tw = measure(bytes, r.b, size);
+          if (w + tw > width && lines2.at(-1).length) {
+            while (lines2.at(-1).length && lines2.at(-1).at(-1).bytes.every((b) => b === 32)) {
+              w -= lines2.at(-1).pop().w;
+            }
+            lines2.push([]);
+            w = 0;
+          }
+          while (tw > width) {
+            let n = 1;
+            while (n < bytes.length && measure(bytes.slice(0, n + 1), r.b, size) <= width - w) n++;
+            push(bytes.slice(0, n), r);
+            lines2.push([]);
+            w = 0;
+            bytes = bytes.slice(n);
+            tw = measure(bytes, r.b, size);
+          }
+          if (bytes.length) push(bytes, r);
+        }
+      }
+      return lines2.filter((l, i) => l.length || i === 0);
+    };
+    const drawLine = (pieces, x, size, gray) => {
+      if (gray) ops.push(`${gray} g ${gray} G`);
+      for (const p of pieces) {
+        if (!p.bytes.every((b) => b === 32)) ops.push(`BT /${FONT[face(p.r)]} ${fmt(size)} Tf ${fmt(x)} ${fmt(y)} Td ${pdfString(p.bytes)} Tj ET`);
+        if (p.r.u) ops.push(`${fmt(size / 16)} w ${fmt(x)} ${fmt(y - size * 0.15)} m ${fmt(x + p.w)} ${fmt(y - size * 0.15)} l S`);
+        if (p.r.s) ops.push(`${fmt(size / 16)} w ${fmt(x)} ${fmt(y + size * 0.3)} m ${fmt(x + p.w)} ${fmt(y + size * 0.3)} l S`);
+        x += p.w;
+      }
+      if (gray) ops.push("0 g 0 G");
+    };
+    const paragraph = (runs, { size, leading, x = MARGIN, width = WIDTH2, gray = 0, keep: keep2 = 0 }) => {
+      const lines2 = wrap(runs, size, width);
+      need(leading * Math.min(lines2.length, 2) + keep2);
+      for (const line of lines2) {
+        need(leading);
+        y -= leading;
+        drawLine(line, x, size, gray);
+      }
+    };
+    const plain = (text2, extra = {}) => [{ text: text2, b: false, i: false, u: false, s: false, ...extra }];
+    for (const b of doc2) {
+      space2(20);
+      paragraph(plain(b.board || "Board", { b: true }), { size: 18, leading: 22, keep: 40 });
+      y -= 4;
+      for (const g of b.groups) {
+        if (g.list !== null) {
+          space2(12);
+          paragraph(plain(g.list || "No list", { b: true }), { size: 13, leading: 17, keep: 34 });
+        }
+        for (const task of g.tasks) {
+          space2(10);
+          const more = task.lines.length || task.subtasks.length ? 16 : 0;
+          paragraph(plain(task.title, { b: true }), { size: 11, leading: 14, keep: (task.meta.length ? 12 : 0) + more });
+          if (task.meta.length) paragraph(plain(task.meta.join(" · ")), { size: 9, leading: 12, gray: 0.4, keep: more });
+          if (task.lines.length) {
+            y -= 3;
+            for (const runs of task.lines) paragraph(runs.length ? runs : plain(""), { size: 10, leading: 13 });
+          }
+          if (task.subtasks.length) y -= 2;
+          for (const s of task.subtasks) {
+            const indent = 14;
+            const lines2 = wrap(plain(boxes ? s.title : `${s.title}${s.done ? " (done)" : ""}`), 10, WIDTH2 - indent);
+            lines2.forEach((line, i) => {
+              need(13);
+              y -= 13;
+              if (i === 0) {
+                if (boxes) {
+                  ops.push(`0.7 w ${fmt(MARGIN + 0.5)} ${fmt(y - 0.6)} 7.4 7.4 re S`);
+                  if (s.done) ops.push(`1 w 1 J 1 j ${fmt(MARGIN + 2)} ${fmt(y + 3.2)} m ${fmt(MARGIN + 3.8)} ${fmt(y + 1.2)} l ${fmt(MARGIN + 7)} ${fmt(y + 6)} l S 0 J 0 j`);
+                } else ops.push(`BT /F1 10 Tf ${fmt(MARGIN + 2)} ${fmt(y)} Td (\\225) Tj ET`);
+              }
+              drawLine(line, MARGIN + indent, 10, 0);
+            });
+          }
+        }
+      }
+    }
+    const objects = [];
+    const kids = pages.map((_, i) => `${8 + i * 2} 0 R`).join(" ");
+    objects.push("<< /Type /Catalog /Pages 2 0 R >>");
+    objects.push(`<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`);
+    for (const name of ["Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique"]) objects.push(`<< /Type /Font /Subtype /Type1 /BaseFont /${name} /Encoding /WinAnsiEncoding >>`);
+    const utf16 = [...String(title).slice(0, 200)].flatMap((c) => {
+      const n = c.charCodeAt(0);
+      return [n >> 8, n & 255];
+    }).map((n) => n.toString(16).padStart(2, "0")).join("").toUpperCase();
+    objects.push(`<< /Title <FEFF${utf16}> /Producer (Stack'd) >>`);
+    pages.forEach((page2, i) => {
+      const foot = bytesOf(`${i + 1} / ${pages.length}`);
+      const content = [...page2, `0.4 g BT /F1 8 Tf ${fmt((PAGE_W - measure(foot, false, 8)) / 2)} ${fmt(FOOT - 8)} Td ${pdfString(foot)} Tj ET 0 g`].join("\n");
+      objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> /Contents ${9 + i * 2} 0 R >>`);
+      objects.push(`<< /Length ${content.length} >>
+stream
+${content}
+endstream`);
+    });
+    let out = "%PDF-1.4\n";
+    const offsets = objects.map((body, i) => {
+      const at = out.length;
+      out += `${i + 1} 0 obj
+${body}
+endobj
+`;
+      return at;
+    });
+    const xref = out.length;
+    out += `xref
+0 ${objects.length + 1}
+0000000000 65535 f 
+${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n 
+`).join("")}`;
+    out += `trailer
+<< /Size ${objects.length + 1} /Root 1 0 R /Info 7 0 R >>
+startxref
+${xref}
+%%EOF
+`;
+    return new TextEncoder().encode(out);
+  }
+
+  // src/exporter.js
+  var EXPORT_FIELDS = [
+    ["board", "Board", true],
+    ["list", "List", true],
+    ["title", "Title", true],
+    ["description", "Description", true],
+    ["labels", "Labels", true],
+    ["priority", "Priority", true],
+    ["due", "Due date", true],
+    ["start", "Start date", true],
+    ["done", "Done", true],
+    ["subtasks", "Subtasks", true],
+    ["archived", "Archived", false],
+    ["repeat", "Repeat", false],
+    ["reminder", "Reminder", false],
+    ["created", "Created on", false],
+    ["completed", "Completed on", false]
+  ];
+  var DEFAULT_FIELDS = EXPORT_FIELDS.filter(([, , on]) => on).map(([k]) => k);
+  var LABEL = Object.fromEntries(EXPORT_FIELDS.map(([k, l]) => [k, l]));
+  var FORMATS2 = [
+    ["xlsx", "Excel", "xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+    ["csv", "CSV", "csv", "text/csv"],
+    ["pdf", "PDF", "pdf", "application/pdf"],
+    ["docx", "Word", "docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+    ["json", "JSON", "json", "application/json"],
+    ["xml", "XML", "xml", "application/xml"]
+  ];
+  var RECUR = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly" };
+  var REMIND = { 0: "At time of due", 10: "10 minutes before", 60: "1 hour before", 1440: "1 day before", 2880: "2 days before" };
+  var DONE_LANE2 = "done";
+  var lanesOf2 = (list3) => Array.isArray(list3?.lanes) && list3.lanes.length ? list3.lanes : [{ id: "backlog", name: "Backlog" }, { id: "inprogress", name: "In Progress" }, { id: DONE_LANE2, name: "Done" }];
+  function selectTasks(state3, { boardIds, done: done2 = true, archived = false }) {
+    const chosen = new Set(boardIds);
+    const out = [];
+    for (const list3 of state3.lists) {
+      if (!chosen.has(list3.id) || (list3.status ?? "active") !== "active") continue;
+      const lanes = lanesOf2(list3).map((l) => l.id);
+      const rank = (t2) => {
+        const i = lanes.indexOf(t2.lane);
+        return i === -1 ? lanes.length : i;
+      };
+      const tasks = state3.tasks.filter((t2) => t2.listId === list3.id && (t2.status === "active" || archived && t2.status === "archived") && (done2 || !t2.done));
+      tasks.sort((a, b) => rank(a) - rank(b) || (a.order ?? 0) - (b.order ?? 0) || (a.createdAt ?? 0) - (b.createdAt ?? 0));
+      out.push(...tasks);
+    }
+    return out;
+  }
+  var pad5 = (n) => String(n).padStart(2, "0");
+  var localStamp = (ms) => {
+    if (!ms) return null;
+    const d = new Date(ms);
+    return { date: `${d.getFullYear()}-${pad5(d.getMonth() + 1)}-${pad5(d.getDate())}`, time: `${pad5(d.getHours())}:${pad5(d.getMinutes())}` };
+  };
+  var isoDay = (v) => {
+    const m = typeof v === "string" && /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (!m) return null;
+    const d = new Date(Date.UTC(2e3, +m[2] - 1, +m[3]));
+    d.setUTCFullYear(+m[1]);
+    return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3] ? v : null;
+  };
+  var isoTime = (v) => typeof v === "string" && /^\d{2}:\d{2}$/.test(v) ? v : null;
+  var CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+  var clean = (v) => String(v ?? "").replace(CONTROL, "");
+  function taskValues(state3, t2) {
+    const list3 = state3.lists.find((l) => l.id === t2.listId);
+    const lane = lanesOf2(list3).find((l) => l.id === t2.lane);
+    const due = isoDay(t2.due);
+    return {
+      board: clean(list3?.name),
+      list: clean(lane?.name || (t2.lane === DONE_LANE2 ? "Done" : "")),
+      title: clean(t2.title),
+      description: clean(t2.description),
+      labels: Array.isArray(t2.tags) ? t2.tags.filter((x) => typeof x === "string" && x).map(clean) : [],
+      priority: t2.priority && t2.priority !== "none" ? clean(state3.priorities.find((p) => p.id === t2.priority)?.name) : "",
+      due: due ? { date: due, time: isoTime(t2.dueTime) } : null,
+      start: isoDay(t2.start) ? { date: t2.start, time: null } : null,
+      done: !!t2.done,
+      subtasks: Array.isArray(t2.subtasks) ? t2.subtasks.filter((s) => s && typeof s === "object").map((s) => ({ title: clean(s.title ?? s.text), done: !!s.done })).filter((s) => s.title) : [],
+      archived: t2.status === "archived",
+      repeat: RECUR[t2.recur] || "",
+      reminder: t2.due && t2.reminder !== null && t2.reminder !== void 0 ? REMIND[t2.reminder] || "" : "",
+      created: localStamp(t2.createdAt),
+      completed: t2.done || t2.recur && t2.recur !== "none" ? localStamp(t2.lastCompletedAt) : null
+    };
+  }
+  var ENTITY2 = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+  var decode3 = (s) => s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, e) => {
+    if (e[0] !== "#") return ENTITY2[e.toLowerCase()] ?? all;
+    const n = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+    return n > 0 && n <= 1114111 ? String.fromCodePoint(n) : "";
+  });
+  function richLines(html) {
+    const lines2 = [[]];
+    const on = { b: 0, i: 0, u: 0, s: 0 };
+    const re = /<(\/?)([a-z]+)[^>]*>|([^<]+)/gi;
+    for (let m; m = re.exec(String(html ?? "")); ) {
+      if (m[3] !== void 0) {
+        const text2 = decode3(m[3]);
+        if (text2) lines2.at(-1).push({ text: text2, b: on.b > 0, i: on.i > 0, u: on.u > 0, s: on.s > 0 });
+        continue;
+      }
+      const tag = m[2].toLowerCase();
+      if (tag === "br") {
+        lines2.push([]);
+        continue;
+      }
+      const k = tag === "strong" ? "b" : tag === "em" ? "i" : tag === "strike" || tag === "del" ? "s" : tag;
+      if (k in on) on[k] = Math.max(0, on[k] + (m[1] ? -1 : 1));
+    }
+    while (lines2.length > 1 && !lines2.at(-1).length) lines2.pop();
+    return lines2.length === 1 && !lines2[0].length ? [] : lines2;
+  }
+  function toMarkdown(html) {
+    return richLines(html).map((runs) => runs.map((r) => {
+      if (!r.text.trim()) return r.text.replace(/[\\*_~]/g, "\\$&");
+      const lead = r.text.match(/^\s*/)[0], tail = r.text.match(/\s*$/)[0];
+      let core = r.text.trim().replace(/[\\*_~]/g, "\\$&");
+      if (r.s) core = `~~${core}~~`;
+      if (r.i) core = `*${core}*`;
+      if (r.b) core = `**${core}**`;
+      return lead + core + tail;
+    }).join("")).join("\n");
+  }
+  var dayText = (d) => d ? d.time ? `${d.date} ${d.time}` : d.date : "";
+  var checklistText = (items) => items.map((s) => `${s.done ? "[x]" : "[ ]"} ${s.title.replace(/\s+/g, " ")}`).join("\n");
+  function cellText2(key, v) {
+    if (key === "description") return toMarkdown(v);
+    if (key === "labels") return v.join(v.some((l) => /[,;\n]/.test(l)) ? "\n" : ", ");
+    if (key === "subtasks") return checklistText(v);
+    if (key === "done" || key === "archived") return v ? "Yes" : "No";
+    if (v && typeof v === "object" && "date" in v) return dayText(v);
+    return v ?? "";
+  }
+  var FORMULA = /^'*[=+\-@\t\r]/;
+  function csv(records, fields) {
+    const cell = (s) => {
+      let t2 = String(s).replace(/\r\n?/g, "\n");
+      if (FORMULA.test(t2)) t2 = `'${t2}`;
+      return /[",\n]|^\s|\s$/.test(t2) ? `"${t2.replace(/"/g, '""')}"` : t2;
+    };
+    const lines2 = [fields.map((k) => cell(LABEL[k])).join(",")];
+    for (const r of records) lines2.push(fields.map((k) => cell(cellText2(k, r[k]))).join(","));
+    return `\uFEFF${lines2.join("\r\n")}\r
+`;
+  }
+  function json(records, fields) {
+    const value = (k, v) => {
+      if (k === "description") return toMarkdown(v);
+      if (k === "subtasks") return v.map((s) => ({ title: s.title, done: s.done }));
+      if (v && typeof v === "object" && "date" in v) return dayText(v);
+      return v ?? null;
+    };
+    return `${JSON.stringify(records.map((r) => Object.fromEntries(fields.map((k) => [LABEL[k], value(k, r[k])]))), null, 2)}
+`;
+  }
+  var tagOf = (k) => LABEL[k].toLowerCase().replace(/\s+/g, "-");
+  function xml(records, fields, at) {
+    const el = (name, inner) => inner === "" ? `<${name}/>` : `<${name}>${inner}</${name}>`;
+    const out = [`<?xml version="1.0" encoding="UTF-8"?>
+<tasks exported="${xmlText(at)}" app="Stack'd">`];
+    for (const r of records) {
+      const parts = fields.map((k) => {
+        const v = r[k];
+        if (k === "labels") return el("labels", v.map((x) => el("label", xmlText(x))).join(""));
+        if (k === "subtasks") return el("subtasks", v.map((s) => `<subtask><title>${xmlText(s.title)}</title><done>${s.done}</done></subtask>`).join(""));
+        if (k === "done" || k === "archived") return el(tagOf(k), String(v));
+        return el(tagOf(k), xmlText(cellText2(k, v)));
+      });
+      out.push(`  <task>${parts.join("")}</task>`);
+    }
+    out.push("</tasks>\n");
+    return out.join("\n");
+  }
+  var DAY_ORDER = { dmy: (y, m, d) => `${d}/${m}/${y}`, mdy: (y, m, d) => `${m}/${d}/${y}`, ymd: (y, m, d) => `${y}-${m}-${d}` };
+  var showDay = (v, format) => {
+    if (!v) return "";
+    const [y, m, d] = v.date.split("-");
+    return (DAY_ORDER[format] || DAY_ORDER.dmy)(y, m, d) + (v.time ? ` ${v.time}` : "");
+  };
+  function documentModel(records, fields, { byList = true, format = "dmy" } = {}) {
+    const has = new Set(fields);
+    const boards3 = [];
+    for (const r of records) {
+      let b = boards3.at(-1);
+      if (!b || b.board !== r.board) {
+        b = { board: r.board, groups: [] };
+        boards3.push(b);
+      }
+      const group = byList ? r.list : null;
+      let g = b.groups.at(-1);
+      if (!g || g.list !== group) {
+        g = { list: group, tasks: [] };
+        b.groups.push(g);
+      }
+      const meta = [
+        !byList && has.has("list") ? r.list : "",
+        has.has("labels") ? r.labels.map((l) => `#${l}`).join(" ") : "",
+        has.has("priority") ? r.priority : "",
+        has.has("due") && r.due ? `Due ${showDay(r.due, format)}` : "",
+        has.has("start") && r.start ? `Starts ${showDay(r.start, format)}` : "",
+        has.has("done") && r.done ? "Done" : "",
+        has.has("archived") && r.archived ? "Archived" : "",
+        has.has("repeat") && r.repeat ? `Repeats ${r.repeat.toLowerCase()}` : "",
+        has.has("reminder") && r.reminder ? `Reminder ${r.reminder.toLowerCase()}` : "",
+        has.has("created") && r.created ? `Created ${showDay(r.created, format)}` : "",
+        has.has("completed") && r.completed ? `Completed ${showDay(r.completed, format)}` : ""
+      ].filter(Boolean);
+      g.tasks.push({
+        title: r.title,
+        done: r.done,
+        meta,
+        lines: has.has("description") ? richLines(r.description) : [],
+        subtasks: has.has("subtasks") ? r.subtasks : []
+      });
+    }
+    return boards3;
+  }
+  var SAFE_NAME = /[\u0000-\u001F\u007F/\\:*?"<>|]+/g;
+  function exportFileName(boardNames, ext, now2 = /* @__PURE__ */ new Date()) {
+    const day = `${now2.getFullYear()}-${pad5(now2.getMonth() + 1)}-${pad5(now2.getDate())}`;
+    const one = boardNames.length === 1 ? String(boardNames[0]).replace(SAFE_NAME, " ").replace(/\s+/g, " ").trim().replace(/^\.+/, "").slice(0, 60).trim() : "";
+    return `${one || "stackd-tasks"} ${day}.${ext}`;
+  }
+  function makeExport(state3, options2) {
+    const { boardIds, fields: wanted, format, now: now2 = /* @__PURE__ */ new Date() } = options2;
+    const tasks = selectTasks(state3, options2);
+    const records = tasks.map((t2) => taskValues(state3, t2));
+    const fields = EXPORT_FIELDS.map(([k]) => k).filter((k) => k === "title" || wanted.includes(k));
+    const [, , ext, type] = FORMATS2.find(([k]) => k === format) || FORMATS2[0];
+    const names = state3.lists.filter((l) => boardIds.includes(l.id)).map((l) => l.name);
+    const at = now2.toISOString();
+    let body;
+    if (format === "csv") body = csv(records, fields);
+    else if (format === "json") body = json(records, fields);
+    else if (format === "xml") body = xml(records, fields, at);
+    else if (format === "xlsx") body = writeXLSX(records, fields, { label: LABEL, text: cellText2, rich: richLines, dateFormat: options2.dateFormat, zip: zipStore });
+    else {
+      const doc2 = documentModel(records, fields, { byList: options2.byList !== false, format: options2.dateFormat });
+      body = format === "docx" ? writeDOCX(doc2, { boxes: options2.boxes !== false, zip: zipStore }) : writePDF(doc2, { boxes: options2.boxes !== false, title: names.length === 1 ? names[0] : "Stack'd tasks" });
+    }
+    const bytes = typeof body === "string" ? new TextEncoder().encode(body) : body;
+    return { bytes, name: exportFileName(names, ext, now2), type, count: records.length };
+  }
+  function pdfMisses(state3, options2) {
+    const fields = new Set(options2.fields);
+    return selectTasks(state3, options2).filter((t2) => {
+      const r = taskValues(state3, t2);
+      const texts = [
+        r.board,
+        r.list,
+        r.title,
+        ...fields.has("labels") ? r.labels : [],
+        fields.has("description") ? richLines(r.description).flat().map((x) => x.text).join(" ") : "",
+        ...fields.has("subtasks") ? r.subtasks.map((s) => s.title) : [],
+        fields.has("priority") ? r.priority : ""
+      ];
+      return texts.some(pdfCannotShow);
+    }).length;
+  }
+
+  // src/ui/exportguide.js
+  var plural4 = (n, word) => `${n.toLocaleString("en-GB")} ${word}${n === 1 ? "" : "s"}`;
+  var X = null;
+  var last = null;
+  var exportOpen = () => !!X;
+  var boards2 = () => activeLists();
+  var options = () => ({ boardIds: [...X.boardIds], done: X.done, archived: X.archived, fields: [...X.fields], format: X.format, byList: X.byList, boxes: X.boxes, dateFormat: S.dateFormat });
+  var chosenTasks = () => selectTasks(S, options());
+  var countFor = (id) => selectTasks(S, { ...options(), boardIds: [id] }).length;
+  function startExport() {
+    const live = new Set(boards2().map((l) => l.id));
+    const ticked = last ? last.boardIds.filter((id) => live.has(id)) : boards2().filter((l) => !l.share).map((l) => l.id);
+    X = {
+      step: 0,
+      boardIds: new Set(ticked),
+      done: last?.done ?? true,
+      archived: last?.archived ?? false,
+      fields: new Set(last?.fields ?? DEFAULT_FIELDS),
+      format: last?.format ?? "xlsx",
+      byList: last?.byList ?? true,
+      boxes: last?.boxes ?? true
+    };
+    UI.settingsScroll = UI.settingsPage ? UI.settingsScroll : { area: app.querySelector(".scroll-area")?.scrollTop || 0, main: app.querySelector(".main")?.scrollTop || 0 };
+    UI.screen = "settings";
+    UI.settingsPage = "export";
+    show3();
+  }
+  var STEPS2 = ["boards", "fields", "type"];
+  var chrome2 = (title, lead, body, foot, primary, { disabled = false } = {}) => `
+  <div class="screen settings-screen set-page guide">
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-export-back aria-label="${X.step === 0 ? "Close the export" : "Back to the step before"}">${icon("chevronLeft")}</button>
+      <span class="kicker">Export</span>
+      <button class="icon-btn" data-export-close aria-label="Close the export">${icon("x")}</button>
+    </header>
+    <div class="scroll-area">
+      <p class="guide-step">Step ${X.step + 1} of ${STEPS2.length}</p>
+      <h1 class="sub-title" tabindex="-1">${title}</h1>
+      ${lead ? `<p class="guide-lead">${lead}</p>` : ""}
+      ${body}
+    </div>
+    <div class="guide-foot">
+      ${foot ? `<p class="guide-foot-note" aria-live="polite">${foot}</p>` : ""}
+      <button type="button" class="btn btn-primary btn-block" data-export-next ${disabled ? "disabled" : ""}>${primary}</button>
+    </div>
+  </div>`;
+  var checkRow = (title, sub, checked, attrs2, { disabled = false } = {}) => `
+        <label class="guide-row guide-check">
+          <input type="checkbox" class="check sm" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""} ${attrs2}>
+          <span class="guide-left"><span class="set-title">${esc(title)}</span>${sub ? `<span class="guide-sample">${esc(sub)}</span>` : ""}</span>
+        </label>`;
+  var toggleRow = (title, sub, name, value, choices) => `
+        <div class="set-row set-wrap">
+          <div class="set-text"><span class="set-title">${title}</span>${sub ? `<span class="set-sub">${sub}</span>` : ""}</div>
+          <div class="segmented solid" role="radiogroup" aria-label="${title}">
+            ${choices.map(([v, label]) => `<button type="button" class="seg ${value === v ? "active" : ""}" role="radio" aria-checked="${value === v}" data-${name}="${v}">${label}</button>`).join("")}
+          </div>
+        </div>`;
+  function boardsHTML() {
+    const n = chosenTasks().length;
+    const list3 = boards2();
+    return chrome2(
+      "Boards and tasks",
+      "Choose the boards whose tasks go in the file. Nothing in Stack'd changes.",
+      `
+      ${list3.length ? `<div class="card list-card">
+        ${list3.map((l) => checkRow(l.name, [plural4(countFor(l.id), "task"), l.share ? "shared with you" : ""].filter(Boolean).join(" · "), X.boardIds.has(l.id), `data-board="${esc(l.id)}"`)).join("")}
+      </div>` : '<p class="sub-empty">You have no boards to export.</p>'}
+      <div class="card list-card">
+        ${toggleRow("Done tasks", "", "done", X.done ? "in" : "out", [["in", "Include"], ["out", "Leave out"]])}
+        ${toggleRow("Archived tasks", "", "archived", X.archived ? "in" : "out", [["in", "Include"], ["out", "Leave out"]])}
+      </div>
+      <p class="hint set-hint">Deleted tasks are never in the file. Notes and meetings are not exported; Backup keeps everything.</p>`,
+      `${plural4(n, "task")} selected`,
+      "Continue",
+      { disabled: !n }
+    );
+  }
+  function fieldsHTML() {
+    const n = EXPORT_FIELDS.filter(([k]) => k === "title" || X.fields.has(k)).length;
+    const same2 = DEFAULT_FIELDS.length === X.fields.size && DEFAULT_FIELDS.every((k) => X.fields.has(k));
+    return chrome2(
+      "Fields",
+      "Choose what each task brings with it.",
+      `
+      <div class="card list-card">
+        ${EXPORT_FIELDS.map(([k, label]) => checkRow(label, k === "title" ? "Always in the file" : "", k === "title" || X.fields.has(k), `data-field="${k}"`, { disabled: k === "title" })).join("")}
+      </div>
+      <div class="guide-actions"><button type="button" class="btn btn-sm btn-secondary" data-fields-reset ${same2 ? "disabled" : ""}>Reset</button></div>`,
+      `${plural4(n, "field")} in each row`,
+      "Continue"
+    );
+  }
+  var ABOUT = {
+    xlsx: "A sheet for Excel, Numbers or Google Sheets, with real dates.",
+    csv: "Plain rows any spreadsheet or app can read.",
+    pdf: "A document to read, print or send.",
+    docx: "A document to read or change in Word, Pages or Google Docs.",
+    json: "Data for other apps and scripts.",
+    xml: "Data for other apps."
+  };
+  function typeHTML() {
+    const tasks = chosenTasks();
+    const n = tasks.length;
+    const doc2 = X.format === "pdf" || X.format === "docx";
+    const misses = X.format === "pdf" ? pdfMisses(S, options()) : 0;
+    const fields = new Set(X.fields);
+    const model = documentModel(tasks.slice(0, 3).map((t2) => taskValues(S, t2)), [...fields, "title"], { byList: false, format: S.dateFormat });
+    const first = model.flatMap((b) => b.groups.flatMap((g) => g.tasks.map((t2) => ({ ...t2, board: b.board }))));
+    const names = [...new Set(tasks.map((t2) => t2.listId))].map((id) => boards2().find((l) => l.id === id)?.name).filter(Boolean);
+    const from = names.length === 1 ? `from ${names[0]}` : `from ${plural4(names.length, "board")}`;
+    return chrome2(
+      "Type of file",
+      `${esc(plural4(n, "task"))} ${esc(from)}.`,
+      `
+      <div class="card list-card" role="radiogroup" aria-label="Type of file">
+        ${FORMATS2.map(([k, label]) => `
+        <button type="button" class="guide-row guide-choice" role="radio" aria-checked="${X.format === k}" data-format="${k}">
+          <span class="guide-radio" aria-hidden="true"></span>
+          <span class="guide-left"><span class="set-title">${label}</span><span class="guide-sample wrap">${ABOUT[k]}</span></span>
+        </button>`).join("")}
+      </div>
+      ${doc2 ? `<div class="card list-card">
+        ${toggleRow("Group by list", "A heading for each list, as on the board.", "bylist", X.byList ? "on" : "off", [["on", "By list"], ["off", "One list"]])}
+        ${toggleRow("Subtasks", "", "boxes", X.boxes ? "on" : "off", [["on", "As boxes"], ["off", "As a list"]])}
+      </div>` : ""}
+      ${misses ? `<p class="hint set-hint">${esc(plural4(misses, "task"))} ${misses === 1 ? "has" : "have"} letters a PDF made here cannot show, such as those of Greek, Russian or Chinese; they print as "?". Word shows them.</p>` : ""}
+      ${first.length ? `
+      <span class="section-title list-label">${n === 1 ? "The task" : n === 2 ? "The two tasks" : "The first three"}</span>
+      <div class="card list-card">
+        ${first.map((t2) => `
+        <div class="guide-row"><div class="guide-left"><span class="set-title">${esc(t2.title)}</span><span class="guide-sample wrap">${esc([fields.has("board") ? t2.board : "", ...t2.meta, t2.lines.length ? "description" : "", t2.subtasks.length ? plural4(t2.subtasks.length, "subtask") : ""].filter(Boolean).join(" · "))}</span></div></div>`).join("")}
+      </div>` : ""}`,
+      "",
+      n ? `Export ${plural4(n, "task")}` : "Nothing to export",
+      { disabled: !n }
+    );
+  }
+  var PAGES2 = { boards: boardsHTML, fields: fieldsHTML, type: typeHTML };
+  function exportHTML() {
+    return X ? PAGES2[STEPS2[X.step]]() : null;
+  }
+  function show3() {
+    rerender();
+    const top = (sel) => {
+      const el = app.querySelector(sel);
+      if (el) el.scrollTop = 0;
+    };
+    top(".scroll-area");
+    top(".main");
+    app.querySelector(".sub-title")?.focus({ preventScroll: true });
+  }
+  var redraw2 = (refocus2) => {
+    rerender();
+    if (refocus2) app.querySelector(refocus2)?.focus({ preventScroll: true });
+  };
+  function leave3() {
+    const at = UI.settingsScroll;
+    X = null;
+    UI.settingsPage = null;
+    UI.settingsScroll = null;
+    rerender();
+    const put = (sel, v) => {
+      const el = app.querySelector(sel);
+      if (el && v) el.scrollTop = v;
+    };
+    put(".scroll-area", at?.area);
+    put(".main", at?.main);
+    app.querySelector("[data-open-transfer]")?.focus({ preventScroll: true });
+  }
+  async function finish4() {
+    let made;
+    try {
+      made = makeExport(S, { ...options(), now: /* @__PURE__ */ new Date() });
+    } catch {
+      await noticeDialog("No file was made", "Something went wrong while making the file. Nothing was changed.");
+      return;
+    }
+    if (!made.count) return;
+    if (saveFile(new Blob([made.bytes], { type: made.type }), made.name) !== "handed") {
+      await noticeDialog("No file was made", "Saving a file is not possible inside the app yet. Nothing was changed.");
+      return;
+    }
+    last = options();
+    leave3();
+    toast(`Exported ${plural4(made.count, "task")} as ${FORMATS2.find(([k]) => k === last.format)?.[1] || "a file"}`);
+  }
+  function bindExport() {
+    if (!X) return;
+    bindScrollShadow();
+    const q = (s) => app.querySelector(s);
+    const qa = (s) => [...app.querySelectorAll(s)];
+    q("[data-export-close]").addEventListener("click", leave3);
+    q("[data-export-back]").addEventListener("click", () => {
+      if (X.step === 0) leave3();
+      else {
+        X.step -= 1;
+        show3();
+      }
+    });
+    q("[data-export-next]").addEventListener("click", () => {
+      if (X.step === STEPS2.length - 1) finish4();
+      else {
+        X.step += 1;
+        show3();
+      }
+    });
+    qa("[data-board]").forEach((b) => b.addEventListener("change", () => {
+      if (b.checked) X.boardIds.add(b.dataset.board);
+      else X.boardIds.delete(b.dataset.board);
+      redraw2(`[data-board="${CSS.escape(b.dataset.board)}"]`);
+    }));
+    qa("[data-done]").forEach((b) => b.addEventListener("click", () => {
+      X.done = b.dataset.done === "in";
+      redraw2(`[data-done="${b.dataset.done}"]`);
+    }));
+    qa("[data-archived]").forEach((b) => b.addEventListener("click", () => {
+      X.archived = b.dataset.archived === "in";
+      redraw2(`[data-archived="${b.dataset.archived}"]`);
+    }));
+    qa("[data-field]").forEach((b) => b.addEventListener("change", () => {
+      if (b.checked) X.fields.add(b.dataset.field);
+      else X.fields.delete(b.dataset.field);
+      redraw2(`[data-field="${b.dataset.field}"]`);
+    }));
+    q("[data-fields-reset]")?.addEventListener("click", () => {
+      X.fields = new Set(DEFAULT_FIELDS);
+      redraw2("[data-field]:not(:disabled)");
+    });
+    qa("[data-format]").forEach((b) => b.addEventListener("click", () => {
+      X.format = b.dataset.format;
+      redraw2(`[data-format="${b.dataset.format}"]`);
+    }));
+    qa("[data-bylist]").forEach((b) => b.addEventListener("click", () => {
+      X.byList = b.dataset.bylist === "on";
+      redraw2(`[data-bylist="${b.dataset.bylist}"]`);
+    }));
+    qa("[data-boxes]").forEach((b) => b.addEventListener("click", () => {
+      X.boxes = b.dataset.boxes === "on";
+      redraw2(`[data-boxes="${b.dataset.boxes}"]`);
+    }));
+  }
+
   // src/ui/data.js
-  var plural4 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-  var countLine = (c) => [plural4(c.boards, "board"), plural4(c.tasks, "task"), plural4(c.notes, "note"), plural4(c.meetings, "meeting")].join(", ");
+  var plural5 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  var countLine = (c) => [plural5(c.boards, "board"), plural5(c.tasks, "task"), plural5(c.notes, "note"), plural5(c.meetings, "meeting")].join(", ");
   var when = (ts) => `${fmtDate(ts, S.dateFormat)} at ${fmtClock(ts)}`;
   var refocus = (selector) => app.querySelector(selector)?.focus({ preventScroll: true });
   var navRow = (ic, title, sub, attrs2) => `
@@ -7866,10 +9019,10 @@ ${title.toLowerCase()}`);
       <p class="sheet-text" id="xfer-body">Bring tasks in from a file, or send them to another app.</p>
       <div class="sheet-stack">
         <button type="button" class="btn btn-secondary btn-block" data-import-file>Import file</button>
-        <button type="button" class="btn btn-secondary btn-block" data-export-file disabled>Export file</button>
+        <button type="button" class="btn btn-secondary btn-block" data-export-file>Export file</button>
         <button type="button" class="btn btn-secondary btn-block" data-cancel>Cancel</button>
       </div>
-      <p class="hint sheet-note">Import reads CSV, Excel, JSON and XML files. Export is being built: its button switches on in a later step of 1.7.0.</p>
+      <p class="hint sheet-note">Import reads CSV, Excel, JSON and XML files. Export writes those, and PDF and Word.</p>
     </div>`, { onClose: () => refocus("[data-open-transfer]") });
     ov.querySelector("[data-cancel]").addEventListener("click", () => close());
     const pick2 = ov.querySelector("[data-import-file]");
@@ -7877,10 +9030,14 @@ ${title.toLowerCase()}`);
       close();
       startImport();
     });
+    ov.querySelector("[data-export-file]").addEventListener("click", () => {
+      close();
+      startExport();
+    });
     pick2.focus();
   }
-  var PAGES2 = ["backup", "remembered", "import"];
-  var onPage = () => !isLegacyOrigin() && PAGES2.includes(UI.settingsPage) && (UI.settingsPage !== "import" || guideOpen()) ? UI.settingsPage : null;
+  var PAGES3 = ["backup", "remembered", "import", "export"];
+  var onPage = () => !isLegacyOrigin() && PAGES3.includes(UI.settingsPage) && (UI.settingsPage !== "import" || guideOpen()) && (UI.settingsPage !== "export" || exportOpen()) ? UI.settingsPage : null;
   function openPage(name) {
     UI.settingsScroll = { area: app.querySelector(".scroll-area")?.scrollTop || 0, main: app.querySelector(".main")?.scrollTop || 0 };
     UI.settingsPage = name;
@@ -7923,7 +9080,7 @@ ${title.toLowerCase()}`);
         </div>`;
   function backupPageHTML() {
     const can = canImport();
-    const last = S.lastFileBackupAt ? `Last backup file made on ${when(S.lastFileBackupAt)}.` : "No backup file made on this device yet.";
+    const last2 = S.lastFileBackupAt ? `Last backup file made on ${when(S.lastFileBackupAt)}.` : "No backup file made on this device yet.";
     const shared2 = sharedBoards() ? " Shared boards are not in it either: they stay in their owner's account." : "";
     return pageHTML("Backup", `
       <div class="card list-card">
@@ -7934,7 +9091,7 @@ ${title.toLowerCase()}`);
       '<button type="button" class="btn btn-sm btn-secondary" data-backup-now>Back up now</button>'
     )}
       </div>
-      <p class="hint set-hint">${esc(last)} Recordings are not in the file; transcripts, minutes and actions are.${shared2}</p>
+      <p class="hint set-hint">${esc(last2)} Recordings are not in the file; transcripts, minutes and actions are.${shared2}</p>
       <div class="card list-card">
         ${actionRow(
       "upload",
@@ -7960,7 +9117,7 @@ ${title.toLowerCase()}`);
           <span class="lrow-icon">${icon("listDots", 18)}</span>
           <div class="set-text">
             <span class="set-title">${esc(l.name)}</span>
-            <span class="set-sub set-long">${plural4(l.columns, "column")} · used ${plural4(l.used, "time")}${l.lastUsedAt ? ` · last on ${esc(fmtDate(l.lastUsedAt, S.dateFormat))}` : ""}</span>
+            <span class="set-sub set-long">${plural5(l.columns, "column")} · used ${plural5(l.used, "time")}${l.lastUsedAt ? ` · last on ${esc(fmtDate(l.lastUsedAt, S.dateFormat))}` : ""}</span>
             <span class="set-sub set-long">${esc(placed(l))}</span>
           </div>
           <div class="set-actions">
@@ -7992,12 +9149,16 @@ ${title.toLowerCase()}`);
   }
   function settingsPageHTML() {
     const page2 = onPage();
-    return page2 === "backup" ? backupPageHTML() : page2 === "remembered" ? rememberedPageHTML() : page2 === "import" ? guideHTML() : null;
+    return page2 === "backup" ? backupPageHTML() : page2 === "remembered" ? rememberedPageHTML() : page2 === "import" ? guideHTML() : page2 === "export" ? exportHTML() : null;
   }
   function bindSettingsPage() {
     if (!onPage()) return false;
     if (onPage() === "import") {
       bindGuide();
+      return true;
+    }
+    if (onPage() === "export") {
+      bindExport();
       return true;
     }
     bindRemembered();
@@ -8052,7 +9213,7 @@ ${title.toLowerCase()}`);
       const done2 = await importFile(file, {
         confirm: async ({ counts, current: current4, recordingsLost, exportedAt }) => await choiceDialog(
           "Replace what is on this device?",
-          `${exportedAt ? `The backup was made on ${when(exportedAt)} and holds` : "The backup holds"} ${countLine(counts)}. It replaces the ${countLine(current4)} on this device, which cannot be undone. Archived and deleted items are counted.${recordingsLost ? ` ${plural4(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
+          `${exportedAt ? `The backup was made on ${when(exportedAt)} and holds` : "The backup holds"} ${countLine(counts)}. It replaces the ${countLine(current4)} on this device, which cannot be undone. Archived and deleted items are counted.${recordingsLost ? ` ${plural5(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
           [{ id: "replace", label: "Replace", danger: true }]
         ) === "replace"
       });
@@ -8295,7 +9456,7 @@ ${title.toLowerCase()}`);
   }
   function askPin(title, { text: text2 = "", check: check2 }) {
     return new Promise((resolve2) => {
-      let pad5;
+      let pad6;
       const { ov, close } = overlay(`
       <div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="pin-title">
         <div class="steps-head"><span></span><span></span><button type="button" class="icon-btn" data-close aria-label="Close">${icon("x")}</button></div>
@@ -8303,18 +9464,18 @@ ${title.toLowerCase()}`);
         ${text2 ? `<p class="step-text">${esc(text2)}</p>` : ""}
         ${pinpadHTML({ label: title })}
       </div>`, { onClose: (r) => {
-        pad5?.destroy();
+        pad6?.destroy();
         resolve2(typeof r === "string" ? r : null);
       } });
       ov.querySelector("[data-close]").addEventListener("click", () => close(null));
-      pad5 = bindPinpad(ov, {
+      pad6 = bindPinpad(ov, {
         onComplete: async (pin) => {
           const err = check2 ? await check2(pin) : null;
-          if (err) pad5.error(err);
+          if (err) pad6.error(err);
           else close(pin);
         }
       });
-      pad5.focus();
+      pad6.focus();
     });
   }
   var serverPin = async (pin) => {
@@ -8481,7 +9642,7 @@ ${title.toLowerCase()}`);
   var THEME_LABEL = { light: "Light", dark: "Dark", system: "System" };
   var THEME_ICON = { light: "sun", dark: "moon", system: "monitor" };
   var COLOR_NAME = { red: "Red", amber: "Amber", green: "Green", blue: "Blue", violet: "Violet", gray: "Gray" };
-  var plural5 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  var plural6 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   var sameTag2 = (a, b) => a.toLowerCase() === b.toLowerCase();
   function openSettings(section) {
     UI.screen = "settings";
@@ -8496,7 +9657,7 @@ ${title.toLowerCase()}`);
     <button class="lrow-icon pc pc-${p.color}" data-color aria-label="Colour: ${COLOR_NAME[p.color]}" title="Change colour">${icon("flag", 18)}</button>
     <div class="set-text">
       <input class="set-input" data-name value="${esc(p.name)}" maxlength="24" autocomplete="off" aria-label="Priority name">
-      <span class="set-sub">${plural5(priorityUseCount(p.id), "task")}</span>
+      <span class="set-sub">${plural6(priorityUseCount(p.id), "task")}</span>
     </div>
     <div class="set-actions">
       <button class="set-btn" data-move="-1" aria-label="Move ${esc(p.name)} up" ${i === 0 ? "disabled" : ""}>${icon("chevronUp", 18)}</button>
@@ -8507,7 +9668,7 @@ ${title.toLowerCase()}`);
   }
   function labelRowHTML(name) {
     const use = tagUseCounts(name);
-    const sub = use.notes ? `${plural5(use.tasks, "task")} · ${plural5(use.notes, "note")}` : plural5(use.tasks, "task");
+    const sub = use.notes ? `${plural6(use.tasks, "task")} · ${plural6(use.notes, "note")}` : plural6(use.tasks, "task");
     return `
   <div class="set-row" data-label="${esc(name)}">
     <span class="lrow-icon">${icon("tag", 18)}</span>
@@ -8551,7 +9712,7 @@ ${title.toLowerCase()}`);
             <span class="set-sub">${themeSub()}</span>
           </div>
           <div class="segmented solid" role="radiogroup" aria-label="Theme">
-            ${THEMES.map((t) => `<button class="seg ${S.theme === t ? "active" : ""}" role="radio" aria-checked="${S.theme === t}" data-theme-opt="${t}">${THEME_LABEL[t]}</button>`).join("")}
+            ${THEMES.map((t2) => `<button class="seg ${S.theme === t2 ? "active" : ""}" role="radio" aria-checked="${S.theme === t2}" data-theme-opt="${t2}">${THEME_LABEL[t2]}</button>`).join("")}
           </div>
         </div>
       </div>
@@ -8706,7 +9867,7 @@ ${title.toLowerCase()}`);
       row2.querySelectorAll("[data-move]").forEach((b) => b.addEventListener("click", () => movePriority(id, +b.dataset.move)));
       row2.querySelector("[data-delete]").addEventListener("click", async () => {
         const used = priorityUseCount(id);
-        if (used && !await confirmDialog(`Delete “${p.name}”?`, `${plural5(used, "task")} will have no priority.`, { confirmLabel: "Delete", danger: true })) return;
+        if (used && !await confirmDialog(`Delete “${p.name}”?`, `${plural6(used, "task")} will have no priority.`, { confirmLabel: "Delete", danger: true })) return;
         deletePriority(id);
       });
     });
@@ -8729,7 +9890,7 @@ ${title.toLowerCase()}`);
       });
       row2.querySelector("[data-delete]").addEventListener("click", async () => {
         const used = tagUseCount(name);
-        if (used && !await confirmDialog(`Delete #${name}?`, `It is removed from ${plural5(used, "task")}.`, { confirmLabel: "Delete", danger: true })) return;
+        if (used && !await confirmDialog(`Delete #${name}?`, `It is removed from ${plural6(used, "task")}.`, { confirmLabel: "Delete", danger: true })) return;
         deleteLabel(name);
       });
     });
@@ -8786,11 +9947,11 @@ ${title.toLowerCase()}`);
     const terms = normalize(query).split(/\s+/).filter(Boolean);
     if (!terms.length) return true;
     const hay = fields.map(normalize).join("\n");
-    return terms.every((t) => hay.includes(t));
+    return terms.every((t2) => hay.includes(t2));
   }
   function filterTasks(tasks, query) {
     if (!normalize(query).trim()) return tasks;
-    return tasks.filter((t) => matches(query, [t.title, toText(t.description || ""), ...t.tags, ...t.subtasks.map((s) => s.title)]));
+    return tasks.filter((t2) => matches(query, [t2.title, toText(t2.description || ""), ...t2.tags, ...t2.subtasks.map((s) => s.title)]));
   }
   function filterMeetings(meetings, query, titleOf = (m) => m.title) {
     if (!normalize(query).trim()) return meetings;
@@ -8895,8 +10056,8 @@ ${title.toLowerCase()}`);
   }
   document.addEventListener("keydown", (e) => {
     if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
-    const t = e.target;
-    if (t.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    const t2 = e.target;
+    if (t2.closest?.('input, textarea, select, [contenteditable="true"]')) return;
     const input = document.querySelector("[data-search]");
     if (!input) return;
     e.preventDefault();
@@ -8946,27 +10107,27 @@ ${title.toLowerCase()}`);
   </div>`;
   }
   var canReorder = () => isManualSort() && !UI.query;
-  function priorityTagHTML(t) {
-    const p = priorityById(t.priority);
+  function priorityTagHTML(t2) {
+    const p = priorityById(t2.priority);
     return p ? `<span class="tag pc pc-${p.color}">${esc(p.name)}</span>` : "";
   }
-  var descMarkHTML = (t) => hasDescription(t) ? `<span class="t-desc" role="img" aria-label="Has a description" title="Has a description">${icon("lines", 14)}</span>` : "";
-  function taskMetaHTML(t) {
+  var descMarkHTML = (t2) => hasDescription(t2) ? `<span class="t-desc" role="img" aria-label="Has a description" title="Has a description">${icon("lines", 14)}</span>` : "";
+  function taskMetaHTML(t2) {
     const bits = [];
-    if (t.due) bits.push(dueChipHTML(t, { prefix: true }));
-    if (priorityById(t.priority)) bits.push(priorityTagHTML(t));
-    t.tags.forEach((tag) => bits.push(`<span class="tag">#${esc(tag)}</span>`));
-    if (t.subtasks.length) {
-      const done2 = t.subtasks.filter((s) => s.done).length;
-      bits.push(`<span class="t-sub num">${done2}/${t.subtasks.length} subtasks</span>`);
+    if (t2.due) bits.push(dueChipHTML(t2, { prefix: true }));
+    if (priorityById(t2.priority)) bits.push(priorityTagHTML(t2));
+    t2.tags.forEach((tag) => bits.push(`<span class="tag">#${esc(tag)}</span>`));
+    if (t2.subtasks.length) {
+      const done2 = t2.subtasks.filter((s) => s.done).length;
+      bits.push(`<span class="t-sub num">${done2}/${t2.subtasks.length} subtasks</span>`);
     }
-    if (hasDescription(t)) bits.push(descMarkHTML(t));
+    if (hasDescription(t2)) bits.push(descMarkHTML(t2));
     return bits.length ? `<div class="t-meta">${bits.join("")}</div>` : "";
   }
-  function dueChipHTML(t, { prefix = false } = {}) {
-    const d = fmtDue(t.due, { dueTime: t.dueTime });
+  function dueChipHTML(t2, { prefix = false } = {}) {
+    const d = fmtDue(t2.due, { dueTime: t2.dueTime });
     const lead = prefix && d.days <= 3 && d.days >= 2 ? "Due " : "";
-    const rep = t.recur !== "none" ? `<span class="repeat" aria-label="Repeats ${t.recur}">${icon("repeat", 11)}</span>` : "";
+    const rep = t2.recur !== "none" ? `<span class="repeat" aria-label="Repeats ${t2.recur}">${icon("repeat", 11)}</span>` : "";
     return `<span class="tag ${d.cls}">${lead}${esc(d.label)}${rep}</span>`;
   }
   function kanbanHTML({ desktop = false } = {}) {
@@ -8974,9 +10135,9 @@ ${title.toLowerCase()}`);
     const all = sortedTasks(S.currentList);
     const ts = filterTasks(all, UI.query);
     const lanes = lanesOf(S.currentList).map((lane) => {
-      const cards = ts.filter((t) => t.lane === lane.id);
+      const cards = ts.filter((t2) => t2.lane === lane.id);
       const paged = page(lane.id, cards);
-      const inLane = all.filter((t) => t.lane === lane.id).length;
+      const inLane = all.filter((t2) => t2.lane === lane.id).length;
       const isDone = lane.id === DONE_LANE;
       return `
     <div class="lane ${isDone ? "lane-fixed" : ""}" data-lane="${lane.id}">
@@ -8985,14 +10146,14 @@ ${title.toLowerCase()}`);
         <span class="lane-count num">${UI.query ? `${cards.length} of ${inLane}` : cards.length}</span>
       </div>
       <div class="lane-cards">
-        ${paged.shown.map((t) => `
-          <div class="kcard ${t.done ? "done-card" : ""}" data-id="${t.id}" tabindex="0" role="group" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
+        ${paged.shown.map((t2) => `
+          <div class="kcard ${t2.done ? "done-card" : ""}" data-id="${t2.id}" tabindex="0" role="group" aria-label="${esc(t2.title)}" aria-keyshortcuts="Enter Delete">
             <div class="kcard-line">
-              <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check sm" ${t.done ? "checked" : ""} data-id="${t.id}">
-              <span class="t-title">${esc(t.title)}</span>
-              ${t.done || !canReorder() ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
+              <input type="checkbox" aria-label="${esc(checkLabel(t2))}" class="check sm" ${t2.done ? "checked" : ""} data-id="${t2.id}">
+              <span class="t-title">${esc(t2.title)}</span>
+              ${t2.done || !canReorder() ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
             </div>
-            ${t.done ? "" : taskMetaHTML(t)}
+            ${t2.done ? "" : taskMetaHTML(t2)}
           </div>`).join("")}
         ${moreHTML(lane.id, paged.rest)}
         ${lane.id === DONE_LANE && S.lastAuto ? `<span class="lane-note">Moved here automatically · ${fmtTime(S.lastAuto)}</span>` : `<button class="addcard" data-lane-add="${lane.id}">+ Add card</button>`}
@@ -9023,15 +10184,15 @@ ${title.toLowerCase()}`);
       ${ts.length ? `
       <span class="hint list-hint">Double-tap to complete · long-press or swipe left to delete</span>
       <div class="card list-card">
-        ${page("list", ts).shown.map((t) => `
-        <div class="row trow ${t.done ? "done" : ""}" data-id="${t.id}" tabindex="0" aria-label="${esc(t.title)}" aria-keyshortcuts="Enter Delete">
-          <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
+        ${page("list", ts).shown.map((t2) => `
+        <div class="row trow ${t2.done ? "done" : ""}" data-id="${t2.id}" tabindex="0" aria-label="${esc(t2.title)}" aria-keyshortcuts="Enter Delete">
+          <input type="checkbox" aria-label="${esc(checkLabel(t2))}" class="check" ${t2.done ? "checked" : ""} data-id="${t2.id}">
           <div class="t-main">
-            <span class="t-title">${esc(t.title)}</span>
-            ${t.done ? "" : taskMetaHTML(t)}
+            <span class="t-title">${esc(t2.title)}</span>
+            ${t2.done ? "" : taskMetaHTML(t2)}
           </div>
-          ${t.done || !canReorder() ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
-          <button class="swipe-del" data-del aria-label="Delete: ${esc(t.title)}" tabindex="-1">${icon("trash", 20)}</button>
+          ${t2.done || !canReorder() ? "" : `<span class="grip" aria-hidden="true">${icon("grip")}</span>`}
+          <button class="swipe-del" data-del aria-label="Delete: ${esc(t2.title)}" tabindex="-1">${icon("trash", 20)}</button>
         </div>`).join("")}
         ${moreHTML("list", page("list", ts).rest)}
       </div>` : UI.query ? "" : '<p class="empty">No tasks yet. Tap + to add one.</p>'}
@@ -9057,10 +10218,10 @@ ${title.toLowerCase()}`);
     bindSharedChip(app);
     bindChecks();
     app.querySelectorAll(".trow").forEach((row2) => {
-      const t = taskById(row2.dataset.id);
-      bindRowGestures(row2, t);
+      const t2 = taskById(row2.dataset.id);
+      bindRowGestures(row2, t2);
       const grip = row2.querySelector(".grip");
-      if (grip) bindReorder(grip, row2, taskReorder(t, ".trow"));
+      if (grip) bindReorder(grip, row2, taskReorder(t2, ".trow"));
     });
     bindKanban();
   }
@@ -9076,15 +10237,15 @@ ${title.toLowerCase()}`);
     <div class="tgrid tgrid-head">
       <span></span><span>Task</span><span>Due</span><span>Priority</span><span>Subtasks</span>
     </div>
-    ${page("table", ts).shown.map((t) => {
-      const sub = t.subtasks.length ? `${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}` : null;
+    ${page("table", ts).shown.map((t2) => {
+      const sub = t2.subtasks.length ? `${t2.subtasks.filter((s) => s.done).length}/${t2.subtasks.length}` : null;
       return `
-      <div class="tgrid tgrid-row ${t.done ? "done" : ""}" data-id="${t.id}">
-        <input type="checkbox" aria-label="${esc(checkLabel(t))}" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
-        <span class="t-title">${esc(t.title)}${t.done ? "" : descMarkHTML(t)}</span>
-        ${t.done ? "<span></span><span></span><span></span>" : `
-        ${t.due ? dueChipHTML(t) : '<span class="cell-muted">—</span>'}
-        ${priorityTagHTML(t) || '<span class="cell-muted">—</span>'}
+      <div class="tgrid tgrid-row ${t2.done ? "done" : ""}" data-id="${t2.id}">
+        <input type="checkbox" aria-label="${esc(checkLabel(t2))}" class="check" ${t2.done ? "checked" : ""} data-id="${t2.id}">
+        <span class="t-title">${esc(t2.title)}${t2.done ? "" : descMarkHTML(t2)}</span>
+        ${t2.done ? "<span></span><span></span><span></span>" : `
+        ${t2.due ? dueChipHTML(t2) : '<span class="cell-muted">—</span>'}
+        ${priorityTagHTML(t2) || '<span class="cell-muted">—</span>'}
         ${sub ? `<span class="cell-num num">${sub}</span>` : '<span class="cell-muted">—</span>'}`}
       </div>`;
     }).join("")}
@@ -9093,10 +10254,10 @@ ${title.toLowerCase()}`);
   </div>
   <span class="hint">${UI.query ? "Clear the search to reorder" : "Drag rows to reprioritize"} · double-click a task to complete</span>`;
   }
-  var taskReorder = (t, rowSel) => ({
+  var taskReorder = (t2, rowSel) => ({
     rowSel,
-    enabled: () => canReorder() && !t.done,
-    onDrop: (beforeId) => reorderTask(t.id, beforeId)
+    enabled: () => canReorder() && !t2.done,
+    onDrop: (beforeId) => reorderTask(t2.id, beforeId)
   });
   function bindViewbar() {
     app.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => {
@@ -9132,14 +10293,14 @@ ${title.toLowerCase()}`);
   }
   function bindKanban() {
     app.querySelectorAll(".kcard").forEach((card) => {
-      const t = taskById(card.dataset.id);
-      bindCard(card, t);
+      const t2 = taskById(card.dataset.id);
+      bindCard(card, t2);
       const grip = card.querySelector(".grip");
       if (grip) bindReorder(grip, card, {
-        ...taskReorder(t, ".kcard"),
+        ...taskReorder(t2, ".kcard"),
         /* only a card in the same lane is a drop target; the board order is shared across lanes */
         onDrop: (beforeId) => {
-          if (taskById(beforeId)?.lane === t.lane) reorderTask(t.id, beforeId);
+          if (taskById(beforeId)?.lane === t2.lane) reorderTask(t2.id, beforeId);
         }
       });
     });
@@ -9178,7 +10339,7 @@ ${title.toLowerCase()}`);
     input.setAttribute("aria-label", "Lane name");
     btn.replaceWith(input);
     let closed = false;
-    const finish5 = (save2) => {
+    const finish6 = (save2) => {
       if (closed) return;
       closed = true;
       const name = input.value.trim();
@@ -9197,13 +10358,13 @@ ${title.toLowerCase()}`);
       if (board) board.scrollLeft = x;
     };
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") finish5(true);
+      if (e.key === "Enter") finish6(true);
       else if (e.key === "Escape") {
         e.stopPropagation();
-        finish5(false);
+        finish6(false);
       }
     });
-    input.addEventListener("blur", () => finish5(true));
+    input.addEventListener("blur", () => finish6(true));
     input.focus();
     input.select();
   }
@@ -9407,7 +10568,7 @@ ${title.toLowerCase()}`);
       }
     });
   }
-  var checkLabel = (t) => `${t.done ? "Reopen" : "Complete"}: ${t.title}`;
+  var checkLabel = (t2) => `${t2.done ? "Reopen" : "Complete"}: ${t2.title}`;
   function openDetail(id) {
     if (!taskById(id)) return;
     UI.detailId = id;
@@ -9523,7 +10684,7 @@ ${title.toLowerCase()}`);
     <div class="chip-group">
       <span class="microlabel">${pool.length ? "Tap to toggle" : "No tags yet"}</span>
       <div class="chip-row" data-pool>
-        ${pool.map((t) => chipHTML(t, selected.some((s) => s.toLowerCase() === t.toLowerCase()))).join("")}
+        ${pool.map((t2) => chipHTML(t2, selected.some((s) => s.toLowerCase() === t2.toLowerCase()))).join("")}
       </div>
     </div>
   </div>`;
@@ -9620,7 +10781,7 @@ ${title.toLowerCase()}`);
     <div class="ne-body" data-f="body" contenteditable="true" tabindex="0" role="textbox" aria-multiline="true" aria-label="Note" data-placeholder="Take a note…">${v.body}</div>
     ${v.checklist ? checklistHTML(v.checklist) : ""}
     ${v.tags.length ? `
-    <div class="ne-chips">${v.tags.map((t) => `<button type="button" class="chip sm removable" data-tag-remove="${esc(t)}" aria-label="Remove tag ${esc(t)}">#${esc(t)}${icon("x", 14)}</button>`).join("")}</div>` : ""}
+    <div class="ne-chips">${v.tags.map((t2) => `<button type="button" class="chip sm removable" data-tag-remove="${esc(t2)}" aria-label="Remove tag ${esc(t2)}">#${esc(t2)}${icon("x", 14)}</button>`).join("")}</div>` : ""}
     ${formatOpen ? formatRowHTML() : ""}
     <div class="ne-toolbar" role="toolbar" aria-label="Note tools">
       <button type="button" class="ne-tool" data-tool="format" aria-pressed="${formatOpen}" aria-label="Formatting" title="Formatting">${icon("text")}</button>
@@ -9785,7 +10946,7 @@ ${title.toLowerCase()}`);
       }));
       qa("[data-tag-remove]").forEach((b) => b.addEventListener("click", () => {
         const name = b.dataset.tagRemove.toLowerCase();
-        set3({ tags: get2().tags.filter((t) => t.toLowerCase() !== name) });
+        set3({ tags: get2().tags.filter((t2) => t2.toLowerCase() !== name) });
         render2(null);
       }));
       q('[data-tool="tags"]').addEventListener("click", () => {
@@ -9968,7 +11129,7 @@ ${title.toLowerCase()}`);
         </div>` : ""}
         ${n.tags.length || n.color ? `
         <div class="t-meta">
-          ${n.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}
+          ${n.tags.map((t2) => `<span class="tag">#${esc(t2)}</span>`).join("")}
           ${n.color ? `<span class="tag pc pc-${n.color}">${colorName(n.color)}</span>` : ""}
         </div>` : ""}
       </div>
@@ -10077,7 +11238,7 @@ ${title.toLowerCase()}`);
   });
   var MAX_CHIPS = 3;
   function noteMetaHTML(n, { links = false } = {}) {
-    const chips = n.tags.slice(0, MAX_CHIPS).map((t) => links ? `<button type="button" class="tag tag-btn" data-tagfilter="${esc(t)}" aria-label="Show notes tagged ${esc(t)}">#${esc(t)}</button>` : `<span class="tag">#${esc(t)}</span>`);
+    const chips = n.tags.slice(0, MAX_CHIPS).map((t2) => links ? `<button type="button" class="tag tag-btn" data-tagfilter="${esc(t2)}" aria-label="Show notes tagged ${esc(t2)}">#${esc(t2)}</button>` : `<span class="tag">#${esc(t2)}</span>`);
     if (n.tags.length > MAX_CHIPS) chips.push(`<span class="tag">+${n.tags.length - MAX_CHIPS}</span>`);
     const p = checklistProgress(n);
     if (p) chips.push(`<span class="t-sub num" aria-label="Checklist, ${p.done} of ${p.total} done">${icon("checklist", 12)}${p.done}/${p.total}</span>`);
@@ -10230,8 +11391,8 @@ ${title.toLowerCase()}`);
   var nativeService = () => globalThis.Capacitor?.Plugins?.RecordingService;
   function pickMimeType() {
     if (typeof MediaRecorder === "undefined") return null;
-    for (const t of ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]) {
-      if (MediaRecorder.isTypeSupported?.(t)) return t;
+    for (const t2 of ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]) {
+      if (MediaRecorder.isTypeSupported?.(t2)) return t2;
     }
     return "";
   }
@@ -10257,7 +11418,7 @@ ${title.toLowerCase()}`);
     try {
       rec = new MediaRecorder(stream, { ...mimeType ? { mimeType } : {}, audioBitsPerSecond: BITRATE });
     } catch (e) {
-      stream.getTracks().forEach((t) => t.stop());
+      stream.getTracks().forEach((t2) => t2.stop());
       toast("This browser can't record audio.");
       return;
     }
@@ -10265,7 +11426,7 @@ ${title.toLowerCase()}`);
       await persist();
       await begin(key, { meetingId: m.id, mimeType: rec.mimeType || mimeType || "audio/webm" });
     } catch (e) {
-      stream.getTracks().forEach((t) => t.stop());
+      stream.getTracks().forEach((t2) => t2.stop());
       svc?.stop?.().catch?.(() => {
       });
       toast("Recordings can't be saved on this device right now.");
@@ -10297,7 +11458,7 @@ ${title.toLowerCase()}`);
       const at = Date.now() - session.startedAt;
       session.chunkQueue = session.chunkQueue.then(() => append(key, e.data, at)).catch((err) => console.error("recording: write failed", err));
     });
-    rec.addEventListener("stop", () => finish4());
+    rec.addEventListener("stop", () => finish5());
     rec.addEventListener("error", (e) => {
       console.error("recording", e.error || e);
       stopRecording();
@@ -10312,13 +11473,13 @@ ${title.toLowerCase()}`);
     try {
       session.rec.stop();
     } catch {
-      finish4();
+      finish5();
     }
   }
-  async function finish4() {
+  async function finish5() {
     const s = session;
     if (!s) return;
-    s.stream.getTracks().forEach((t) => t.stop());
+    s.stream.getTracks().forEach((t2) => t2.stop());
     try {
       await s.ctx.close();
     } catch {
@@ -10759,8 +11920,8 @@ ${title.toLowerCase()}`);
     if (!anyNamed) return assemble([{ who: null, startMs: null, text: lines2.join("\n") }]);
     return assemble(items);
   }
-  function parseDocxXml(xml) {
-    const s = String(xml ?? "");
+  function parseDocxXml(xml2) {
+    const s = String(xml2 ?? "");
     const paragraphs = [];
     const re = /<w:p[\s>][\s\S]*?<\/w:p>|<w:p\/>/g;
     let m;
@@ -10777,8 +11938,8 @@ ${title.toLowerCase()}`);
     if (ext === "srt") return parseSRT(text2);
     return parsePasted(text2);
   }
-  function speakerName(t, label) {
-    const name = t?.speakers?.[label];
+  function speakerName(t2, label) {
+    const name = t2?.speakers?.[label];
     if (name) return name;
     const n = /^S(\d+)$/.exec(label || "");
     return n ? `Speaker ${n[1]}` : String(label ?? "");
@@ -10786,9 +11947,9 @@ ${title.toLowerCase()}`);
   function mergeAdjacent(segments) {
     const out = [];
     (segments || []).forEach((s) => {
-      const last = out[out.length - 1];
-      if (last && last.speaker === s.speaker) {
-        last.text += "\n" + s.text;
+      const last2 = out[out.length - 1];
+      if (last2 && last2.speaker === s.speaker) {
+        last2.text += "\n" + s.text;
         return;
       }
       out.push({ ...s });
@@ -10798,21 +11959,21 @@ ${title.toLowerCase()}`);
 
   // src/ui/transcriptview.js
   var COLLAPSED = 12;
-  var sourceLine = (t) => {
-    const n = t.segments.length;
-    const from = t.source === "file" ? `from ${t.fileName || "a file"}` : t.source === "pasted" ? "pasted" : "from the recording";
+  var sourceLine = (t2) => {
+    const n = t2.segments.length;
+    const from = t2.source === "file" ? `from ${t2.fileName || "a file"}` : t2.source === "pasted" ? "pasted" : "from the recording";
     return `${from} · ${n} segment${n === 1 ? "" : "s"}`;
   };
   function transcriptHTML(m, { readOnly = false } = {}) {
-    const t = m.transcript;
-    const merged = mergeAdjacent(t.segments);
+    const t2 = m.transcript;
+    const merged = mergeAdjacent(t2.segments);
     const collapsed = merged.length > COLLAPSED && !UI.transcriptAll;
-    const single = Object.keys(t.speakers).length === 1 && t.speakers.S1 === "Transcript";
+    const single = Object.keys(t2.speakers).length === 1 && t2.speakers.S1 === "Transcript";
     return `
   <section class="mblock" data-block="transcript" aria-label="Transcript">
     <div class="mblock-head">
       <span class="section-title">Transcript</span>
-      <span class="hint">${esc(sourceLine(t))}</span>
+      <span class="hint">${esc(sourceLine(t2))}</span>
       ${readOnly ? "" : `
       <span class="mblock-actions">
         <button type="button" class="btn btn-ghost btn-sm" data-paste>${icon("clipboard", 16)}Paste</button>
@@ -10821,10 +11982,10 @@ ${title.toLowerCase()}`);
     </div>
     <div class="card tsegs ${collapsed ? "collapsed" : ""}" role="list" data-segs>
       ${merged.map((s) => `
-      <div class="tseg" role="listitem" data-seg="${s.id}" aria-label="${esc(single ? "Transcript" : speakerName(t, s.speaker))}${s.startMs === null || s.startMs === void 0 ? "" : `, ${fmtDuration(s.startMs)}`}">
+      <div class="tseg" role="listitem" data-seg="${s.id}" aria-label="${esc(single ? "Transcript" : speakerName(t2, s.speaker))}${s.startMs === null || s.startMs === void 0 ? "" : `, ${fmtDuration(s.startMs)}`}">
         ${single ? "" : `
         <div class="tseg-head">
-          ${readOnly ? `<span class="tseg-who">${esc(speakerName(t, s.speaker))}</span>` : `<button type="button" class="tseg-who" data-speaker="${esc(s.speaker)}" title="Rename this speaker" aria-label="Rename ${esc(speakerName(t, s.speaker))}">${esc(speakerName(t, s.speaker))}</button>`}
+          ${readOnly ? `<span class="tseg-who">${esc(speakerName(t2, s.speaker))}</span>` : `<button type="button" class="tseg-who" data-speaker="${esc(s.speaker)}" title="Rename this speaker" aria-label="Rename ${esc(speakerName(t2, s.speaker))}">${esc(speakerName(t2, s.speaker))}</button>`}
           ${s.startMs === null || s.startMs === void 0 ? "" : m.recording && !readOnly ? `<button type="button" class="tseg-time num" data-seek="${s.startMs}" aria-label="Play from ${fmtDuration(s.startMs)}">${icon("play", 10)}${fmtDuration(s.startMs)}</button>` : `<span class="tseg-time num">${fmtDuration(s.startMs)}</span>`}
         </div>`}
         ${readOnly ? `<p class="tseg-text">${esc(s.text)}</p>` : `<p class="tseg-text" contenteditable="plaintext-only" data-edit="${s.id}" spellcheck="false" aria-label="Transcript text, editable">${esc(s.text)}</p>`}
@@ -10871,9 +12032,9 @@ ${title.toLowerCase()}`);
         const segs = m.transcript.segments;
         const first = segs.findIndex((s) => s.id === p.dataset.edit);
         if (first === -1) return;
-        let last = first;
-        while (last + 1 < segs.length && segs[last + 1].speaker === segs[first].speaker) last += 1;
-        if (last > first) m.transcript.segments.splice(first + 1, last - first);
+        let last2 = first;
+        while (last2 + 1 < segs.length && segs[last2 + 1].speaker === segs[first].speaker) last2 += 1;
+        if (last2 > first) m.transcript.segments.splice(first + 1, last2 - first);
         const wasStale = !!m.minutes && m.transcript.updatedAt > m.minutes.transcriptUpdatedAt;
         editSegment(m.id, p.dataset.edit, text2);
         if (m.minutes && !wasStale) rerender();
@@ -10961,16 +12122,16 @@ ${title.toLowerCase()}`);
   }
 
   // src/ui/actioncards.js
-  var where2 = (t) => `${listById(t.listId)?.name || "Deleted board"} · ${laneName(t.listId, t.lane)}`;
+  var where2 = (t2) => `${listById(t2.listId)?.name || "Deleted board"} · ${laneName(t2.listId, t2.lane)}`;
   function cardHTML2(a) {
     if (a.status === "added") {
-      const t = taskById(a.taskId);
+      const t2 = taskById(a.taskId);
       return `
     <div class="row acard is-added" data-action="${a.id}" role="listitem">
       <span class="ac-check" aria-hidden="true">${icon("check", 16)}</span>
       <div class="t-main">
         <span class="t-title">${esc(a.title)}</span>
-        ${t ? `<button type="button" class="ac-where" data-open-task="${t.id}">Added to ${esc(where2(t))}${icon("chevronRight", 14)}</button>` : '<span class="ac-where muted">Task removed</span>'}
+        ${t2 ? `<button type="button" class="ac-where" data-open-task="${t2.id}">Added to ${esc(where2(t2))}${icon("chevronRight", 14)}</button>` : '<span class="ac-where muted">Task removed</span>'}
       </div>
       <button type="button" class="icon-btn ac-x" data-remove aria-label="Remove this card (the task stays)">${icon("x", 18)}</button>
     </div>`;
@@ -11026,11 +12187,11 @@ ${title.toLowerCase()}`);
         lane,
         submitLabel: "Save",
         onSaved: (draft2) => {
-          const t = addActionToBoard(m.id, a.id, draft2);
-          if (t) toast(`Added to ${where2(t)}`, { action: { label: "Open", onClick: () => {
-            S.currentList = t.listId;
+          const t2 = addActionToBoard(m.id, a.id, draft2);
+          if (t2) toast(`Added to ${where2(t2)}`, { action: { label: "Open", onClick: () => {
+            S.currentList = t2.listId;
             commit();
-            openDetail(t.id);
+            openDetail(t2.id);
           } } });
         }
       })
@@ -11044,11 +12205,11 @@ ${title.toLowerCase()}`);
       if (!a) return;
       if (a.status === "added") {
         el.querySelector("[data-open-task]")?.addEventListener("click", () => {
-          const t = taskById(a.taskId);
-          if (!t) return;
-          if (t.status === "active") S.currentList = t.listId;
+          const t2 = taskById(a.taskId);
+          if (!t2) return;
+          if (t2.status === "active") S.currentList = t2.listId;
           commit();
-          openDetail(t.id);
+          openDetail(t2.id);
         });
         el.querySelector("[data-remove]").addEventListener("click", () => del(m, a));
         return;
@@ -11165,7 +12326,7 @@ ${title.toLowerCase()}`);
         onError("That file is too large to be a transcript.");
         return;
       }
-      const finish5 = (text2) => {
+      const finish6 = (text2) => {
         const parsed = parseByName(ext === "docx" ? "x.txt" : file.name, text2);
         if (!parsed.segments.length) {
           onError("Couldn't read this file: it has no text.");
@@ -11178,15 +12339,15 @@ ${title.toLowerCase()}`);
           onError("This browser cannot read Word files; paste the text instead.");
           return;
         }
-        file.arrayBuffer().then((buf) => readDocumentXml(buf)).then((xml) => {
-          if (xml === null) throw new Error("not a Word file");
-          finish5(parseDocxXml(xml));
+        file.arrayBuffer().then((buf) => readDocumentXml(buf)).then((xml2) => {
+          if (xml2 === null) throw new Error("not a Word file");
+          finish6(parseDocxXml(xml2));
         }).catch(() => onError("Couldn't read this file: it is not a Word document."));
         return;
       }
       const reader = new FileReader();
       reader.onerror = () => onError("Couldn't read this file.");
-      reader.onload = () => finish5(String(reader.result || ""));
+      reader.onload = () => finish6(String(reader.result || ""));
       reader.readAsText(file);
     });
     input.click();
@@ -11504,10 +12665,10 @@ ${title.toLowerCase()}`);
     const { ov, close } = overlay(`
     <div class="add-menu" role="dialog" aria-label="Add">
       <div class="add-grid">
-        ${TILES.map((t, i) => `
-        <button class="add-tile" data-tile="${t.id}" style="--i: ${i}">
-          <span class="add-tile-icon">${icon(t.icon, 20)}</span>
-          <span>${t.label}</span>
+        ${TILES.map((t2, i) => `
+        <button class="add-tile" data-tile="${t2.id}" style="--i: ${i}">
+          <span class="add-tile-icon">${icon(t2.icon, 20)}</span>
+          <span>${t2.label}</span>
         </button>`).join("")}
       </div>
     </div>`);
@@ -11517,30 +12678,30 @@ ${title.toLowerCase()}`);
     });
     ov.querySelectorAll("[data-tile]").forEach((b) => b.addEventListener("click", () => {
       close();
-      TILES.find((t) => t.id === b.dataset.tile).run();
+      TILES.find((t2) => t2.id === b.dataset.tile).run();
     }));
     ov.querySelector("[data-tile]").focus();
   }
 
   // src/ui/detail.js
-  function scheduleNote(t) {
+  function scheduleNote(t2) {
     return [
-      t.start ? `Starts ${fmtDateLong(t.start)}` : "",
-      t.recur !== "none" && t.completedCount ? `Completed ${t.completedCount}× so far` : ""
+      t2.start ? `Starts ${fmtDateLong(t2.start)}` : "",
+      t2.recur !== "none" && t2.completedCount ? `Completed ${t2.completedCount}× so far` : ""
     ].filter(Boolean).join(" · ");
   }
-  function subtasksHTML(t, { readOnly = false } = {}) {
-    const done2 = t.subtasks.filter((s) => s.done).length;
-    const pct = t.subtasks.length ? done2 / t.subtasks.length * 100 : 0;
+  function subtasksHTML(t2, { readOnly = false } = {}) {
+    const done2 = t2.subtasks.filter((s) => s.done).length;
+    const pct = t2.subtasks.length ? done2 / t2.subtasks.length * 100 : 0;
     return `
       <div class="card">
         <div class="subhead">
           <span class="section-title">Subtasks</span>
-          <span class="count num">${done2} / ${t.subtasks.length}</span>
+          <span class="count num">${done2} / ${t2.subtasks.length}</span>
         </div>
         <div class="progress"><div style="width:${pct}%"></div></div>
         <div class="subrows">
-          ${t.subtasks.map((s) => `
+          ${t2.subtasks.map((s) => `
           <div class="subrow ${s.done ? "done" : ""}">
             <input type="checkbox" aria-label="${esc(`${s.done ? "Reopen" : "Complete"}: ${s.title}`)}" class="check sm" ${s.done ? "checked" : ""} ${readOnly ? "disabled" : `data-sub="${s.id}"`}>
             <span class="s-title">${esc(s.title)}</span>
@@ -11554,10 +12715,10 @@ ${title.toLowerCase()}`);
         </div>
       </div>`;
   }
-  function descriptionHTML(t, { readOnly = false } = {}) {
-    const html = sanitize(t.description || "");
+  function descriptionHTML(t2, { readOnly = false } = {}) {
+    const html = sanitize(t2.description || "");
     if (readOnly) {
-      return hasDescription(t) ? `
+      return hasDescription(t2) ? `
       <div class="card desc-card">
         <span class="section-title">Description</span>
         <div class="desc-body">${html}</div>
@@ -11582,7 +12743,7 @@ ${title.toLowerCase()}`);
     const state3 = stateAt();
     body.closest("[data-desc]").querySelectorAll("[data-fmt]").forEach((b) => b.setAttribute("aria-pressed", String(!!state3[b.dataset.fmt])));
   });
-  function bindDescription(t) {
+  function bindDescription(t2) {
     const card = app.querySelector("[data-desc]");
     if (!card) return;
     const body = card.querySelector("[data-desc-body]");
@@ -11592,7 +12753,7 @@ ${title.toLowerCase()}`);
       if (!timer2) return;
       clearTimeout(timer2);
       timer2 = null;
-      setDescription(t.id, body.innerHTML, { quiet: true });
+      setDescription(t2.id, body.innerHTML, { quiet: true });
     };
     flushDescription = flush;
     const changed = () => {
@@ -11649,15 +12810,15 @@ ${title.toLowerCase()}`);
   }
   function detailHTML() {
     flushDescription?.();
-    const t = taskById(UI.detailId);
-    if (!t) {
+    const t2 = taskById(UI.detailId);
+    if (!t2) {
       UI.screen = "list";
       return mobileListHTML();
     }
-    if (t.status !== "active") return readOnlyHTML3(t);
-    const list3 = listById(t.listId);
-    const dueTone = t.due ? fmtDue(t.due, { dueTime: t.dueTime }).cls : "";
-    const note = scheduleNote(t);
+    if (t2.status !== "active") return readOnlyHTML3(t2);
+    const list3 = listById(t2.listId);
+    const dueTone = t2.due ? fmtDue(t2.due, { dueTime: t2.dueTime }).cls : "";
+    const note = scheduleNote(t2);
     return `
   <div class="screen detail-screen">
     <header class="page-head detail-top">
@@ -11668,80 +12829,80 @@ ${title.toLowerCase()}`);
     <div class="scroll-area">
       <div class="detail-head">
         <div class="detail-title-row">
-          <input type="checkbox" aria-label="${esc(`${t.done ? "Reopen" : "Complete"}: ${t.title}`)}" class="check" ${t.done ? "checked" : ""} data-id="${t.id}">
-          <h1 class="detail-title" data-title tabindex="0" title="Tap to edit">${esc(t.title)}</h1>
+          <input type="checkbox" aria-label="${esc(`${t2.done ? "Reopen" : "Complete"}: ${t2.title}`)}" class="check" ${t2.done ? "checked" : ""} data-id="${t2.id}">
+          <h1 class="detail-title" data-title tabindex="0" title="Tap to edit">${esc(t2.title)}</h1>
         </div>
-        ${fromMeetingHTML(t)}
+        ${fromMeetingHTML(t2)}
       </div>
 
       <div class="card">
         <div class="kv-row ${note ? "has-note" : ""}">
           <span class="kv-label">${icon("calendar", 16)}Due date</span>
           <span class="kv-right">
-            <button class="kv-val ${t.due ? dueTone.replace("tag-", "is-") : "placeholder"}" data-due>${t.due ? esc(fmtDateLong(t.due, t.dueTime)) : "Set date"}${icon("chevronDown", 16)}</button>
-            ${t.due ? `<button class="kv-clear" data-due-clear aria-label="Clear dates">${icon("x", 14)}</button>` : ""}
+            <button class="kv-val ${t2.due ? dueTone.replace("tag-", "is-") : "placeholder"}" data-due>${t2.due ? esc(fmtDateLong(t2.due, t2.dueTime)) : "Set date"}${icon("chevronDown", 16)}</button>
+            ${t2.due ? `<button class="kv-clear" data-due-clear aria-label="Clear dates">${icon("x", 14)}</button>` : ""}
           </span>
         </div>
         ${note ? `<div class="kv-note">${esc(note)}</div>` : ""}
         <div class="kv-row">
           <span class="kv-label">${icon("repeat", 16)}Repeat</span>
-          <button class="kv-val ${t.recur === "none" ? "placeholder" : ""}" data-recur aria-haspopup="menu">${esc(recurLabel(t.recur))}${icon("chevronDown", 16)}</button>
+          <button class="kv-val ${t2.recur === "none" ? "placeholder" : ""}" data-recur aria-haspopup="menu">${esc(recurLabel(t2.recur))}${icon("chevronDown", 16)}</button>
         </div>
         <div class="kv-row kv-stack">
           <span class="kv-label">Priority</span>
           <div class="chip-row" data-priority>
-            ${[...S.priorities, { id: "none", name: "None" }].map((p) => `<button class="chip sm ${t.priority === p.id ? `on ${p.color ? `pc pc-${p.color}` : ""}` : ""}" data-val="${p.id}" aria-pressed="${t.priority === p.id}">${esc(p.name)}</button>`).join("")}
+            ${[...S.priorities, { id: "none", name: "None" }].map((p) => `<button class="chip sm ${t2.priority === p.id ? `on ${p.color ? `pc pc-${p.color}` : ""}` : ""}" data-val="${p.id}" aria-pressed="${t2.priority === p.id}">${esc(p.name)}</button>`).join("")}
           </div>
         </div>
         <div class="kv-row kv-stack">
           <span class="kv-label">${icon("tag", 16)}Tags</span>
           <div class="chip-row" data-tags>
-            ${t.tags.map((tag) => `<button class="chip sm on removable" data-remove="${esc(tag)}" aria-label="Remove tag ${esc(tag)}"><span class="chip-text">#${esc(tag)}</span>${icon("x", 14)}</button>`).join("")}
-            <button class="chip sm" data-add-tag>${icon("plus", 14)}${t.tags.length ? "Add" : "Add tags…"}</button>
+            ${t2.tags.map((tag) => `<button class="chip sm on removable" data-remove="${esc(tag)}" aria-label="Remove tag ${esc(tag)}"><span class="chip-text">#${esc(tag)}</span>${icon("x", 14)}</button>`).join("")}
+            <button class="chip sm" data-add-tag>${icon("plus", 14)}${t2.tags.length ? "Add" : "Add tags…"}</button>
           </div>
         </div>
         <div class="kv-row">
           <span class="kv-label">${icon("move", 16)}Move</span>
-          <button class="kv-val" data-move>${esc(list3.name)} · ${esc(laneName(t.listId, t.lane))}${icon("chevronRight", 16)}</button>
+          <button class="kv-val" data-move>${esc(list3.name)} · ${esc(laneName(t2.listId, t2.lane))}${icon("chevronRight", 16)}</button>
         </div>
         <div class="kv-row">
           <span class="kv-label">Reminder</span>
-          <button class="kv-val ${t.reminder === null ? "placeholder" : ""}" data-reminder>${esc(reminderLabel(t.reminder))}${icon("chevronDown", 16)}</button>
+          <button class="kv-val ${t2.reminder === null ? "placeholder" : ""}" data-reminder>${esc(reminderLabel(t2.reminder))}${icon("chevronDown", 16)}</button>
         </div>
       </div>
-      ${descriptionHTML(t)}
-      ${subtasksHTML(t)}
+      ${descriptionHTML(t2)}
+      ${subtasksHTML(t2)}
     </div>
   </div>`;
   }
-  function fromMeetingHTML(t) {
-    const m = t.from ? meetingById(t.from.meetingId) : null;
+  function fromMeetingHTML(t2) {
+    const m = t2.from ? meetingById(t2.from.meetingId) : null;
     if (!m) return "";
     return `<button type="button" class="from-meeting" data-from-meeting="${m.id}">${icon("meeting", 14)}From meeting ${esc(meetingTitle(m))}${icon("chevronRight", 14)}</button>`;
   }
   function bindDetail() {
-    const t = taskById(UI.detailId);
-    if (!t) {
+    const t2 = taskById(UI.detailId);
+    if (!t2) {
       rerender();
       return;
     }
-    if (t.status !== "active") {
-      bindReadOnly3(t);
+    if (t2.status !== "active") {
+      bindReadOnly3(t2);
       return;
     }
     bindScrollShadow();
-    bindDescription(t);
+    bindDescription(t2);
     app.querySelector("[data-from-meeting]")?.addEventListener("click", (e) => openMeeting(e.currentTarget.dataset.fromMeeting));
     app.querySelector("[data-back]").addEventListener("click", () => {
       flushDescription?.();
       UI.screen = "list";
       rerender();
     });
-    app.querySelector(".detail-title-row .check").addEventListener("change", () => completeTask(t.id, app.querySelector(".detail-title-row")));
+    app.querySelector(".detail-title-row .check").addEventListener("change", () => completeTask(t2.id, app.querySelector(".detail-title-row")));
     const where3 = (listId, lane) => `${listById(listId).name} · ${laneName(listId, lane)}`;
-    const move = () => openMoveCopy({ mode: "move", task: t, onConfirm: (listId, lane) => moveWithFeedback(t.id, listId, lane) });
-    const copy2 = () => openMoveCopy({ mode: "copy", task: t, onConfirm: (listId, lane) => {
-      const c = copyTask(t.id, listId, lane);
+    const move = () => openMoveCopy({ mode: "move", task: t2, onConfirm: (listId, lane) => moveWithFeedback(t2.id, listId, lane) });
+    const copy2 = () => openMoveCopy({ mode: "copy", task: t2, onConfirm: (listId, lane) => {
+      const c = copyTask(t2.id, listId, lane);
       toast(`Copied to ${where3(listId, lane)}`, { action: { label: "Open", onClick: () => {
         S.currentList = c.listId;
         commit();
@@ -11753,9 +12914,9 @@ ${title.toLowerCase()}`);
       openMenu(e.currentTarget, [
         { label: "Move", icon: "move", onClick: move },
         { label: "Copy", icon: "copy", onClick: copy2 },
-        { label: "Archive", icon: "archive", onClick: () => archiveWithUndo(t.id) },
+        { label: "Archive", icon: "archive", onClick: () => archiveWithUndo(t2.id) },
         { divider: true },
-        { label: "Delete", icon: "trash", danger: true, onClick: () => deleteWithUndo(t.id) }
+        { label: "Delete", icon: "trash", danger: true, onClick: () => deleteWithUndo(t2.id) }
       ]);
     });
     app.querySelector("[data-move]").addEventListener("click", move);
@@ -11763,70 +12924,70 @@ ${title.toLowerCase()}`);
     const editTitle = () => {
       const input2 = document.createElement("input");
       input2.className = "detail-title-input";
-      input2.value = t.title;
+      input2.value = t2.title;
       input2.setAttribute("aria-label", "Task title");
       h1.replaceWith(input2);
       input2.focus();
       input2.select();
       let finished = false;
-      const finish5 = (save2) => {
+      const finish6 = (save2) => {
         if (finished) return;
         finished = true;
-        if (save2 && input2.value.trim() && input2.value.trim() !== t.title) setTitle(t.id, input2.value);
+        if (save2 && input2.value.trim() && input2.value.trim() !== t2.title) setTitle(t2.id, input2.value);
         else rerender();
       };
       input2.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") finish5(true);
-        if (e.key === "Escape") finish5(false);
+        if (e.key === "Enter") finish6(true);
+        if (e.key === "Escape") finish6(false);
       });
-      input2.addEventListener("blur", () => finish5(true));
+      input2.addEventListener("blur", () => finish6(true));
     };
     h1.addEventListener("click", editTitle);
     h1.addEventListener("keydown", (e) => {
       if (e.key === "Enter") editTitle();
     });
     const schedule = () => openSchedule({
-      schedule: t,
-      done: t.done,
-      onSave: (sch) => setSchedule(t.id, sch),
-      onRemove: () => clearSchedule(t.id)
+      schedule: t2,
+      done: t2.done,
+      onSave: (sch) => setSchedule(t2.id, sch),
+      onRemove: () => clearSchedule(t2.id)
     });
     app.querySelector("[data-due]").addEventListener("click", schedule);
     app.querySelector("[data-reminder]").addEventListener("click", schedule);
-    app.querySelector("[data-due-clear]")?.addEventListener("click", () => clearSchedule(t.id));
+    app.querySelector("[data-due-clear]")?.addEventListener("click", () => clearSchedule(t2.id));
     app.querySelector("[data-recur]").addEventListener("click", (e) => openMenu(e.currentTarget, RECUR_OPTIONS.map(([v, label]) => ({
       label,
-      checked: t.recur === v,
+      checked: t2.recur === v,
       onClick: () => {
-        if (v !== t.recur) setSchedule(t.id, { ...t, due: t.due || (v === "none" ? null : todayISO()), recur: v });
+        if (v !== t2.recur) setSchedule(t2.id, { ...t2, due: t2.due || (v === "none" ? null : todayISO()), recur: v });
       }
     }))));
     app.querySelector("[data-priority]").addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
       if (!chip) return;
-      if (chip.dataset.val !== t.priority) setPriority(t.id, chip.dataset.val);
+      if (chip.dataset.val !== t2.priority) setPriority(t2.id, chip.dataset.val);
     });
     app.querySelector("[data-tags]").addEventListener("click", (e) => {
       const chip = e.target.closest(".chip");
       if (!chip) return;
       if (chip.dataset.remove !== void 0) {
-        setTags(t.id, t.tags.filter((x) => x !== chip.dataset.remove));
+        setTags(t2.id, t2.tags.filter((x) => x !== chip.dataset.remove));
         return;
       }
-      openTagPicker({ tags: t.tags, onChange: (tags) => setTags(t.id, tags) });
+      openTagPicker({ tags: t2.tags, onChange: (tags) => setTags(t2.id, tags) });
     });
     app.querySelectorAll("[data-sub]").forEach((c) => c.addEventListener("change", () => {
-      const s = t.subtasks.find((s2) => s2.id === c.dataset.sub);
+      const s = t2.subtasks.find((s2) => s2.id === c.dataset.sub);
       s.done = !s.done;
       commit();
     }));
     app.querySelectorAll("[data-subdel]").forEach((b) => b.addEventListener("click", () => {
-      const at = t.subtasks.findIndex((s) => s.id === b.dataset.subdel);
+      const at = t2.subtasks.findIndex((s) => s.id === b.dataset.subdel);
       if (at === -1) return;
-      const [gone] = t.subtasks.splice(at, 1);
+      const [gone] = t2.subtasks.splice(at, 1);
       commit();
       toast("Subtask deleted", { action: { label: "Undo", onClick: () => {
-        const now2 = taskById(t.id);
+        const now2 = taskById(t2.id);
         if (!now2 || now2.subtasks.some((s) => s.id === gone.id)) return;
         now2.subtasks.splice(Math.min(at, now2.subtasks.length), 0, gone);
         commit();
@@ -11835,19 +12996,19 @@ ${title.toLowerCase()}`);
     const input = app.querySelector(".addsub-input");
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && input.value.trim()) {
-        t.subtasks.push({ id: uid(), title: input.value.trim(), done: false });
+        t2.subtasks.push({ id: uid(), title: input.value.trim(), done: false });
         UI.refocusAddsub = true;
         commit();
       }
     });
   }
-  function readOnlyHTML3(t) {
-    const archived = t.status === "archived";
-    const o = t.origin || t;
+  function readOnlyHTML3(t2) {
+    const archived = t2.status === "archived";
+    const o = t2.origin || t2;
     const from = `${listById(o.listId)?.name || "Deleted board"} · ${laneName(o.listId, o.lane)}`;
-    const left = archived ? 0 : daysLeft(t.deletedAt, RETENTION_DAYS);
-    const status2 = archived ? `Archived ${fmtRelative(t.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
-    const note = scheduleNote(t);
+    const left = archived ? 0 : daysLeft(t2.deletedAt, RETENTION_DAYS);
+    const status2 = archived ? `Archived ${fmtRelative(t2.archivedAt)}` : left === 0 ? "Removed today" : `Removed in ${left} day${left === 1 ? "" : "s"}`;
+    const note = scheduleNote(t2);
     const row2 = (label, value) => `
         <div class="kv-row">
           <span class="kv-label">${label}</span>
@@ -11867,21 +13028,21 @@ ${title.toLowerCase()}`);
       </div>
       <div class="detail-head">
         <div class="detail-title-row">
-          <input type="checkbox" class="check" disabled ${t.done ? "checked" : ""} aria-label="${t.done ? "Completed" : "Not completed"}">
-          <h1 class="detail-title">${esc(t.title)}</h1>
+          <input type="checkbox" class="check" disabled ${t2.done ? "checked" : ""} aria-label="${t2.done ? "Completed" : "Not completed"}">
+          <h1 class="detail-title">${esc(t2.title)}</h1>
         </div>
-        ${taskMetaHTML(t)}
+        ${taskMetaHTML(t2)}
       </div>
       <div class="card">
-        ${row2(`${icon("calendar", 16)}Due date`, t.due ? esc(fmtDateLong(t.due, t.dueTime)) : "—")}
+        ${row2(`${icon("calendar", 16)}Due date`, t2.due ? esc(fmtDateLong(t2.due, t2.dueTime)) : "—")}
         ${note ? `<div class="kv-note">${esc(note)}</div>` : ""}
-        ${row2("Priority", esc(priorityName(t.priority)))}
-        ${row2(`${icon("tag", 16)}Tags`, t.tags.length ? t.tags.map((x) => `#${esc(x)}`).join(" ") : "—")}
+        ${row2("Priority", esc(priorityName(t2.priority)))}
+        ${row2(`${icon("tag", 16)}Tags`, t2.tags.length ? t2.tags.map((x) => `#${esc(x)}`).join(" ") : "—")}
         ${row2(`${icon("move", 16)}From`, esc(from))}
-        ${row2("Reminder", esc(reminderLabel(t.reminder)))}
+        ${row2("Reminder", esc(reminderLabel(t2.reminder)))}
       </div>
-      ${descriptionHTML(t, { readOnly: true })}
-      ${t.subtasks.length ? subtasksHTML(t, { readOnly: true }) : ""}
+      ${descriptionHTML(t2, { readOnly: true })}
+      ${t2.subtasks.length ? subtasksHTML(t2, { readOnly: true }) : ""}
       <div class="dialog-actions">
         <button class="btn btn-secondary" data-ro-restore>${icon("undo", 18)}Restore</button>
         <button class="btn btn-ghost danger" data-ro-delete>${archived ? "Delete" : "Delete forever"}</button>
@@ -11889,7 +13050,7 @@ ${title.toLowerCase()}`);
     </div>
   </div>`;
   }
-  function bindReadOnly3(t) {
+  function bindReadOnly3(t2) {
     bindScrollShadow();
     const toFolder = () => {
       UI.detailId = null;
@@ -11901,17 +13062,17 @@ ${title.toLowerCase()}`);
     });
     app.querySelector("[data-ro-restore]").addEventListener("click", () => {
       toFolder();
-      restoreWithToast(t.id);
+      restoreWithToast(t2.id);
     });
     app.querySelector("[data-ro-delete]").addEventListener("click", async () => {
-      if (t.status === "archived") {
+      if (t2.status === "archived") {
         toFolder();
-        deleteWithUndo(t.id);
+        deleteWithUndo(t2.id);
         return;
       }
       if (await confirmDialog("Delete forever?", "This task cannot be recovered afterwards.", { confirmLabel: "Delete forever", danger: true })) {
         toFolder();
-        deleteForever(t.id);
+        deleteForever(t2.id);
       }
     });
   }
@@ -11924,8 +13085,8 @@ ${title.toLowerCase()}`);
     if (kind) UI.folderKind = kind;
     rerender();
   }
-  function originLabel(t) {
-    const o = t.origin || t;
+  function originLabel(t2) {
+    const o = t2.origin || t2;
     const board = listById(o.listId);
     const name = !board ? "Deleted board" : board.status === "active" ? board.name : `${board.name} (${board.status})`;
     return `${name} · ${laneName(o.listId, o.lane)}`;
@@ -11940,14 +13101,14 @@ ${title.toLowerCase()}`);
         <button class="btn btn-sm btn-secondary" data-restore-${attr}="${id}">${icon("undo", 16)}Restore</button>
         <button class="btn btn-sm btn-ghost danger" data-delete-${attr}="${id}">${tab === "archived" ? "Delete" : "Delete forever"}</button>
       </div>`;
-  function taskRowHTML(t, tab) {
+  function taskRowHTML(t2, tab) {
     return `
-  <div class="row frow" data-id="${t.id}">
+  <div class="row frow" data-id="${t2.id}">
     <div class="t-main">
-      <button class="t-title frow-open" data-open="${t.id}">${esc(t.title)}</button>
-      ${taskMetaHTML(t)}
-      <span class="frow-origin">${esc(originLabel(t))} · ${whenLabel(t, tab)}</span>
-      ${actionsHTML2("task", t.id, tab)}
+      <button class="t-title frow-open" data-open="${t2.id}">${esc(t2.title)}</button>
+      ${taskMetaHTML(t2)}
+      <span class="frow-origin">${esc(originLabel(t2))} · ${whenLabel(t2, tab)}</span>
+      ${actionsHTML2("task", t2.id, tab)}
     </div>
   </div>`;
   }
@@ -11988,9 +13149,9 @@ ${title.toLowerCase()}`);
   var KINDS = { tasks: "tasks", notes: "notes", meetings: "meetings", boards: "boards" };
   function foldersHTML() {
     const tab = UI.folder, kind = KINDS[UI.folderKind] || "tasks";
-    const tasks = folderTasks(tab), notes = folderNotes(tab), meetings = folderMeetings(tab), boards2 = folderBoards(tab);
-    const total = tasks.length + notes.length + meetings.length + boards2.length;
-    const rows = kind === "notes" ? notes.map((n) => noteRowHTML2(n, tab)) : kind === "meetings" ? meetings.map((m) => meetingRowHTML2(m, tab)) : kind === "boards" ? boards2.map((l) => boardRowHTML(l, tab)) : tasks.map((t) => taskRowHTML(t, tab));
+    const tasks = folderTasks(tab), notes = folderNotes(tab), meetings = folderMeetings(tab), boards3 = folderBoards(tab);
+    const total = tasks.length + notes.length + meetings.length + boards3.length;
+    const rows = kind === "notes" ? notes.map((n) => noteRowHTML2(n, tab)) : kind === "meetings" ? meetings.map((m) => meetingRowHTML2(m, tab)) : kind === "boards" ? boards3.map((l) => boardRowHTML(l, tab)) : tasks.map((t2) => taskRowHTML(t2, tab));
     const disclaimer = `Tasks, notes, meetings and boards stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
     const empty2 = tab === "archived" ? `Nothing archived yet. Archive ${kind} you are done with but want to keep.` : kind === "tasks" ? "Nothing in Deleted." : `No deleted ${kind}.`;
     const seg = (k, label, n) => `<button class="seg ${kind === k ? "active" : ""}" data-kind="${k}" role="tab" aria-selected="${kind === k}">${label} · ${n}</button>`;
@@ -12005,7 +13166,7 @@ ${title.toLowerCase()}`);
         ${seg("tasks", "Tasks", tasks.length)}
         ${seg("notes", "Notes", notes.length)}
         ${seg("meetings", "Meetings", meetings.length)}
-        ${seg("boards", "Boards", boards2.length)}
+        ${seg("boards", "Boards", boards3.length)}
       </div>
     </header>
     <div class="scroll-area">
@@ -12434,9 +13595,9 @@ ${title.toLowerCase()}`);
       app.querySelector("[data-quickadd-btn]").addEventListener("click", commitAdd);
     }
     app.querySelectorAll(".tgrid-row").forEach((row2) => {
-      const t = taskById(row2.dataset.id);
-      bindRowGestures(row2, t);
-      bindReorder(row2, row2, taskReorder(t, ".tgrid-row"));
+      const t2 = taskById(row2.dataset.id);
+      bindRowGestures(row2, t2);
+      bindReorder(row2, row2, taskReorder(t2, ".tgrid-row"));
     });
     bindKanban();
   }
@@ -12459,25 +13620,25 @@ ${title.toLowerCase()}`);
   }
   var waitTimer = null;
   function bindLock() {
-    const pad5 = bindPinpad(app, {
+    const pad6 = bindPinpad(app, {
       onComplete: async (pin) => {
         const r = await unlockWithPin(pin);
         if (r.ok) return;
         if (r.code === "wait" && r.waitMs) {
-          pad5.error(r.message);
-          pad5.disable(true);
+          pad6.error(r.message);
+          pad6.disable(true);
           clearTimeout(waitTimer);
           waitTimer = setTimeout(() => {
-            pad5.disable(false);
-            pad5.error("");
+            pad6.disable(false);
+            pad6.error("");
           }, r.waitMs);
           return;
         }
-        pad5.error(r.message);
+        pad6.error(r.message);
         if (r.code === "pin_locked") app.querySelector("[data-forgot]").textContent = "Reset your PIN with an email code";
       }
     });
-    pad5.focus();
+    pad6.focus();
     app.querySelector("[data-forgot]").addEventListener("click", async () => {
       const ok = await confirmDialog("Reset your PIN?", "We send a code to your email. After the reset, your other devices are signed out.", { confirmLabel: "Send a code" });
       if (ok) openSignIn({ mode: "signin" });
@@ -12564,7 +13725,7 @@ ${title.toLowerCase()}`);
   function screenHTML() {
     return UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meeting" ? meetingHTML() : UI.screen === "meetings" ? meetingsHTML() : mobileListHTML();
   }
-  var withNav = () => !["detail", "note", "meeting"].includes(UI.screen) && !(UI.screen === "notes" && UI.composer.expanded) && !(UI.screen === "settings" && UI.settingsPage === "import");
+  var withNav = () => !["detail", "note", "meeting"].includes(UI.screen) && !(UI.screen === "notes" && UI.composer.expanded) && !(UI.screen === "settings" && (UI.settingsPage === "import" || UI.settingsPage === "export"));
   function draw2() {
     applyTheme();
     dropWaiting();
@@ -12684,7 +13845,7 @@ ${title.toLowerCase()}`);
   setInterval(() => {
     if (document.visibilityState === "visible") syncSoon("poll");
   }, POLL_MS);
-  ["pointerdown", "keydown"].forEach((t) => document.addEventListener(t, () => touch2(), { passive: true, capture: true }));
+  ["pointerdown", "keydown"].forEach((t2) => document.addEventListener(t2, () => touch2(), { passive: true, capture: true }));
   setMediaRemover((keys) => keys.forEach((k) => remove2(k).catch(() => {
   })));
   purgeDeleted();
@@ -12715,9 +13876,9 @@ ${title.toLowerCase()}`);
   });
   window.addEventListener("online", () => resumeJobs());
   function openTask(id) {
-    const t = taskById(id);
-    if (!t) return;
-    if (t.status === "active") S.currentList = t.listId;
+    const t2 = taskById(id);
+    if (!t2) return;
+    if (t2.status === "active") S.currentList = t2.listId;
     UI.detailId = id;
     UI.screen = "detail";
     commit();
@@ -12762,8 +13923,8 @@ ${title.toLowerCase()}`);
     return { kind: "menu", layer, dim, els: [dim, layer] };
   }
   function buildBackPeek() {
-    const t = taskById(UI.detailId);
-    const to = t && t.status !== "active" ? "folders" : "list";
+    const t2 = taskById(UI.detailId);
+    const to = t2 && t2.status !== "active" ? "folders" : "list";
     const under = peekLayer(asScreen(to, screenHTML), "peek peek-under");
     const nav = peekLayer(asScreen(to, mobileNavHTML), "peek-nav");
     const shade = peekLayer("", "peek-shade");
