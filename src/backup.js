@@ -26,6 +26,7 @@ import {
 import { RECUR_OPTIONS, isDateFormat, toISO } from './dates.js';
 import { sanitize } from './richtext.js';
 import { uid } from './util.js';
+import { FIELD_KEYS } from './importer.js';
 
 export const FILE_APP = 'stackd';
 export const FILE_FORMAT = 1;
@@ -213,6 +214,7 @@ function cleanTask(r, i, ctx) {
     title: text(r.title).trim() || 'Untitled', done: flag(r.done), order: num(r.order, i),
     priority: ctx.priorities.has(r.priority) ? r.priority : 'none',
     tags: tagsOf(r.tags), subtasks: checkItems(r.subtasks, 'title', 'a subtask'),
+    ...(typeof r.importKey === 'string' && r.importKey ? { importKey: r.importKey.slice(0, 200) } : {}),
     /* kept absent when absent: that is how a record written before 1.7.0 is told apart (src/sync.js) */
     ...(typeof r.description === 'string' ? { description: sanitize(r.description.slice(0, DESCRIPTION_MAX)) } : {}),
     start: start && (!due || start <= due) ? start : null, due,
@@ -285,6 +287,38 @@ function cleanMeeting(r, i, ctx) {
   };
 }
 
+/* What the import guide remembers (PRD 1.7.0 §06.4), from a file or from
+   sync: rebuilt field by field like everything else. An entry that cannot
+   be read is dropped; the rest stay. */
+const laneChoice = (v) => (!isObj(v) ? null
+  : v.kind === 'done' ? { kind: 'done' }
+  : (v.kind === 'new' || v.kind === 'lane') && text(v.name, 80).trim() ? { kind: v.kind, name: text(v.name, 80).trim() }
+  : null);
+const labelChoice = (v) => (v === 'drop' ? 'drop'
+  : isObj(v) && typeof v.priority === 'string' && ID.test(v.priority) ? { priority: v.priority }
+  : 'keep');
+const pairs = (v, max, clean) => (Array.isArray(v) ? v : []).slice(0, max)
+  .filter((p) => Array.isArray(p) && typeof p[0] === 'string' && p[0].trim())
+  .map((p) => [p[0].slice(0, 200), clean(p[1])]).filter((p) => p[1] !== null);
+export function cleanLayouts(v) {
+  const seen = new Set();
+  return (Array.isArray(v) ? v : []).slice(0, 50).flatMap((r) => {
+    if (!isObj(r) || typeof r.id !== 'string' || !ID.test(r.id) || seen.has(r.id) || typeof r.signature !== 'string' || !r.signature) return [];
+    seen.add(r.id);
+    const m = isObj(r.mapping) ? r.mapping : {};
+    return [{
+      id: r.id, name: text(r.name, 80).trim() || 'Import', signature: r.signature.slice(0, 80),
+      columns: count(r.columns), part: typeof r.part === 'string' && r.part ? r.part.slice(0, 200) : null,
+      mapping: Object.fromEntries(FIELD_KEYS.map((k) => [k, typeof m[k] === 'string' && m[k] ? m[k].slice(0, 200) : null])),
+      lists: pairs(r.lists, 200, laneChoice), labels: pairs(r.labels, 500, labelChoice),
+      dateOrder: pick(r.dateOrder, ['dmy', 'mdy'], null),
+      archived: pick(r.archived, ['leave', 'archive', 'active'], 'leave'),
+      repeats: pick(r.repeats, ['skip', 'import'], 'skip'),
+      used: count(r.used), lastUsedAt: time(r.lastUsedAt),
+    }];
+  });
+}
+
 /** Untrusted → { lists, tasks, notes, meetings, settings } in the store's
     shape, or an ImportError('bad_file'). Pure: reads nothing, changes nothing. */
 export function cleanRecords(raw, now = Date.now()) {
@@ -311,6 +345,7 @@ export function cleanRecords(raw, now = Date.now()) {
       dateFormat: isDateFormat(settings.dateFormat) ? settings.dateFormat : null,   // null: keep this device's
       priorities,
       labels: tagsOf(settings.labels),
+      ...(settings.imports !== undefined ? { imports: cleanLayouts(settings.imports) } : {}),
     },
   };
 }
@@ -334,6 +369,7 @@ export function cleanRemote(kind, data, { lists, priorities, now = Date.now() })
       dateFormat: isDateFormat(data.dateFormat) ? data.dateFormat : null,
       priorities: unique(list(data.priorities, 'priorities that are not a list').map(cleanPriority), 'priorities'),
       labels: tagsOf(data.labels),
+      ...(data.imports !== undefined ? { imports: cleanLayouts(data.imports) } : {}),
     };
   }
   return bad('an unknown kind');

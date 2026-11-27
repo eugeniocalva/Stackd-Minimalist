@@ -649,4 +649,85 @@ assert.equal(S.meetings.length, 0);
   store.softDeleteMeeting(mE.id); store.emptyDeleted();
 }
 
+/* ── import (PRD 1.7.0 §06.1): add, never change; undo takes back exactly what was added ── */
+{
+  const snapshot = () => JSON.stringify({ lists: S.lists, tasks: S.tasks, currentList: S.currentList });
+  const was = snapshot();
+  const count = S.tasks.length;
+  const board = S.lists.find((l) => l.status === 'active' && !l.share);
+  const lanesWere = board.lanes.map((l) => l.name);
+  let drawn = 0;
+  store.setRenderer(() => { drawn++; });
+  const made = store.importTasks({ boardId: board.id, items: [
+    { title: '  Call   the plumber ', description: 'Ask <b onclick="x()">now</b><script>x()</script>', tags: ['home', 'Home', '#urgent'], priority: 'nope', due: '2026-12-01', dueTime: '09:30', start: '2026-12-05',
+      lane: { id: board.lanes[0].id }, subtasks: [{ title: 'Find the number', done: true }, { title: '' }], key: 'c12:ab12' },
+    { title: 'Slides', lane: { name: 'Doing' }, due: 'tomorrow', dueTime: '25:00' },
+    { title: 'More slides', lane: { name: 'doing ' } },
+    { title: 'Booked', lane: { name: 'DONE' }, done: false },
+    { title: 'Finished elsewhere', lane: { id: board.lanes[0].id }, done: true },
+    { title: 'Old idea', lane: { id: 'no-such-lane' }, archived: true },
+    { title: '   ' },
+  ] });
+  assert.equal(made.error, undefined);
+  assert.equal(drawn, 1, 'one commit for the whole import');
+  assert.deepEqual([made.taskIds.length, made.laneIds.length, made.boardMade], [6, 1, false]);
+  assert.deepEqual(JSON.parse(was).tasks, S.tasks.slice(0, count), 'no task that existed was touched');
+  const t = made.taskIds.map(store.taskById);
+  assert.deepEqual([t[0].title, t[0].description, t[0].tags, t[0].priority, t[0].due, t[0].dueTime, t[0].start, t[0].subtasks.map((x) => [x.title, x.done]), t[0].importKey],
+    ['Call the plumber', 'Ask <b>now</b>', ['home', 'urgent'], 'none', '2026-12-01', '09:30', null, [['Find the number', true]], 'c12:ab12'], 'every value rebuilt as for a task typed by hand; a start after the due date is dropped');
+  assert.deepEqual([t[1].due, t[1].dueTime, 'importKey' in t[1]], [null, null, false]);
+  assert.equal(t[1].lane, t[2].lane, 'one lane for a name, whatever its capitals and spaces');
+  assert.deepEqual(board.lanes.map((l) => l.name), [...lanesWere.slice(0, -1), 'Doing', 'Done'], 'a new lane goes before Done; no second Done');
+  assert.deepEqual([t[3].lane, t[3].done, t[4].lane, t[4].done], ['done', true, 'done', true], 'Done means done, and done means Done');
+  assert.deepEqual([t[5].status, t[5].origin.listId, typeof t[5].archivedAt], ['archived', board.id, 'number']);
+  /* undo, after the person put a task of their own in the lane the import made */
+  store.addTask({ listId: board.id, title: 'Mine', lane: t[1].lane, priority: 'none', tags: [] });
+  store.undoImport(made);
+  assert.ok(made.taskIds.every((id) => !store.taskById(id)), 'the imported tasks are gone');
+  assert.ok(find('Mine') && board.lanes.some((l) => l.name === 'Doing'), 'a lane that now holds something else stays');
+  store.deleteForever(find('Mine').id);
+  board.lanes = board.lanes.filter((l) => l.name !== 'Doing');
+  assert.equal(snapshot(), was, 'and everything else is as it was');
+
+  /* a new board has the lanes its lists ask for; undo removes it and comes back to a board that exists */
+  const fresh = store.importTasks({ newBoard: '  House  ', show: true, items: [{ title: 'A', lane: { name: 'To do' } }, { title: 'B', lane: { name: 'Waiting' } }, { title: 'C', lane: { id: 'done' } }] });
+  const house = store.listById(fresh.listId);
+  assert.deepEqual([house.name, house.lanes.map((l) => l.name), S.currentList === house.id, fresh.boardMade], ['House', ['To do', 'Waiting', 'Done'], true, true]);
+  store.undoImport(fresh);
+  assert.ok(!store.listById(fresh.listId) && store.listById(S.currentList)?.status === 'active');
+  assert.equal(JSON.stringify({ lists: S.lists, tasks: S.tasks }), JSON.stringify({ lists: JSON.parse(was).lists, tasks: JSON.parse(was).tasks }));
+  assert.deepEqual(store.importTasks({ newBoard: 'Plain', items: [{ title: 'A' }] }).laneIds, [], 'with no lists asked for, the usual three lanes');
+  const plain = S.lists.at(-1);
+  assert.deepEqual(plain.lanes.map((l) => l.id), ['backlog', 'inprogress', 'done']);
+  S.tasks = S.tasks.filter((x) => x.listId !== plain.id); S.lists = S.lists.filter((l) => l.id !== plain.id); S.currentList = JSON.parse(was).currentList; store.commit();
+
+  /* refused with nothing changed: a board that cannot take them, more than an account holds, a device with no room */
+  const same = snapshot();
+  assert.deepEqual(store.importTasks({ boardId: 'no-such-board', items: [{ title: 'A' }] }), { error: 'board' });
+  assert.deepEqual(store.importTasks({ boardId: board.id, items: Array.from({ length: store.importRoom() + 1 }, () => ({ title: 'A' })) }), { error: 'too_many' });
+  const setItem = localStorage.setItem;
+  localStorage.setItem = () => { throw new Error('QuotaExceededError'); };
+  drawn = 0;
+  const ui = JSON.stringify(store.UI);
+  assert.deepEqual(store.importTasks({ boardId: board.id, show: true, items: [{ title: 'A', lane: { name: 'Brand new lane' } }] }), { error: 'storage' });
+  assert.deepEqual(store.importTasks({ newBoard: 'No room', show: true, items: [{ title: 'A' }] }), { error: 'storage' });
+  localStorage.setItem = setItem;
+  assert.deepEqual([snapshot() === same, drawn, JSON.stringify(store.UI) === ui], [true, 0, true], 'a device with no room: nothing added, nothing drawn, nothing moved');
+
+  /* what the guide remembers: one entry per layout, counted, capped like what arrives from elsewhere */
+  store.rememberImport({ name: 'A', signature: 'c2-x', columns: 2, part: null, mapping: { title: 'Name' }, lists: Array.from({ length: 300 }, (_, i) => [`L${i}`.padEnd(400, 'x'), { kind: 'done' }]), labels: [], dateOrder: null, archived: 'leave', repeats: 'skip' });
+  store.rememberImport({ name: 'B', signature: 'c2-x', columns: 2, part: null, mapping: { title: 'Name' }, lists: [], labels: [], dateOrder: null, archived: 'leave', repeats: 'skip' });
+  assert.deepEqual([S.importLayouts.length, S.importLayouts[0].name, S.importLayouts[0].used], [1, 'A', 2], 'the same columns are the same entry; its name stays');
+  store.rememberImport({ name: 'C', signature: 'c3-y', columns: 3, part: null, mapping: { title: 'Name' }, lists: Array.from({ length: 300 }, (_, i) => [`L${i}`.padEnd(400, 'x'), { kind: 'done' }]), labels: [], dateOrder: null, archived: 'leave', repeats: 'skip' });
+  assert.deepEqual([S.importLayouts[0].lists.length, S.importLayouts[0].lists[0][0].length], [200, 200]);
+  const gone = store.deleteImportLayout(S.importLayouts[1].id);
+  assert.equal(S.importLayouts.length, 1);
+  store.restoreImportLayout(gone);
+  assert.deepEqual(S.importLayouts.map((l) => l.name), ['C', 'A']);
+  store.renameImportLayout(S.importLayouts[1].id, '  My tool  ');
+  assert.equal(S.importLayouts[1].name, 'My tool');
+  S.importLayouts = []; store.commit();
+  store.setRenderer(() => {});
+}
+
 console.log('check-store: all assertions passed');

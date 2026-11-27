@@ -62,7 +62,7 @@ const doc = backup.exportDocument(1760000000000);
 assert.equal(doc.app, 'stackd');
 assert.equal(doc.format, backup.FILE_FORMAT);
 assert.deepEqual(Object.keys(doc.records).sort(), ['lists', 'meetings', 'notes', 'settings', 'tasks']);
-assert.deepEqual(Object.keys(doc.records.settings).sort(), ['dateFormat', 'labels', 'priorities']);
+assert.deepEqual(Object.keys(doc.records.settings).sort(), ['dateFormat', 'imports', 'labels', 'priorities']);
 assert.ok(doc.records.meetings.every((m) => !('recording' in m) && !('jobs' in m) && !('lastError' in m)), 'device-only meeting fields stay behind');
 assert.equal(backup.recordingsLeftBehind(), 2);
 const json = await backup.makeBackup().blob.text();

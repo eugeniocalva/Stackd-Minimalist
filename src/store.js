@@ -174,6 +174,10 @@ function withSettings(state) {
   /* 1.7.0: when a backup file was last made here. It belongs to this device:
      not in the file, not synced, and a restore leaves it alone. */
   state.lastFileBackupAt ??= null;
+  /* 1.7.0: what the import guide remembers, one entry per file layout
+     (PRD §06.4). It travels with priorities and labels: synced, and in a
+     backup. */
+  if (!Array.isArray(state.importLayouts)) state.importLayouts = [];
   /* Notes (1.4.0): no migration, just defaults */
   state.notes ??= [];
   state.notesSort ??= 'created-desc';
@@ -932,6 +936,143 @@ export function deleteMeetingForever(id) {
 /** A backup file was handed over just now (ui/data.js): the Backup page shows when. */
 export function noteFileBackup(at = Date.now()) { S.lastFileBackupAt = at; save(); }
 
+/* ── Import (PRD 1.7.0 §06.1) ────────────────────────────────────────── */
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/, CLOCK = /^\d{2}:\d{2}$/;
+
+/** Adds the tasks of an import plan (src/importer.js) in one commit: to a
+    board of the person's own, or to a new board whose lanes are the lists
+    the tasks ask for. Nothing that exists is changed. Every value is built
+    here from the plan's text, as for a task typed by hand. Returns what
+    undoImport needs, or { error } with nothing changed: 'board' when the
+    board cannot take them, 'too_many' when the device would hold more than
+    an account can (importRoom), 'storage' when the device has no room.
+    show: open that board afterwards. */
+export const RECORDS_MAX = 20000;   // tasks, notes and meetings together: what an account holds (the sync quota)
+export const importRoom = () => Math.max(0, RECORDS_MAX - S.tasks.length - S.notes.length - S.meetings.length);
+export function importTasks({ boardId = null, newBoard = null, items = [], show = false }) {
+  const made = { listId: null, boardMade: false, laneIds: [], taskIds: [] };
+  let list = boardId ? listById(boardId) : null;
+  if (boardId && (!isLive(list) || list.share)) return { error: 'board' };
+  if (items.length > importRoom()) return { error: 'too_many' };
+  /* everything an import touches, to put back if the device has no room for it */
+  const before = { lists: S.lists, lanes: list ? list.lanes.slice() : null, tasks: S.tasks.length, currentList: S.currentList };
+  const ui = { screen: UI.screen, settingsPage: UI.settingsPage, detailId: UI.detailId };
+  if (!list) {
+    const names = [];
+    items.forEach((it) => { const n = String(it.lane?.name ?? '').trim().slice(0, 80); if (n && n.toLowerCase() !== 'done' && !names.some((x) => x.toLowerCase() === n.toLowerCase())) names.push(n); });
+    list = {
+      id: uid(), name: String(newBoard ?? '').trim().slice(0, 80) || 'Imported',
+      lanes: names.length ? [...names.map((name) => ({ id: uid(), name })), { id: DONE_LANE, name: 'Done' }] : defaultLanes(),
+      status: 'active', archivedAt: null, deletedAt: null,
+    };
+    S.lists = [...S.lists, list];
+    made.boardMade = true;
+  }
+  made.listId = list.id;
+  const laneFor = (ref) => {
+    if (ref?.id && list.lanes.some((l) => l.id === ref.id)) return ref.id;
+    const name = String(ref?.name ?? '').trim().slice(0, 80);
+    if (!name) return workLane(list.id);
+    const found = list.lanes.find((l) => l.name.trim().toLowerCase() === name.toLowerCase());
+    if (found) return found.id;
+    const lane = { id: uid(), name };
+    const i = list.lanes.findIndex((l) => l.id === DONE_LANE);
+    list.lanes.splice(i === -1 ? list.lanes.length : i, 0, lane);
+    if (!made.boardMade) made.laneIds.push(lane.id);
+    return lane.id;
+  };
+  const now = Date.now();
+  let order = nextOrder();
+  for (const it of items) {
+    const title = String(it.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 2000);
+    if (!title) continue;
+    let lane = laneFor(it.lane);
+    const done = !!it.done || lane === DONE_LANE;
+    if (done) lane = DONE_LANE;
+    const due = ISO_DAY.test(it.due) ? it.due : null;
+    const start = ISO_DAY.test(it.start) && (!due || it.start <= due) ? it.start : null;
+    const t = blankTask(list.id, title, {
+      lane, done, order: order++,
+      priority: priorityById(it.priority) ? it.priority : 'none',
+      tags: normalizeTags((it.tags || []).map((x) => String(x).slice(0, 64))),
+      subtasks: (it.subtasks || []).slice(0, 200).map((s) => ({ id: uid(), title: String(s.title ?? '').slice(0, 500), done: !!s.done })).filter((s) => s.title),
+      description: sanitize(String(it.description ?? '').slice(0, DESCRIPTION_MAX)),
+      start, due, dueTime: due && CLOCK.test(it.dueTime) ? it.dueTime : null,
+      ...(it.key ? { importKey: String(it.key).slice(0, 200) } : {}),   // not shown anywhere: it tells a second import this card is here
+    });
+    if (it.archived) { t.status = 'archived'; t.archivedAt = now; t.origin = { listId: t.listId, lane: t.lane, order: t.order }; }
+    S.tasks.push(t);
+    made.taskIds.push(t.id);
+  }
+  if (show) { S.currentList = list.id; UI.screen = 'list'; UI.settingsPage = null; UI.detailId = null; }
+  /* written before anything is shown: an import that does not fit must not
+     look like one that did, and must leave the device as it was */
+  try { write(); } catch {
+    S.lists = before.lists;
+    if (before.lanes) list.lanes = before.lanes;
+    S.tasks.length = before.tasks;
+    S.currentList = before.currentList;
+    Object.assign(UI, ui);
+    return { error: 'storage' };
+  }
+  renderer(); afterCommit();
+  return made;
+}
+
+/** Takes back exactly what an import added: its tasks, the lanes it made if
+    nothing else is in them now, and the board it made if it is empty. */
+export function undoImport(made) {
+  if (!made) return;
+  const gone = new Set(made.taskIds);
+  S.tasks = S.tasks.filter((t) => !gone.has(t.id));
+  const list = listById(made.listId);
+  if (list) {
+    const inUse = new Set(S.tasks.filter((t) => t.listId === list.id).map((t) => t.lane));
+    list.lanes = list.lanes.filter((l) => !made.laneIds.includes(l.id) || inUse.has(l.id));
+    if (made.boardMade && !S.tasks.some((t) => t.listId === list.id) && S.lists.some((l) => l.id !== list.id && isLive(l))) {
+      S.lists = S.lists.filter((l) => l.id !== list.id);
+      if (S.currentList === list.id) S.currentList = activeLists()[0].id;
+    }
+  }
+  commit();
+}
+
+/** What the guide learned from an import, kept per file layout: the next
+    file with the same columns arrives with these answers (PRD §06.4). */
+export function rememberImport(layout) {
+  const i = S.importLayouts.findIndex((l) => l.signature === layout.signature);
+  const was = i === -1 ? null : S.importLayouts[i];
+  /* the same limits as for what arrives from the account or a backup (backup.js cleanLayouts) */
+  const next = {
+    ...layout, id: was?.id || uid(), name: String(was?.name || layout.name || 'Import').slice(0, 80),
+    lists: (layout.lists || []).slice(0, 200).map(([n, c]) => [String(n).slice(0, 200), c]),
+    labels: (layout.labels || []).slice(0, 500).map(([n, c]) => [String(n).slice(0, 200), c]),
+    used: (was?.used || 0) + 1, lastUsedAt: Date.now(),
+  };
+  if (was) S.importLayouts[i] = next; else S.importLayouts.unshift(next);
+  S.importLayouts = S.importLayouts.slice(0, 50);
+  commit();
+}
+export function renameImportLayout(id, name) {
+  const l = S.importLayouts.find((x) => x.id === id); const n = String(name ?? '').trim().slice(0, 80);
+  if (!l || !n || l.name === n) return;
+  l.name = n; commit();
+}
+/** Returns the layout, so Undo can put it back. */
+export function deleteImportLayout(id) {
+  const i = S.importLayouts.findIndex((x) => x.id === id);
+  if (i === -1) return null;
+  const [gone] = S.importLayouts.splice(i, 1);
+  commit();
+  return { layout: gone, index: i };
+}
+export function restoreImportLayout({ layout, index }) {
+  if (S.importLayouts.some((x) => x.id === layout.id)) return;
+  S.importLayouts.splice(Math.min(index, S.importLayouts.length), 0, layout);
+  commit();
+}
+
 export function setTitle(id, title) {
   const t = taskById(id); if (!t || !title.trim()) return;
   t.title = title.trim(); touch(t); commit();
@@ -1482,6 +1623,7 @@ export function applyRemote({ upserts = [], deletes = [] }) {
       if (isDateFormat(record.dateFormat)) { S.dateFormat = record.dateFormat; setDefaultDateFormat(record.dateFormat); }
       if (record.priorities?.length || !S.priorities.length) S.priorities = record.priorities;
       S.labels = record.labels || [];
+      if (Array.isArray(record.imports)) S.importLayouts = record.imports;   // absent: sent by a device that does not know them
       continue;
     }
     const arr = S[KIND_LIST[kind]]; if (!arr) continue;
@@ -1514,7 +1656,7 @@ export function applyRemote({ upserts = [], deletes = [] }) {
 export function exportRecords() {
   return JSON.parse(JSON.stringify({
     lists: S.lists, tasks: S.tasks, notes: S.notes, meetings: S.meetings,
-    settings: { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels },
+    settings: { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels, imports: S.importLayouts },
   }));
 }
 
@@ -1547,6 +1689,7 @@ export function replaceRecords({ lists, tasks, notes, meetings, settings }) {
   });
   if (isDateFormat(settings.dateFormat)) S.dateFormat = settings.dateFormat;   // else this device keeps its own
   S.priorities = settings.priorities; S.labels = settings.labels;
+  if (Array.isArray(settings.imports)) S.importLayouts = settings.imports;   // a file from before 1.7.0 has none: this device keeps its own
   withSettings(S);
   if (!isLive(listById(S.currentList))) S.currentList = activeLists()[0].id;
   doneOrigin.clear();

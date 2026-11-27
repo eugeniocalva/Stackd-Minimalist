@@ -1,7 +1,7 @@
 # PRD: Stack'd Minimalist 1.7.0 — swipe back, a tidier Settings, import and export
 
-Status: **in progress, 2026-11-26.** Phases 1 to 4 of 8 are done and
-agreed. Forty-four decisions taken by the owner (§02). The decisions
+Status: **in progress, 2026-11-27.** Phases 1 to 5 of 8 are done and
+agreed. Forty-nine decisions taken by the owner (§02). The decisions
 still to take are listed by phase in §11 and are
 asked when their phase starts; each answer is recorded in §02. Branch:
 `release/1.7.0`, cut from `release/1.6.0` at `602b94c`.
@@ -70,6 +70,11 @@ the exported files) are done by the owner on one TestFlight build at the end.
 | 42 | Results and refusals | A success is a short message at the bottom; every refusal is a dialog with the full sentence |
 | 43 | Icons of the Data rows | Three new ones: opposed arrows, a shield with a tick, a list with dots |
 | 44 | Phase 4, the Data section and Backup as built | Agreed from the pictures of the app, with the check before a backup is handed over and the stand-in board when only shared boards are in use. A real file picker, a real download, a signed-in account and the iPhone app are checked on TestFlight |
+| 45 | The shape of the import guide | Full pages under Settings, one step per page, with Continue at the bottom, a back arrow that keeps the answers and a close button |
+| 46 | A file that is not a flat list (several parts inside one file) | The guide shows the parts it found and asks which holds the tasks; other parts supply names and checklists through their ids. No tool is named |
+| 47 | Recognising a card imported before, in a file with no link or number per card | Same title in the lane its list maps to. Review shows how many and offers to import them anyway |
+| 48 | Remembered imports in a backup file | Included, with priorities and labels, and restored with them |
+| 49 | Phase 5, the import guide and Remembered imports as built | Agreed on 2026-11-27 from the pictures of the app, with a Priority field, a new board that gets only the lanes its lists ask for, the limits (5,000 rows, 12 MB, 50 new lanes), the link tied to the file's layout, and no import into a shared board. The owner's real files, a real file picker, a signed-in account and the iPhone are checked on TestFlight |
 
 ---
 
@@ -276,6 +281,89 @@ browser.
 
 ### 06.1 Import: the guide
 
+**Built 2026-11-26 and agreed 2026-11-27** (decision 49) for CSV and JSON;
+Excel and XML are phase 6. As built:
+
+- **Starting.** Import file in the sheet opens the system's file picker;
+  the file is read on the device. A file over 12 MB, an empty one, one with
+  no rows or one that is not CSV or JSON gets a dialog that says so and
+  ends "Nothing was changed."
+- **Pages** (decision 45), each with "Step n of m", a back arrow that keeps
+  the answers, a close button and one button at the bottom. A step that
+  does not apply is not shown, so a plain list of tasks can be three steps.
+  1. **Which part**, only for a file made of several lists of things
+     (decision 46): the guide lists the parts with their sizes, suggests
+     the one that holds the tasks, and uses the others to turn ids into
+     names: a task's list, its people, its checklists.
+  2. **Columns.** Eleven fields: Title, List, Description, Labels,
+     Priority, Due date, Start date, Done, Archived, Checklist, Link or
+     number. Each shows the column Stack'd placed on it and a sample value;
+     a tap changes it. Placing is by the columns' names (many spellings
+     known, compared without capitals or punctuation) and, among fitting
+     names, by which column has values. A title is required.
+  3. **Where.** A new board, named after the file, or one of the person's
+     own boards. Shared boards are not offered. A name already in use is
+     refused with the reason.
+  4. **Lists.** Each list of the file with its number of tasks: a new lane
+     of its name, one of the board's lanes, or Done. A list called Done
+     goes to Done. A new board gets exactly the lanes its lists ask for.
+  5. **Labels.** Each label: keep, turn into one of the priorities, or
+     leave out. A colour written after a name, as in `home (blue_light)`,
+     is dropped.
+  6. **Dates**, only when a date such as 03/04/2026 can be read two ways:
+     day first or month first, each shown on a date from the file.
+  7. **Review.** How many tasks go where, how many new lanes and labels,
+     how many are marked complete; the cards imported before, with Skip or
+     Import anyway (decisions 17 and 47); the archived cards, with Leave
+     out, Import as archived or Import as open; the first three tasks as
+     they will look; and what is not imported, by column and number of
+     rows. The button says "Import 253 tasks".
+- **After.** The board opens with "Imported 253 tasks into Work" and
+  **Undo**, which takes back exactly what was added: the tasks, the lanes
+  it made if nothing else is in them, the board it made if it is empty.
+- **What a value becomes.** Text other tools keep as Markdown becomes a
+  description: bold, italic and struck text are formatting, a link is its
+  text and address, anything in angle brackets is text. Dates are read as
+  2026-12-01, 03/04/2026, 28 Nov 2026 or December 5, 2026, with a time if
+  there is one; a moment with a time zone is read in the device's zone. A
+  checklist is one item a line, ticked when it starts `[x]` or ends
+  "(done)". Yes and no are TRUE, yes, 1, x, done and the like.
+- **Imported before.** A task made by an import keeps the file's link or
+  number out of sight, to recognise the card next time. It is kept with
+  the file's layout, so the numbers 1, 2, 3 of one kind of file are not
+  those of another, and a column is only taken as the link when none of
+  its values comes twice. With no such column, a card counts as imported
+  before when a task of the same title is in the lane its list goes to.
+  Devices still on 1.6.0 are handled as for descriptions (§05).
+- **Limits.** 5,000 rows, 200 columns and 12 MB a file, 50 new lanes an
+  import; Stack'd as a whole holds 20,000 tasks, notes and meetings, which
+  is what an account holds. An import that would pass that, or that the
+  device has no room for, is refused with the reason, adds nothing and
+  leaves the guide open.
+- **Other files.** Anything that is not CSV or JSON is refused by name. A
+  file written in UTF-16 or Windows-1252, as some spreadsheets do, is read
+  as such.
+
+Checked in the browser at 375 and 1280 px on made-up files: a table as a
+board tool exports it, a file of several parts, dates read two ways, the
+refusals, Undo, a second and a third import of the same file, a device
+with no room. Automated in `scripts/check-import.mjs`, `check-store.mjs`,
+`check-sync.mjs` and `check-backup.mjs`. No real export is in the
+repository.
+
+One independent review of the code found no way for a file to put markup
+on the page, and six defects that were fixed before the owner saw the
+result, each now covered by a check: an import the device had no room for
+was reported as done; a crafted cell could keep the page busy for minutes;
+answering Dates could skip to Review; a number that happened to equal an
+id was taken for a pointer in a file of several parts; a column of
+repeating numbers was taken for the link; and several ways of writing a
+date and time were misread (a.m. and p.m., written time zones, midnight
+with a zone, two-digit years). Known and left: when the same list is
+forgotten on one device while a 1.6.0 device and a third device are in
+play, it can come back; and a file's separator is judged on its first six
+rows.
+
 Formats: CSV, Excel (.xlsx), JSON, XML (decision 2). All read on the
 device; nothing is uploaded. A file is untrusted: every value is rebuilt
 through the same cleaning the Stack'd file import uses.
@@ -433,6 +521,18 @@ time: the app never claims a file it did not hand over.
 
 ### 06.4 Remembered imports (decisions 5 and 33)
 
+**Built 2026-11-26 and agreed 2026-11-27** (decision 49). After every import
+the guide keeps the answers for that file layout (its columns), by itself.
+The next file with the same columns opens at Where, says that Stack'd
+remembers it, and goes straight to Review; "Check the answers" walks
+through every step again. A list or a label the file did not have before
+brings its step back. The page lists one row per layout: its name, how
+many columns, how often and when it was last used, and where each field
+came from; the row's menu has Rename and Forget, and Forget can be undone.
+Lanes are remembered by name, so the answers fit another board. Saved with
+the account (decision 19) and in a backup (decision 48); whatever arrives
+from the account or from a file is rebuilt field by field.
+
 A page that lists what the guide has learned, one row per file layout,
 named after its columns or by the owner: "35 columns: List Name, Name,
 Desc… · used 3 times · last 26 Nov 2026". A row opens to show the
@@ -490,7 +590,7 @@ Each phase: options shown → owner agrees → built → shown → owner agrees.
 | 2 | A: swipe left. **Done and agreed** (decision 26) | Pictures of the swipe half way in the test browser, then TestFlight |
 | 3 | C: task description. **Done and agreed** (decisions 27 to 31) | Mock-ups of the task detail, three options; then the built screens |
 | 4 | D: Data section, the sheet, Backup. **Done and agreed** (decisions 32 to 44) | Mock-ups, then the working pages |
-| 5 | D: Import guide, CSV and JSON, Trello layout, automation | The guide, step by step, on the sample files |
+| 5 | D: Import guide for CSV and JSON, files made of several parts, Remembered imports. **Done and agreed** (decisions 45 to 49) | The guide, step by step, on made-up files |
 | 6 | D: Import of Excel and XML | The same files in those formats |
 | 7 | D: Export, six formats | The pages, and one file of each format to open |
 | 8 | iPhone saving, QA, security review, version, release notes. QA includes: no switched-off button and no "being built" line left in the Import and export sheet | TestFlight build |
@@ -503,9 +603,7 @@ when its phase starts, and the answer goes into §02.
 
 | Phase | Question | My suggestion |
 |---|---|---|
-| 5 | A JSON or XML file that is not a flat list, such as Trello's own free "Export as JSON" (the whole board, with checklists, where the power-up's free plan stops at 10 cards). Decision 18 says no readers for named tools, so: leave such files out, or let the guide ask which part of the file holds the cards? | Let the guide ask; no tool is named |
-| 5 | A file with no link or number per row: how a second import recognises a card (decision 17) | Same list and same title; Review shows how many were skipped and offers "import them anyway" |
-| 5 | An Excel file with several sheets | Read the first, offer the others |
+| 6 | An Excel file with several sheets | Read the first, offer the others |
 | 7 | Word: a true `.docx`, or a web page saved as `.doc` as the power-up does | True `.docx`: Pages and Google Docs open it properly |
 | 7 | The fields ticked at first in the export | Board, list, title, description, labels, priority, due, start, done, subtasks |
 

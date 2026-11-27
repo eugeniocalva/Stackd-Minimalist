@@ -42,7 +42,7 @@ const mw = sync.toWire('meeting', meet);
 for (const k of ['recording', 'jobs', 'lastError']) assert.ok(!(k in mw), `${k} never leaves the device`);
 assert.deepEqual(sync.fromWire('meeting', mw, meet), meet, 'fromWire(toWire(x), x) is x');
 const sw = sync.toWire('settings', S);
-assert.deepEqual(Object.keys(sw).sort(), ['dateFormat', 'labels', 'priorities']);
+assert.deepEqual(Object.keys(sw).sort(), ['dateFormat', 'imports', 'labels', 'priorities']);
 const col = sync.collect(S);
 for (const k of ['theme', 'currentList', 'view', 'sort', 'plan', 'ai', 'onboarded']) {
   assert.ok(![...col.values()].some((r) => r.data && k in r.data && r.kind === 'settings'), `${k} is per device`);
@@ -220,6 +220,44 @@ assert.equal(n.color, null, 'an unknown colour is dropped');
   await sync.now();
   assert.equal(store.taskById(dTask.id).title, 'Call the dentist');
   assert.ok(pushes.every((n) => n === 0), 'no description here: the old edit is taken as it is');
+
+  /* what the import guide remembers travels with the settings (PRD 1.7.0 §06.4, decision 19) */
+  const setRow = () => JSON.parse(db.raw.prepare("SELECT data FROM records WHERE kind = 'settings'").get().data);
+  store.rememberImport({ name: '12 columns: List Name, Name…', signature: 'c12-abc', columns: 12, part: null,
+    mapping: { title: 'Name', list: 'List Name' }, lists: [['Doing', { kind: 'new', name: 'Doing' }]], labels: [['old', 'drop']], dateOrder: null, archived: 'leave', repeats: 'skip' });
+  await sync.now();
+  assert.deepEqual(setRow().imports.map((l) => [l.signature, l.used]), [['c12-abc', 1]], 'a remembered import syncs');
+  /* a 1.6.0 device changes the date format: it sends the settings without them */
+  const { imports: _noImports, ...oldSettings } = setRow();
+  await B('/v1/sync', { cursor: 0, changes: [{ kind: 'settings', id: 'settings', changedAt: Date.now() + 40_000, deleted: false, data: { ...oldSettings, dateFormat: 'ymd' } }] }, bTok);
+  assert.ok(!('imports' in setRow()), 'the old device left them out');
+  await sync.now();
+  assert.equal(S.dateFormat, 'ymd', "the old device's change arrives");
+  assert.equal(S.importLayouts.length, 1, 'and what was remembered is kept here');
+  assert.deepEqual([setRow().imports.length, setRow().dateFormat], [1, 'ymd'], 'and is back in the account');
+  /* emptied on purpose on a 1.7.0 device: it stays empty */
+  await B('/v1/sync', { cursor: 0, changes: [{ kind: 'settings', id: 'settings', changedAt: Date.now() + 50_000, deleted: false, data: { ...setRow(), imports: [] } }] }, bTok);
+  await sync.now();
+  assert.equal(S.importLayouts.length, 0, 'a list emptied on another 1.7.0 device stays empty');
+  /* a hostile layout from the server is rebuilt or dropped, never taken as it is */
+  await B('/v1/sync', { cursor: 0, changes: [{ kind: 'settings', id: 'settings', changedAt: Date.now() + 60_000, deleted: false, data: { ...setRow(), imports: [
+    { id: '"><img src=x onerror=alert(1)>', signature: 'x', name: 'bad id' },
+    { id: 'ok1', signature: 'c2-zz', name: '<b>n</b>', columns: -4, mapping: { title: 5, evil: 'x' }, lists: [['L', { kind: 'lane', name: '' }], ['M', { kind: 'done' }]], labels: [['a', { priority: '<x>' }]], archived: 'explode', injected: 1 },
+  ] } }] }, bTok);
+  await sync.now();
+  assert.deepEqual(S.importLayouts.map((l) => l.id), ['ok1'], 'an entry with a bad id is dropped');
+  assert.deepEqual([S.importLayouts[0].columns, S.importLayouts[0].mapping.title, 'evil' in S.importLayouts[0].mapping, S.importLayouts[0].lists, S.importLayouts[0].labels, S.importLayouts[0].archived, 'injected' in S.importLayouts[0]],
+    [0, null, false, [['M', { kind: 'done' }]], [['a', 'keep']], 'leave', false]);
+
+  /* the hidden mark that tells a second import a card is here survives an old device's edit too */
+  const made = store.importTasks({ boardId: 'work', items: [{ title: 'Imported card', lane: { id: 'backlog' }, key: 'ab12' }] });
+  assert.ok(!made.error && made.taskIds.length === 1);
+  await sync.now();
+  const { importKey: _k, ...heldTask } = rowOf(made.taskIds[0]);
+  assert.equal(_k, 'ab12');
+  await B('/v1/sync', { cursor: 0, changes: [{ kind: 'task', id: made.taskIds[0], changedAt: Date.now() + 70_000, deleted: false, data: { ...heldTask, title: 'Imported card (old phone)' } }] }, bTok);
+  await sync.now();
+  assert.deepEqual([store.taskById(made.taskIds[0]).importKey, rowOf(made.taskIds[0]).importKey, rowOf(made.taskIds[0]).title], ['ab12', 'ab12', 'Imported card (old phone)']);
 }
 
 /* a second device signing in with untouched samples downloads, never doubles (AC-06.1) */

@@ -47,7 +47,7 @@ export function hash(text) {
 export function toWire(kind, x) {
   if (kind === 'task') { const { reminderFiredAt, ...t } = x; return t; }
   if (kind === 'meeting') { const { recording, jobs, lastError, ...m } = x; return m; }
-  if (kind === 'settings') return { dateFormat: x.dateFormat, priorities: x.priorities, labels: x.labels };
+  if (kind === 'settings') return { dateFormat: x.dateFormat, priorities: x.priorities, labels: x.labels, imports: x.importLayouts || [] };
   if (kind === 'list') { const { share, ...l } = x; return l; }   // who it is shared with is the server's to say
   return { ...x };
 }
@@ -341,8 +341,16 @@ function applyInbound(changes, { space = null } = {}) {
        such field came from an old device: the description here is kept,
        and the task is sent again so the account has it back (PRD 1.7.0
        §05, decision 29). */
-    const resend = c.kind === 'task' && !('description' in clean) && !!local?.description;
-    if (resend) record.description = local.description;
+    let resend = false;
+    if (c.kind === 'task' && local) {
+      for (const field of ['description', 'importKey']) {
+        if (!(field in clean) && local[field]) { record[field] = local[field]; resend = true; }
+      }
+    }
+    /* the same for what the import guide remembers, which such a device
+       leaves out of the settings: kept here (the store only takes a list
+       that was sent) and sent again */
+    if (c.kind === 'settings' && !('imports' in clean) && S.importLayouts?.length) resend = true;
     upserts.push({ kind: c.kind, record, key, changedAt: c.changedAt, resend });
   }
   if (sp) { if (Object.keys(held).length) sp.held = held; else delete sp.held; }

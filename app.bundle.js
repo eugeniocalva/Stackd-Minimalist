@@ -54,9 +54,9 @@
     if (!step || !due) return due;
     const anchored = (recur === "monthly" || recur === "yearly") && anchorDay >= 1 && anchorDay <= 31;
     const next1 = (d) => anchored ? onDay(step(d), anchorDay) : step(d);
-    let next = next1(due);
-    while (next <= today) next = next1(next);
-    return next;
+    let next2 = next1(due);
+    while (next2 <= today) next2 = next1(next2);
+    return next2;
   }
   function onDay(iso, day) {
     const [y, m] = iso.split("-").map(Number);
@@ -103,7 +103,7 @@
     const label = `${parse(due).toLocaleDateString("en-US", { weekday: "short" })} · ${fmtDate(due, format)}`;
     return dueTime ? `${label} · ${dueTime}` : label;
   }
-  var fmtMonth = (year, month) => new Date(year, month, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  var fmtMonth = (year, month2) => new Date(year, month2, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
   var fmtTime = (ts) => new Date(ts).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   var fmtClock = (ts) => {
     const d = new Date(ts);
@@ -153,13 +153,13 @@
   function daysLeft(deletedAt, retentionDays, now2 = Date.now()) {
     return Math.max(0, Math.ceil((deletedAt + retentionDays * 864e5 - now2) / 864e5));
   }
-  function monthGrid(year, month) {
-    const first = new Date(year, month, 1);
+  function monthGrid(year, month2) {
+    const first = new Date(year, month2, 1);
     const lead = (first.getDay() + 6) % 7;
-    const start2 = new Date(year, month, 1 - lead);
+    const start2 = new Date(year, month2, 1 - lead);
     return Array.from({ length: 42 }, (_, i) => {
       const d = new Date(start2.getFullYear(), start2.getMonth(), start2.getDate() + i);
-      return { iso: toISO(d), day: d.getDate(), inMonth: d.getMonth() === month };
+      return { iso: toISO(d), day: d.getDate(), inMonth: d.getMonth() === month2 };
     });
   }
 
@@ -187,12 +187,12 @@
     return { title: task.title, body: boardName ? `${line} · ${boardName}` : line };
   }
   function planReminders(tasks, lists = []) {
-    const boards = new Map(lists.map((l) => [l.id, l.name]));
+    const boards2 = new Map(lists.map((l) => [l.id, l.name]));
     const away = new Set(lists.filter((l) => l.status === "archived" || l.status === "deleted").map((l) => l.id));
     return tasks.filter((t) => t.status === "active" && !away.has(t.listId) && !t.done && t.due && t.reminder !== null && t.reminder !== void 0).map((t) => {
       const fireAt = reminderInstant(t.due, t.dueTime, t.reminder);
       if (fireAt === null) return null;
-      const board = boards.get(t.listId) || null;
+      const board = boards2.get(t.listId) || null;
       const { title, body } = reminderText(t, board, fireAt);
       return {
         taskId: t.id,
@@ -210,9 +210,9 @@
   var isTimely = (e, now2) => now2 - e.fireAt <= WEB_GRACE_MS || !isOverdue(e.due, e.dueTime, new Date(now2));
   var phraseAt = (e, now2) => now2 - e.fireAt > LATE_TEXT_MS ? now2 : e.fireAt;
   var ledgerKey = (e) => `${e.taskId}:${e.fireAt}`;
-  function dueForWeb(plan, now2, handled = {}) {
+  function dueForWeb(plan2, now2, handled = {}) {
     const fire = [], lapse = [];
-    for (const e of plan) {
+    for (const e of plan2) {
       if (e.fireAt > now2 || e.firedAt !== null || handled[ledgerKey(e)]) continue;
       if (isTimely(e, now2)) fire.push({ ...e, ...reminderText(e, e.board, phraseAt(e, now2)) });
       else lapse.push(e);
@@ -230,7 +230,7 @@
   function pruneLedger(ledger, now2, maxAgeMs = 30 * 864e5) {
     return Object.fromEntries(Object.entries(ledger).filter(([, at]) => now2 - at < maxAgeMs));
   }
-  var pastUnfired = (plan, now2) => plan.filter((e) => e.firedAt === null && e.fireAt <= now2);
+  var pastUnfired = (plan2, now2) => plan2.filter((e) => e.firedAt === null && e.fireAt <= now2);
   function deliveredSince(record2, pendingTaskIds, tasks, now2) {
     const byId = new Map(tasks.map((t) => [t.id, t]));
     return Object.entries(record2).filter(([taskId, r]) => r.fireAt <= now2 && !pendingTaskIds.has(taskId)).filter(([taskId, r]) => {
@@ -238,18 +238,18 @@
       return t && t.reminderFiredAt == null && reminderKey(t) === r.key;
     }).map(([taskId, r]) => ({ taskId, fireAt: r.fireAt }));
   }
-  function heldRequests(plan, pendingByTask, record2) {
+  function heldRequests(plan2, pendingByTask, record2) {
     const held = /* @__PURE__ */ new Map();
-    for (const e of plan) {
+    for (const e of plan2) {
       const p = pendingByTask.get(e.taskId);
       const r = record2[e.taskId];
       if (p && r && r.key === e.key && e.firedAt === null) held.set(e.taskId, { id: Number(p.id), sig: p.extra?.sig ?? null });
     }
     return held;
   }
-  function nativePlan(plan, now2, held = /* @__PURE__ */ new Map()) {
+  function nativePlan(plan2, now2, held = /* @__PURE__ */ new Map()) {
     const isHeld = (e) => e.fireAt <= now2 && held.has(e.taskId);
-    const wanted = plan.filter((e) => e.firedAt === null && (e.fireAt > now2 || held.has(e.taskId) || isTimely(e, now2))).slice(0, MAX_NATIVE);
+    const wanted = plan2.filter((e) => e.firedAt === null && (e.fireAt > now2 || held.has(e.taskId) || isTimely(e, now2))).slice(0, MAX_NATIVE);
     const ids = /* @__PURE__ */ new Map();
     const used = /* @__PURE__ */ new Set();
     for (const e of wanted) {
@@ -302,7 +302,7 @@
   function sanitize(html) {
     const src = String(html ?? "").replace(DROP_CONTENT, "");
     const out = [];
-    const open2 = [];
+    const open3 = [];
     let last = 0, atStart = true, boundary = false;
     const flushBoundary = () => {
       if (boundary && !atStart) out.push("<br>");
@@ -317,9 +317,9 @@
       out.push(escText(text2));
     };
     const closeTo = (name) => {
-      const i = open2.lastIndexOf(name);
+      const i = open3.lastIndexOf(name);
       if (i === -1) return;
-      while (open2.length > i) out.push(`</${open2.pop()}>`);
+      while (open3.length > i) out.push(`</${open3.pop()}>`);
     };
     for (const m of src.matchAll(TOKEN)) {
       pushText(src.slice(last, m.index));
@@ -339,14 +339,14 @@
       const mapped = INLINE_MAP[raw];
       if (!mapped || !ALLOWED_TAGS.includes(mapped)) continue;
       if (closing) closeTo(mapped);
-      else if (!open2.includes(mapped)) {
+      else if (!open3.includes(mapped)) {
         flushBoundary();
         out.push(`<${mapped}>`);
-        open2.push(mapped);
+        open3.push(mapped);
       }
     }
     pushText(src.slice(last));
-    while (open2.length) out.push(`</${open2.pop()}>`);
+    while (open3.length) out.push(`</${open3.pop()}>`);
     return out.join("").replace(/^(?:\s|<br>)+/, "").replace(/(?:<br>|\s)+((?:<\/[bius]>)*)$/, "$1").replace(/(?:<br>){3,}/g, "<br><br>").replace(/<([bius])><\/\1>/g, "");
   }
   var fromPlain = (text2) => sanitize(escText(String(text2 ?? "")).replace(/\r?\n/g, "<br>"));
@@ -577,6 +577,7 @@
     state3.priorities ??= defaultPriorities();
     state3.labels ??= [];
     state3.lastFileBackupAt ??= null;
+    if (!Array.isArray(state3.importLayouts)) state3.importLayouts = [];
     state3.notes ??= [];
     state3.notesSort ??= "created-desc";
     if (state3.sort === "due") state3.sort = "due-asc";
@@ -1376,6 +1377,150 @@
     S.lastFileBackupAt = at;
     save();
   }
+  var ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+  var CLOCK = /^\d{2}:\d{2}$/;
+  var RECORDS_MAX = 2e4;
+  var importRoom = () => Math.max(0, RECORDS_MAX - S.tasks.length - S.notes.length - S.meetings.length);
+  function importTasks({ boardId = null, newBoard: newBoard2 = null, items = [], show: show3 = false }) {
+    const made = { listId: null, boardMade: false, laneIds: [], taskIds: [] };
+    let list3 = boardId ? listById(boardId) : null;
+    if (boardId && (!isLive(list3) || list3.share)) return { error: "board" };
+    if (items.length > importRoom()) return { error: "too_many" };
+    const before = { lists: S.lists, lanes: list3 ? list3.lanes.slice() : null, tasks: S.tasks.length, currentList: S.currentList };
+    const ui = { screen: UI.screen, settingsPage: UI.settingsPage, detailId: UI.detailId };
+    if (!list3) {
+      const names = [];
+      items.forEach((it) => {
+        const n = String(it.lane?.name ?? "").trim().slice(0, 80);
+        if (n && n.toLowerCase() !== "done" && !names.some((x) => x.toLowerCase() === n.toLowerCase())) names.push(n);
+      });
+      list3 = {
+        id: uid(),
+        name: String(newBoard2 ?? "").trim().slice(0, 80) || "Imported",
+        lanes: names.length ? [...names.map((name) => ({ id: uid(), name })), { id: DONE_LANE, name: "Done" }] : defaultLanes(),
+        status: "active",
+        archivedAt: null,
+        deletedAt: null
+      };
+      S.lists = [...S.lists, list3];
+      made.boardMade = true;
+    }
+    made.listId = list3.id;
+    const laneFor = (ref) => {
+      if (ref?.id && list3.lanes.some((l) => l.id === ref.id)) return ref.id;
+      const name = String(ref?.name ?? "").trim().slice(0, 80);
+      if (!name) return workLane(list3.id);
+      const found = list3.lanes.find((l) => l.name.trim().toLowerCase() === name.toLowerCase());
+      if (found) return found.id;
+      const lane = { id: uid(), name };
+      const i = list3.lanes.findIndex((l) => l.id === DONE_LANE);
+      list3.lanes.splice(i === -1 ? list3.lanes.length : i, 0, lane);
+      if (!made.boardMade) made.laneIds.push(lane.id);
+      return lane.id;
+    };
+    const now2 = Date.now();
+    let order = nextOrder();
+    for (const it of items) {
+      const title = String(it.title ?? "").replace(/\s+/g, " ").trim().slice(0, 2e3);
+      if (!title) continue;
+      let lane = laneFor(it.lane);
+      const done2 = !!it.done || lane === DONE_LANE;
+      if (done2) lane = DONE_LANE;
+      const due = ISO_DAY.test(it.due) ? it.due : null;
+      const start2 = ISO_DAY.test(it.start) && (!due || it.start <= due) ? it.start : null;
+      const t = blankTask(list3.id, title, {
+        lane,
+        done: done2,
+        order: order++,
+        priority: priorityById(it.priority) ? it.priority : "none",
+        tags: normalizeTags((it.tags || []).map((x) => String(x).slice(0, 64))),
+        subtasks: (it.subtasks || []).slice(0, 200).map((s) => ({ id: uid(), title: String(s.title ?? "").slice(0, 500), done: !!s.done })).filter((s) => s.title),
+        description: sanitize(String(it.description ?? "").slice(0, DESCRIPTION_MAX)),
+        start: start2,
+        due,
+        dueTime: due && CLOCK.test(it.dueTime) ? it.dueTime : null,
+        ...it.key ? { importKey: String(it.key).slice(0, 200) } : {}
+        // not shown anywhere: it tells a second import this card is here
+      });
+      if (it.archived) {
+        t.status = "archived";
+        t.archivedAt = now2;
+        t.origin = { listId: t.listId, lane: t.lane, order: t.order };
+      }
+      S.tasks.push(t);
+      made.taskIds.push(t.id);
+    }
+    if (show3) {
+      S.currentList = list3.id;
+      UI.screen = "list";
+      UI.settingsPage = null;
+      UI.detailId = null;
+    }
+    try {
+      write();
+    } catch {
+      S.lists = before.lists;
+      if (before.lanes) list3.lanes = before.lanes;
+      S.tasks.length = before.tasks;
+      S.currentList = before.currentList;
+      Object.assign(UI, ui);
+      return { error: "storage" };
+    }
+    renderer();
+    afterCommit();
+    return made;
+  }
+  function undoImport(made) {
+    if (!made) return;
+    const gone = new Set(made.taskIds);
+    S.tasks = S.tasks.filter((t) => !gone.has(t.id));
+    const list3 = listById(made.listId);
+    if (list3) {
+      const inUse = new Set(S.tasks.filter((t) => t.listId === list3.id).map((t) => t.lane));
+      list3.lanes = list3.lanes.filter((l) => !made.laneIds.includes(l.id) || inUse.has(l.id));
+      if (made.boardMade && !S.tasks.some((t) => t.listId === list3.id) && S.lists.some((l) => l.id !== list3.id && isLive(l))) {
+        S.lists = S.lists.filter((l) => l.id !== list3.id);
+        if (S.currentList === list3.id) S.currentList = activeLists()[0].id;
+      }
+    }
+    commit();
+  }
+  function rememberImport(layout) {
+    const i = S.importLayouts.findIndex((l) => l.signature === layout.signature);
+    const was = i === -1 ? null : S.importLayouts[i];
+    const next2 = {
+      ...layout,
+      id: was?.id || uid(),
+      name: String(was?.name || layout.name || "Import").slice(0, 80),
+      lists: (layout.lists || []).slice(0, 200).map(([n, c]) => [String(n).slice(0, 200), c]),
+      labels: (layout.labels || []).slice(0, 500).map(([n, c]) => [String(n).slice(0, 200), c]),
+      used: (was?.used || 0) + 1,
+      lastUsedAt: Date.now()
+    };
+    if (was) S.importLayouts[i] = next2;
+    else S.importLayouts.unshift(next2);
+    S.importLayouts = S.importLayouts.slice(0, 50);
+    commit();
+  }
+  function renameImportLayout(id, name) {
+    const l = S.importLayouts.find((x) => x.id === id);
+    const n = String(name ?? "").trim().slice(0, 80);
+    if (!l || !n || l.name === n) return;
+    l.name = n;
+    commit();
+  }
+  function deleteImportLayout(id) {
+    const i = S.importLayouts.findIndex((x) => x.id === id);
+    if (i === -1) return null;
+    const [gone] = S.importLayouts.splice(i, 1);
+    commit();
+    return { layout: gone, index: i };
+  }
+  function restoreImportLayout({ layout, index }) {
+    if (S.importLayouts.some((x) => x.id === layout.id)) return;
+    S.importLayouts.splice(Math.min(index, S.importLayouts.length), 0, layout);
+    commit();
+  }
   function setTitle(id, title) {
     const t = taskById(id);
     if (!t || !title.trim()) return;
@@ -1388,9 +1533,9 @@
   function setDescription(id, html, { quiet = false } = {}) {
     const t = taskById(id);
     if (!t || t.status !== "active") return;
-    const next = sanitize(String(html ?? "").slice(0, DESCRIPTION_MAX));
-    if (next === (t.description || "")) return;
-    t.description = next;
+    const next2 = sanitize(String(html ?? "").slice(0, DESCRIPTION_MAX));
+    if (next2 === (t.description || "")) return;
+    t.description = next2;
     touch(t);
     if (quiet) persistQuiet();
     else commit();
@@ -1553,9 +1698,9 @@
   function setShares(shares) {
     let changed = false;
     for (const l of S.lists) {
-      const next = shares[l.id];
-      if (l.share && next && JSON.stringify(next) !== JSON.stringify(l.share)) {
-        l.share = next;
+      const next2 = shares[l.id];
+      if (l.share && next2 && JSON.stringify(next2) !== JSON.stringify(l.share)) {
+        l.share = next2;
         changed = true;
       }
     }
@@ -1701,9 +1846,9 @@
     const done2 = list3.lanes.find((l) => l.id === DONE_LANE);
     const i = Math.max(0, Math.min(others.length, index));
     others.splice(i, 0, lane);
-    const next = done2 ? [...others, done2] : others;
-    if (next.every((l, k) => l === list3.lanes[k])) return;
-    list3.lanes = next;
+    const next2 = done2 ? [...others, done2] : others;
+    if (next2.every((l, k) => l === list3.lanes[k])) return;
+    list3.lanes = next2;
     commit();
   }
   function setTheme(theme) {
@@ -1855,8 +2000,8 @@
   function isUntouchedSeed(state3 = S) {
     const s = seed();
     const titles = new Set(s.tasks.map((t) => t.title));
-    const boards = new Set(s.lists.map((l) => l.id));
-    return !state3.notes.length && !state3.meetings.length && !state3.labels.length && state3.lists.length === s.lists.length && state3.lists.every((l) => boards.has(l.id) && (l.status ?? "active") === "active") && state3.tasks.length === s.tasks.length && state3.tasks.every((t) => titles.has(t.title) && t.status === "active" && t.updatedAt === t.createdAt);
+    const boards2 = new Set(s.lists.map((l) => l.id));
+    return !state3.notes.length && !state3.meetings.length && !state3.labels.length && state3.lists.length === s.lists.length && state3.lists.every((l) => boards2.has(l.id) && (l.status ?? "active") === "active") && state3.tasks.length === s.tasks.length && state3.tasks.every((t) => titles.has(t.title) && t.status === "active" && t.updatedAt === t.createdAt);
   }
   var KIND_LIST = { list: "lists", task: "tasks", note: "notes", meeting: "meetings" };
   function applyRemote({ upserts = [], deletes = [] }) {
@@ -1870,6 +2015,7 @@
         }
         if (record2.priorities?.length || !S.priorities.length) S.priorities = record2.priorities;
         S.labels = record2.labels || [];
+        if (Array.isArray(record2.imports)) S.importLayouts = record2.imports;
         continue;
       }
       const arr = S[KIND_LIST[kind]];
@@ -1906,7 +2052,7 @@
       tasks: S.tasks,
       notes: S.notes,
       meetings: S.meetings,
-      settings: { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels }
+      settings: { dateFormat: S.dateFormat, priorities: S.priorities, labels: S.labels, imports: S.importLayouts }
     }));
   }
   function replaceRecords({ lists, tasks, notes, meetings, settings: settings2 }) {
@@ -1940,6 +2086,7 @@
     if (isDateFormat(settings2.dateFormat)) S.dateFormat = settings2.dateFormat;
     S.priorities = settings2.priorities;
     S.labels = settings2.labels;
+    if (Array.isArray(settings2.imports)) S.importLayouts = settings2.imports;
     withSettings(S);
     if (!isLive(listById(S.currentList))) S.currentList = activeLists()[0].id;
     doneOrigin.clear();
@@ -2114,14 +2261,14 @@
     const pendingByTask = new Map(pending.filter((p) => p.extra?.taskId).map((p) => [p.extra.taskId, p]));
     let now2 = Date.now();
     for (const d of deliveredSince(record2, new Set(pendingByTask.keys()), S.tasks, now2)) markReminderFired(d.taskId, d.fireAt);
-    let plan = planReminders(S.tasks, S.lists);
-    const held = heldRequests(plan, pendingByTask, record2);
-    for (const e of pastUnfired(plan, now2)) {
+    let plan2 = planReminders(S.tasks, S.lists);
+    const held = heldRequests(plan2, pendingByTask, record2);
+    for (const e of pastUnfired(plan2, now2)) {
       if (!held.has(e.taskId) && !isTimely(e, now2)) markReminderFired(e.taskId, now2);
     }
     now2 = Date.now();
-    plan = planReminders(S.tasks, S.lists);
-    const desired = nativePlan(plan, now2, held);
+    plan2 = planReminders(S.tasks, S.lists);
+    const desired = nativePlan(plan2, now2, held);
     const { cancel, schedule } = diffNative(desired, pending, { allowSchedule: granted });
     if (cancel.length) await ln.cancel({ notifications: cancel.map((id) => ({ id })) });
     if (schedule.length) await ln.schedule({ notifications: schedule.map((e) => nativeNotification(e, Date.now())) });
@@ -2406,7 +2553,7 @@
           if (scrollV && !raf) raf = requestAnimationFrame(autoScroll);
         }
       };
-      const finish3 = () => {
+      const finish5 = () => {
         clearTimeout(holdTimer);
         clearTimeout(armTimer);
         el.removeEventListener("pointermove", move);
@@ -2424,7 +2571,7 @@
       };
       const up = (ev) => {
         const wasDragging = dragging;
-        finish3();
+        finish5();
         endDrag();
         if (wasDragging || held) swallowClick();
         if (wasDragging) onDrop?.(ev);
@@ -2434,7 +2581,7 @@
         }
       };
       const cancel = () => {
-        finish3();
+        finish5();
         endDrag();
       };
       el.addEventListener("touchmove", blockScroll, { passive: false });
@@ -2990,15 +3137,15 @@
     });
     q("[data-days]").addEventListener("keydown", (e) => {
       const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
-      let next = null;
-      if (step) next = addDays(cursor, step);
-      else if (e.key === "PageUp") next = addMonths(cursor, e.shiftKey ? -12 : -1);
-      else if (e.key === "PageDown") next = addMonths(cursor, e.shiftKey ? 12 : 1);
-      else if (e.key === "Home") next = addDays(cursor, -weekday(cursor));
-      else if (e.key === "End") next = addDays(cursor, 6 - weekday(cursor));
-      if (!next) return;
+      let next2 = null;
+      if (step) next2 = addDays(cursor, step);
+      else if (e.key === "PageUp") next2 = addMonths(cursor, e.shiftKey ? -12 : -1);
+      else if (e.key === "PageDown") next2 = addMonths(cursor, e.shiftKey ? 12 : 1);
+      else if (e.key === "Home") next2 = addDays(cursor, -weekday(cursor));
+      else if (e.key === "End") next2 = addDays(cursor, 6 - weekday(cursor));
+      if (!next2) return;
       e.preventDefault();
-      cursor = next;
+      cursor = next2;
       renderGrid();
       focusDay();
     });
@@ -3247,21 +3394,21 @@
   </div>`;
   }
   function bindPinpad(root, { onComplete, onChange: onChange3 = null } = {}) {
-    const pad3 = root.querySelector("[data-pinpad]");
-    const dots = pad3.querySelectorAll(".pin-dot");
-    const live = pad3.querySelector("[data-pin-dots]");
+    const pad4 = root.querySelector("[data-pinpad]");
+    const dots = pad4.querySelectorAll(".pin-dot");
+    const live = pad4.querySelector("[data-pin-dots]");
     let pin = "";
     let busy = false;
-    const show2 = () => {
+    const show3 = () => {
       dots.forEach((d, i) => d.classList.toggle("on", i < pin.length));
       live.setAttribute("aria-label", `${pin.length} of ${PIN_LENGTH} digits entered`);
       onChange3?.(pin.length);
     };
     const press = (k) => {
-      if (busy || pad3.classList.contains("is-disabled")) return;
+      if (busy || pad4.classList.contains("is-disabled")) return;
       if (k === "del") pin = pin.slice(0, -1);
       else if (/^\d$/.test(k) && pin.length < PIN_LENGTH) pin += k;
-      show2();
+      show3();
       if (pin.length === PIN_LENGTH) {
         const done2 = pin;
         busy = true;
@@ -3270,12 +3417,12 @@
         });
       }
     };
-    pad3.addEventListener("click", (e) => {
+    pad4.addEventListener("click", (e) => {
       const b = e.target.closest("[data-key]");
       if (b) press(b.dataset.key);
     });
     const onKey = (e) => {
-      if (!pad3.isConnected) {
+      if (!pad4.isConnected) {
         document.removeEventListener("keydown", onKey);
         return;
       }
@@ -3292,29 +3439,29 @@
     return {
       clear() {
         pin = "";
-        show2();
+        show3();
       },
       error(msg) {
-        pad3.querySelector("[data-pin-error]").textContent = msg || "";
+        pad4.querySelector("[data-pin-error]").textContent = msg || "";
         if (msg) {
-          pad3.classList.remove("shake");
-          void pad3.offsetWidth;
-          pad3.classList.add("shake");
+          pad4.classList.remove("shake");
+          void pad4.offsetWidth;
+          pad4.classList.add("shake");
         }
         pin = "";
-        show2();
+        show3();
       },
       label(text2) {
-        pad3.querySelector("[data-pin-label]").textContent = text2;
+        pad4.querySelector("[data-pin-label]").textContent = text2;
       },
       disable(on) {
-        pad3.classList.toggle("is-disabled", on);
-        pad3.querySelectorAll(".pin-key").forEach((b) => {
+        pad4.classList.toggle("is-disabled", on);
+        pad4.querySelectorAll(".pin-key").forEach((b) => {
           b.disabled = on;
         });
       },
       focus() {
-        pad3.querySelector(".pin-key")?.focus();
+        pad4.querySelector(".pin-key")?.focus();
       },
       destroy() {
         document.removeEventListener("keydown", onKey);
@@ -3436,9 +3583,9 @@
       return null;
     }
   }
-  function write2(next, { quiet = false } = {}) {
-    state = next;
-    if (next) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(next));
+  function write2(next2, { quiet = false } = {}) {
+    state = next2;
+    if (next2) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(next2));
     else localStorage.removeItem(ACCOUNT_KEY);
     if (!quiet) listeners.forEach((fn) => fn(state));
   }
@@ -3596,11 +3743,11 @@
   var answer;
   var fake;
   var listeners2 = /* @__PURE__ */ new Set();
-  var set2 = (next) => {
+  var set2 = (next2) => {
     const was = JSON.stringify(answer ?? null);
-    answer = next;
-    if (JSON.stringify(next) !== was) listeners2.forEach((fn) => fn(next));
-    return next;
+    answer = next2;
+    if (JSON.stringify(next2) !== was) listeners2.forEach((fn) => fn(next2));
+    return next2;
   };
   var current2 = () => answer ?? null;
   function onChange2(fn) {
@@ -3633,6 +3780,577 @@
   }
   var isMinor = () => current2()?.age === "minor";
   var waiting = () => current2()?.waiting === true;
+
+  // src/formats/csv.js
+  function parse2(s, sep, maxRows = Infinity) {
+    const rows = [];
+    let row2 = [], cell = "", quoted = false, i = 0;
+    const endCell = () => {
+      row2.push(cell);
+      cell = "";
+    };
+    const endRow = () => {
+      endCell();
+      if (row2.some((c) => c !== "")) rows.push(row2);
+      row2 = [];
+    };
+    while (i < s.length && rows.length < maxRows) {
+      const c = s[i];
+      if (quoted) {
+        if (c === '"') {
+          if (s[i + 1] === '"') {
+            cell += '"';
+            i += 2;
+            continue;
+          }
+          quoted = false;
+          i++;
+          continue;
+        }
+        cell += c;
+        i++;
+        continue;
+      }
+      if (c === '"' && cell.trim() === "") {
+        cell = "";
+        quoted = true;
+        i++;
+        continue;
+      }
+      if (c === sep) {
+        endCell();
+        i++;
+        continue;
+      }
+      if (c === "\r") {
+        endRow();
+        i += s[i + 1] === "\n" ? 2 : 1;
+        continue;
+      }
+      if (c === "\n") {
+        endRow();
+        i++;
+        continue;
+      }
+      cell += c;
+      i++;
+    }
+    if (rows.length < maxRows && (cell !== "" || row2.length)) endRow();
+    return rows;
+  }
+  function sniff(s) {
+    const head = s.slice(0, 2e4);
+    let best = ",", top = 0;
+    for (const sep of [",", ";", "	"]) {
+      const rows = parse2(head, sep, 6);
+      if (!rows.length) continue;
+      const n = rows[0].length;
+      const steady = rows.filter((r) => r.length === n).length;
+      const score = n > 1 ? n * 10 + steady : 0;
+      if (score > top) {
+        top = score;
+        best = sep;
+      }
+    }
+    return best;
+  }
+  function parseCSV(text2) {
+    let s = String(text2 ?? "");
+    if (s.charCodeAt(0) === 65279) s = s.slice(1);
+    const named = /^sep=(.)\r?\n/.exec(s);
+    if (named) s = s.slice(named[0].length);
+    return parse2(s, named ? named[1] : sniff(s));
+  }
+
+  // src/importer.js
+  var MAX_ROWS = 5e3;
+  var MAX_COLUMNS = 200;
+  var MAX_CELL = 3e4;
+  var MAX_SUBTASKS = 200;
+  var MAX_NEW_LANES = 50;
+  var MAX_LABELS = 20;
+  var GuideError = class extends Error {
+    constructor(code, message) {
+      super(message);
+      this.name = "GuideError";
+      this.code = code;
+    }
+  };
+  var FIELDS = [
+    ["title", "Title"],
+    ["list", "List"],
+    ["description", "Description"],
+    ["labels", "Labels"],
+    ["priority", "Priority"],
+    ["due", "Due date"],
+    ["start", "Start date"],
+    ["done", "Done"],
+    ["archived", "Archived"],
+    ["checklist", "Checklist"],
+    ["key", "Link or number"]
+  ];
+  var FIELD_KEYS = FIELDS.map(([k]) => k);
+  var NAMES = {
+    title: ["name", "title", "task", "card", "cardname", "taskname", "summary", "subject", "item", "todo"],
+    list: ["list", "listname", "lists", "lane", "column", "columnname", "status", "section", "stage", "bucket", "state", "board"],
+    description: ["desc", "description", "notes", "note", "details", "body", "content"],
+    labels: ["labels", "label", "tags", "tag", "categories", "category"],
+    priority: ["priority", "importance", "urgency"],
+    due: ["due", "duedate", "dueon", "deadline", "enddate", "end", "date", "when"],
+    start: ["start", "startdate", "starton", "begin"],
+    done: ["duecomplete", "done", "completed", "complete", "iscomplete", "finished", "checked"],
+    archived: ["closed", "archived", "isarchived"],
+    checklist: ["checkitems", "checklists", "checklist", "subtasks", "subtask"],
+    key: ["shortlink", "id", "cardid", "taskid", "key", "issuekey", "url", "shorturl", "link"]
+  };
+  var norm = (s) => String(s ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  var own = (o, k) => o !== null && typeof o === "object" && Object.prototype.hasOwnProperty.call(o, k);
+  var isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  var scalar = (v) => typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+  var str = (v) => v === null || v === void 0 ? "" : String(v);
+  var cellText = (v) => str(v).slice(0, MAX_CELL).trim();
+  function uniqueNames(names) {
+    const taken = /* @__PURE__ */ new Set();
+    return names.map((raw, i) => {
+      const base = str(raw).trim().slice(0, 200) || `Column ${i + 1}`;
+      let name = base;
+      for (let n = 2; taken.has(name); n++) name = `${base} (${n})`;
+      taken.add(name);
+      return name;
+    });
+  }
+  function tableFromRows(rows) {
+    if (!rows.length) throw new GuideError("empty", "This file has no rows.");
+    const columns = uniqueNames(rows[0].slice(0, MAX_COLUMNS));
+    const body = rows.slice(1).map((r) => columns.map((_, i) => cellText(r[i])));
+    return finish({ columns, rows: body });
+  }
+  function finish(table) {
+    if (!table.rows.length) throw new GuideError("empty", "This file has column names and no rows under them.");
+    if (table.rows.length > MAX_ROWS) throw new GuideError("too_many", `This file has ${table.rows.length.toLocaleString("en-GB")} rows. Stack'd imports up to ${MAX_ROWS.toLocaleString("en-GB")} at a time.`);
+    return table;
+  }
+  var nameOf = (o) => isObj(o) ? str(o.name ?? o.title ?? o.text ?? o.fullName ?? o.username ?? "") : "";
+  var doneOf = (o) => o.state === "complete" || o.state === "done" || o.checked === true || o.done === true || o.completed === true || o.complete === true;
+  var itemLike = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => isObj(x) && nameOf(x) !== "") && v.some((x) => "state" in x || "checked" in x || "done" in x || "completed" in x || "complete" in x);
+  var itemLines = (items) => items.map((x) => `${doneOf(x) ? "[x]" : "[ ]"} ${nameOf(x).replace(/\s+/g, " ")}`).join("\n");
+  var itemsIn = (o) => isObj(o) ? Object.values(o).find(itemLike) || null : null;
+  function findParts(doc2, path = [], depth = 0) {
+    if (!isObj(doc2)) return [];
+    const parts = [];
+    for (const [key, v] of Object.entries(doc2)) {
+      if (Array.isArray(v) && v.length && v.slice(0, 20).every(isObj)) {
+        const keys = /* @__PURE__ */ new Set();
+        v.slice(0, 50).forEach((o) => Object.keys(o).forEach((k) => keys.add(k)));
+        parts.push({ path: [...path, key], count: v.length, keys: [...keys] });
+      } else if (isObj(v) && depth < 2) parts.push(...findParts(v, [...path, key], depth + 1));
+    }
+    return parts;
+  }
+  var partName = (part) => part.path.join(" › ");
+  var getPath = (doc2, path) => path.reduce((o, k) => isObj(o) ? o[k] : void 0, doc2);
+  function suggestPart(parts) {
+    const score = (p) => (/^(cards|tasks|items|issues|todos|rows|records|data)$/i.test(p.path.at(-1)) ? 1e9 : 0) + (p.keys.some((k) => NAMES.title.includes(norm(k))) ? 1e8 : 0) + p.count;
+    return [...parts].sort((a, b) => score(b) - score(a))[0] || null;
+  }
+  function tableFromRecords(records, others = []) {
+    const index = others.map((p) => {
+      const byId = /* @__PURE__ */ new Map();
+      p.items.forEach((o) => {
+        if (isObj(o) && scalar(o.id)) byId.set(String(o.id), o);
+      });
+      return { name: p.path.at(-1), byId };
+    }).filter((p) => p.byId.size);
+    const keys = [];
+    const seen = /* @__PURE__ */ new Set();
+    records.forEach((r) => {
+      if (isObj(r)) Object.keys(r).forEach((k) => {
+        if (!seen.has(k) && keys.length < MAX_COLUMNS) {
+          seen.add(k);
+          keys.push(k);
+        }
+      });
+    });
+    const pointsTo = (key) => {
+      const values = [];
+      for (const r of records) {
+        const v = r?.[key];
+        if (scalar(v) && v !== "" && typeof v !== "boolean") values.push(String(v));
+        else if (Array.isArray(v)) v.forEach((x) => {
+          if (scalar(x) && typeof x !== "boolean") values.push(String(x));
+        });
+        if (values.length >= 300) break;
+      }
+      if (!values.length || key === "id") return null;
+      const k = norm(key);
+      const stem = k.replace(/^ids?(?=.)/, "").replace(/(?<=.)ids?$/, "");
+      const isRef = k !== stem;
+      const named = (p) => {
+        const n = norm(p.name), one = n.replace(/s$/, "");
+        return !!stem && (stem === n || stem === one || stem + "s" === n || stem.replace(/s$/, "") === one);
+      };
+      const fits = index.map((p) => ({ p, n: values.filter((v) => p.byId.has(v)).length })).filter((x) => x.n >= values.length * 0.8);
+      const byName = fits.filter((x) => named(x.p)).sort((a, b) => b.n - a.n)[0];
+      if (byName) return byName.p;
+      return isRef && fits.length === 1 ? fits[0].p : null;
+    };
+    const columns = [], cells = [];
+    for (const key of keys) {
+      const target = pointsTo(key);
+      const resolve = (v) => {
+        const o = target.byId.get(String(v));
+        if (!o) return "";
+        const items = itemsIn(o);
+        return (items ? itemLines(items) : nameOf(o)).slice(0, MAX_CELL);
+      };
+      const cell = (v) => {
+        if (v === null || v === void 0) return "";
+        if (target && scalar(v)) return resolve(v);
+        if (scalar(v)) return cellText(v);
+        if (Array.isArray(v)) {
+          if (target && v.every(scalar)) {
+            const parts = v.map(resolve).filter(Boolean);
+            return (parts.some((p) => /^\[[ x]\] /.test(p)) ? parts.join("\n") : parts.join(", ")).slice(0, MAX_CELL);
+          }
+          if (itemLike(v)) return itemLines(v).slice(0, MAX_CELL);
+          if (v.every(scalar)) return v.map(String).join(", ").slice(0, MAX_CELL);
+          if (v.every(isObj)) {
+            const inner = v.map(itemsIn).filter(Boolean);
+            if (inner.length) return inner.map(itemLines).join("\n").slice(0, MAX_CELL);
+            return v.map(nameOf).filter(Boolean).join(", ").slice(0, MAX_CELL);
+          }
+        }
+        return "";
+      };
+      const column2 = records.map((r) => cell(r?.[key]));
+      if (!column2.some((c) => c !== "") && records.some((r) => isObj(r?.[key]) || Array.isArray(r?.[key]))) continue;
+      columns.push(target && !seen.has(target.name) && !columns.includes(target.name) ? target.name : key);
+      cells.push(column2);
+    }
+    return finish({ columns: uniqueNames(columns), rows: records.map((_, i) => cells.map((c) => c[i])) });
+  }
+  function tableFromPart(doc2, parts, path) {
+    const records = getPath(doc2, path);
+    if (!Array.isArray(records) || !records.length) throw new GuideError("empty", "That part of the file has no rows.");
+    const others = parts.filter((p) => p.path.join("/") !== path.join("/")).map((p) => ({ path: p.path, items: getPath(doc2, p.path) || [] }));
+    return tableFromRecords(records.filter(isObj), others);
+  }
+  function readFile(name, text2) {
+    const ext = String(name ?? "").toLowerCase().split(".").pop();
+    const body = String(text2 ?? "").replace(/^\uFEFF/, "");
+    if (!body.trim()) throw new GuideError("empty", "This file is empty.");
+    if (!["csv", "tsv", "txt", "json"].includes(ext) || /^(PK\u0003\u0004|%PDF)/.test(body) || body.slice(0, 4e3).includes("\0")) {
+      throw new GuideError("unreadable", "Stack'd imports CSV and JSON files. This file is neither.");
+    }
+    if (ext === "json" || ext !== "csv" && ext !== "tsv" && /^\s*[[{]/.test(body)) {
+      let doc2;
+      try {
+        doc2 = JSON.parse(body);
+      } catch {
+        throw new GuideError("unreadable", "This file could not be read: it is not valid JSON.");
+      }
+      if (Array.isArray(doc2)) {
+        const records = doc2.filter(isObj);
+        if (!records.length) throw new GuideError("empty", "This file has no rows.");
+        return { kind: "table", table: tableFromRecords(records) };
+      }
+      const parts = findParts(doc2);
+      if (!parts.length) throw new GuideError("empty", "This file has no list of items in it.");
+      if (parts.length === 1) return { kind: "table", table: tableFromPart(doc2, parts, parts[0].path) };
+      return { kind: "parts", doc: doc2, parts, suggested: suggestPart(parts) };
+    }
+    return { kind: "table", table: tableFromRows(parseCSV(body)) };
+  }
+  var column = (table, name) => {
+    const i = table.columns.indexOf(name);
+    return i === -1 ? null : table.rows.map((r) => r[i]);
+  };
+  var filled = (table, name) => (column(table, name) || []).filter((c) => c !== "").length;
+  function distinct(table, name) {
+    const seen = /* @__PURE__ */ new Set();
+    for (const v of column(table, name) || []) {
+      if (v === "") continue;
+      if (seen.has(v)) return false;
+      seen.add(v);
+    }
+    return true;
+  }
+  function guessMapping(table) {
+    const used = /* @__PURE__ */ new Set();
+    const mapping = {};
+    for (const key of FIELD_KEYS) {
+      const found = table.columns.map((name) => ({ name, rank: NAMES[key].indexOf(norm(name)), n: filled(table, name) })).filter((c) => c.rank !== -1 && !used.has(c.name)).sort((a, b) => (b.n > 0) - (a.n > 0) || a.rank - b.rank)[0];
+      mapping[key] = found ? found.name : null;
+      if (found) used.add(found.name);
+    }
+    if (mapping.key && !distinct(table, mapping.key)) mapping.key = null;
+    if (!mapping.title) {
+      mapping.title = table.columns.find((name) => !used.has(name) && filled(table, name) >= table.rows.length / 2) || table.columns[0] || null;
+    }
+    return mapping;
+  }
+  function signature(columns) {
+    let h = 5381;
+    for (const c of columns.map(norm).join("|")) h = (h << 5) + h + c.codePointAt(0) >>> 0;
+    return `c${columns.length}-${h.toString(36)}`;
+  }
+  var truthy = (v) => /^(true|yes|y|1|x|done|complete|completed|✓)$/i.test(str(v).trim());
+  var COLOURS = /^(green|yellow|orange|red|purple|blue|sky|lime|pink|black|grey|gray|white|brown|teal|violet|amber)(_(light|dark))?$/i;
+  function parseLabels(cell) {
+    const seen = /* @__PURE__ */ new Set();
+    return str(cell).split(/[,;\n]/).map((raw) => {
+      let s = raw.trim().replace(/^#+/, "");
+      const m = /^(.*\S)\s*\(([^()]+)\)$/.exec(s);
+      if (m && COLOURS.test(m[2].trim())) s = m[1].trim();
+      return s.slice(0, 64);
+    }).filter((s) => {
+      const k = s.toLowerCase();
+      if (!s || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    }).slice(0, MAX_LABELS);
+  }
+  function parseChecklist(cell) {
+    const text2 = str(cell).slice(0, MAX_CELL);
+    const lines2 = /\n/.test(text2) || /^\s*(?:[-*•]\s+)?\[[ xX✓]?\]/.test(text2) ? text2.split(/\r?\n/) : text2.split(/[;|]/);
+    return lines2.map((raw) => {
+      let s = raw.trim().replace(/^[-*•]\s+/, "");
+      let done2 = false;
+      const box = /^\[( |x|X|✓)?\]\s*(.*)$/.exec(s);
+      if (box) {
+        done2 = !!box[1] && box[1] !== " ";
+        s = box[2];
+      } else if (/^[✓✔]\s*/.test(s)) {
+        done2 = true;
+        s = s.replace(/^[✓✔]\s*/, "");
+      }
+      const tail = /^(.*\S)\s*\((done|complete|completed|checked)\)$/i.exec(s);
+      if (tail) {
+        done2 = true;
+        s = tail[1];
+      }
+      return { title: s.trim().slice(0, 500), done: done2 };
+    }).filter((x) => x.title).slice(0, MAX_SUBTASKS);
+  }
+  var MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  var MONTHS_FULL = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+  var pad3 = (n) => String(n).padStart(2, "0");
+  var hm = (h, m) => h === void 0 || h === null || +h > 23 || +m > 59 ? null : `${pad3(+h)}:${pad3(+m)}`;
+  var TIME = "(?:[ ,T]+(\\d{1,2}):(\\d{2})(?::\\d{2}(?:[.,]\\d+)?)?(?:\\s*([AaPp])\\.?[Mm]\\.?)?)?";
+  var ZONE = "(?:\\s*(Z|UTC|GMT|[+-]\\d{2}(?::?\\d{2})?))?";
+  var RE = {
+    iso: new RegExp(`^(\\d{4})-(\\d{1,2})-(\\d{1,2})${TIME}${ZONE}$`),
+    ymd: new RegExp(`^(\\d{4})[/.](\\d{1,2})[/.](\\d{1,2})${TIME}$`),
+    num: new RegExp(`^(\\d{1,2})[/.-](\\d{1,2})[/.-](\\d{4}|\\d{2})${TIME}$`),
+    dmon: new RegExp(`^(\\d{1,2})\\s+([A-Za-z]{3,9})\\.?,?\\s+(\\d{4})${TIME}$`),
+    mond: new RegExp(`^([A-Za-z]{3,9})\\.?\\s+(\\d{1,2}),?\\s+(\\d{4})${TIME}$`)
+  };
+  function ymd(y, m, d) {
+    if (String(y).length <= 2) y = +y + (+y >= 70 ? 1900 : 2e3);
+    y = +y;
+    m = +m;
+    d = +d;
+    const t = new Date(y, m - 1, d);
+    return y >= 1900 && y <= 2200 && t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d ? `${y}-${pad3(m)}-${pad3(d)}` : null;
+  }
+  function clock(h, m, ap) {
+    if (h === void 0) return null;
+    let hour = +h;
+    if (ap) {
+      if (hour < 1 || hour > 12) return null;
+      hour = hour % 12 + (/p/i.test(ap) ? 12 : 0);
+    }
+    return hm(hour, m);
+  }
+  var month = (name) => {
+    const i = MONTHS.indexOf(name.slice(0, 3).toLowerCase());
+    return i === -1 || !MONTHS_FULL[i].startsWith(name.toLowerCase().replace(/\.$/, "")) ? 0 : i + 1;
+  };
+  var timed = (date2, time2) => date2 ? { date: date2, time: time2 === "00:00" ? null : time2 } : null;
+  function parseDate(cell, order = "dmy") {
+    const s = str(cell).trim().slice(0, 60);
+    if (!s) return null;
+    let m = RE.iso.exec(s);
+    if (m) {
+      const date2 = ymd(m[1], m[2], m[3]);
+      if (!date2) return null;
+      const time2 = clock(m[4], m[5], m[6]);
+      if (m[4] !== void 0 && !time2) return null;
+      if (!m[7] || !time2 || time2 === "00:00") return timed(date2, time2);
+      const z = /^[+-]/.test(m[7]) ? (m[7][0] === "-" ? -1 : 1) * (+m[7].slice(1, 3) * 60 + +(m[7].replace(":", "").slice(3, 5) || 0)) : 0;
+      const t = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +time2.slice(0, 2), +time2.slice(3)) - z * 6e4);
+      return timed(`${t.getFullYear()}-${pad3(t.getMonth() + 1)}-${pad3(t.getDate())}`, hm(t.getHours(), t.getMinutes()));
+    }
+    const tail = (mm, at) => {
+      const time2 = clock(mm[at], mm[at + 1], mm[at + 2]);
+      return mm[at] !== void 0 && !time2 ? void 0 : time2;
+    };
+    m = RE.ymd.exec(s);
+    if (m) {
+      const time2 = tail(m, 4);
+      return time2 === void 0 ? null : timed(ymd(m[1], m[2], m[3]), time2);
+    }
+    m = RE.num.exec(s);
+    if (m) {
+      const time2 = tail(m, 4);
+      return time2 === void 0 ? null : timed(order === "mdy" ? ymd(m[3], m[1], m[2]) : ymd(m[3], m[2], m[1]), time2);
+    }
+    m = RE.dmon.exec(s);
+    if (m && month(m[2])) {
+      const time2 = tail(m, 4);
+      return time2 === void 0 ? null : timed(ymd(m[3], month(m[2]), m[1]), time2);
+    }
+    m = RE.mond.exec(s);
+    if (m && month(m[1])) {
+      const time2 = tail(m, 4);
+      return time2 === void 0 ? null : timed(ymd(m[3], month(m[1]), m[2]), time2);
+    }
+    return null;
+  }
+  function dateOrderOf(values) {
+    let day = false, month2 = false, any = false;
+    for (const v of values) {
+      const m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})(?!\d)/.exec(str(v).trim());
+      if (!m) continue;
+      any = true;
+      if (+m[1] > 12) day = true;
+      if (+m[2] > 12) month2 = true;
+    }
+    return !any ? "none" : day && !month2 ? "dmy" : month2 && !day ? "mdy" : "ambiguous";
+  }
+  var ESC2 = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  function toDescription(text2, max = 2e4) {
+    const raw = str(text2).replace(/\r\n?/g, "\n");
+    let out = describe(raw.slice(0, max));
+    for (let keep2 = max; out.length > max && keep2 > 0; ) {
+      keep2 = Math.floor(keep2 * (max / out.length) * 0.98);
+      out = describe(raw.slice(0, keep2));
+    }
+    return out;
+  }
+  function describe(text2) {
+    let s = text2.replace(/[&<>"']/g, (c) => ESC2[c]);
+    s = s.replace(/\[([^\][\n]{1,500})\]\(\s*([^\s()]{1,2000})(?:\s+(?:&quot;|&#39;)[^()\n]{0,500})?\s*\)/g, (_, label, url) => label.trim() === url.trim() ? url : `${label} (${url})`);
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/__([^_\n]+)__/g, "<b>$1</b>");
+    s = s.replace(/~~([^~\n]+)~~/g, "<s>$1</s>");
+    s = s.replace(/(^|[\s(])\*([^*\s][^*\n]*?)\*(?=[\s).,;:!?]|$)/gm, "$1<i>$2</i>").replace(/(^|[\s(])_([^_\s][^_\n]*?)_(?=[\s).,;:!?]|$)/gm, "$1<i>$2</i>");
+    return sanitize(s.replace(/\n/g, "<br>"));
+  }
+  var tally = (values) => {
+    const m = /* @__PURE__ */ new Map();
+    values.forEach((v) => m.set(v, (m.get(v) || 0) + 1));
+    return [...m].map(([name, count2]) => ({ name, count: count2 }));
+  };
+  function analyse(table, mapping) {
+    const col = (key) => mapping[key] ? column(table, mapping[key]) : null;
+    const titles = col("title") || [];
+    const lists = col("list");
+    const labels = col("labels");
+    const placed = new Set(Object.values(mapping).filter(Boolean));
+    return {
+      rows: table.rows.length,
+      untitled: titles.filter((t) => !t.trim()).length,
+      lists: lists ? tally(lists.map((v) => v.trim()).filter(Boolean)) : [],
+      labels: labels ? tally(labels.flatMap(parseLabels)) : [],
+      dates: dateOrderOf([...col("due") || [], ...col("start") || []]),
+      archived: (col("archived") || []).filter(truthy).length,
+      done: (col("done") || []).filter(truthy).length,
+      unused: table.columns.filter((c) => !placed.has(c)).map((c) => ({ column: c, rows: filled(table, c) })).filter((x) => x.rows > 0)
+    };
+  }
+  function defaultListChoice(name, lanes = []) {
+    if (/^(done|completed?|finished|closed)$/i.test(name.trim())) return { kind: "done" };
+    const lane = lanes.find((l) => l.name.trim().toLowerCase() === name.trim().toLowerCase());
+    return lane ? { kind: "lane", id: lane.id } : { kind: "new", name: name.trim().slice(0, 80) };
+  }
+  var same = (a, b) => str(a).trim().toLowerCase() === str(b).trim().toLowerCase();
+  function plan(table, answers2, ctx) {
+    const { mapping } = answers2;
+    const at = (key) => mapping[key] ? table.columns.indexOf(mapping[key]) : -1;
+    const idx = Object.fromEntries(FIELD_KEYS.map((k) => [k, at(k)]));
+    const get2 = (row2, key) => idx[key] === -1 ? "" : str(row2[idx[key]]);
+    const order = answers2.dateOrder === "mdy" ? "mdy" : "dmy";
+    const fallback = ctx.lanes.find((l) => l.id !== "done") ? { id: ctx.lanes.find((l) => l.id !== "done").id } : { name: "Backlog" };
+    const keysHere = new Set(ctx.existing.map((t) => t.importKey).filter(Boolean));
+    const titlesHere = new Set(ctx.existing.map((t) => `${t.lane}
+${str(t.title).trim().toLowerCase()}`));
+    const out = { items: [], skipped: 0, leftOut: { untitled: 0, archived: 0, priority: 0 }, counts: { done: 0, lanes: 0, labels: 0 } };
+    const newLanes = /* @__PURE__ */ new Set(), labelsUsed = /* @__PURE__ */ new Set();
+    for (const row2 of table.rows) {
+      const title = get2(row2, "title").replace(/\s+/g, " ").trim().slice(0, 2e3);
+      if (!title) {
+        out.leftOut.untitled++;
+        continue;
+      }
+      const archived = truthy(get2(row2, "archived"));
+      if (archived && answers2.archived !== "archive" && answers2.archived !== "active") {
+        out.leftOut.archived++;
+        continue;
+      }
+      const listName = get2(row2, "list").trim();
+      const choice = listName ? own(answers2.lists, listName) ? answers2.lists[listName] : defaultListChoice(listName, ctx.lanes) : null;
+      let done2 = truthy(get2(row2, "done"));
+      let lane = fallback;
+      if (choice?.kind === "done") {
+        done2 = true;
+        lane = { id: "done" };
+      } else if (choice?.kind === "lane" && ctx.lanes.some((l) => l.id === choice.id)) lane = { id: choice.id };
+      else if (choice?.kind === "new" && str(choice.name).trim()) {
+        const existing = ctx.lanes.find((l) => same(l.name, choice.name));
+        const fresh = str(choice.name).trim().slice(0, 80);
+        lane = existing ? { id: existing.id } : newLanes.has(fresh.toLowerCase()) || newLanes.size < MAX_NEW_LANES ? { name: fresh } : fallback;
+      }
+      if (done2) lane = { id: "done" };
+      const written = get2(row2, "key").trim().slice(0, 160);
+      const key = written ? `${ctx.keyPrefix || "file"}:${written}` : "";
+      const laneRef = lane.id || `new:${lane.name.toLowerCase()}`;
+      const before = key ? keysHere.has(key) : titlesHere.has(`${laneRef}
+${title.toLowerCase()}`);
+      if (before && answers2.repeats !== "import") {
+        out.skipped++;
+        continue;
+      }
+      const tags = [];
+      let priority = "none";
+      for (const label of parseLabels(get2(row2, "labels"))) {
+        const what = own(answers2.labels, label) ? answers2.labels[label] : "keep";
+        if (what === "drop") continue;
+        if (isObj(what) && ctx.priorities.some((p) => p.id === what.priority)) {
+          priority = what.priority;
+          continue;
+        }
+        tags.push(label);
+      }
+      const named = get2(row2, "priority").trim();
+      if (named) {
+        const p = ctx.priorities.find((x) => same(x.name, named));
+        if (p) priority = p.id;
+        else out.leftOut.priority++;
+      }
+      const due = parseDate(get2(row2, "due"), order);
+      const start2 = parseDate(get2(row2, "start"), order);
+      out.items.push({
+        title,
+        description: toDescription(get2(row2, "description")),
+        tags,
+        priority,
+        due: due?.date ?? null,
+        dueTime: due ? due.time : null,
+        start: start2 && (!due || start2.date <= due.date) ? start2.date : null,
+        done: done2,
+        archived: archived && answers2.archived === "archive",
+        lane,
+        subtasks: parseChecklist(get2(row2, "checklist")),
+        key: key || null
+      });
+      if (done2) out.counts.done++;
+      if (lane.name) newLanes.add(lane.name.toLowerCase());
+      tags.forEach((t) => labelsUsed.add(t.toLowerCase()));
+    }
+    out.counts.lanes = newLanes.size;
+    out.counts.labels = labelsUsed.size;
+    return out;
+  }
 
   // src/backup.js
   var FILE_APP = "stackd";
@@ -3711,8 +4429,8 @@
   var bad = (what) => {
     throw new ImportError("bad_file", `This file is damaged (${what}). Nothing was changed.`);
   };
-  var isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-  var obj = (v, what) => isObj(v) ? v : bad(what);
+  var isObj2 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  var obj = (v, what) => isObj2(v) ? v : bad(what);
   var list = (v, what) => v === void 0 || v === null ? [] : Array.isArray(v) ? v : bad(what);
   var idOf = (v, what) => typeof v === "string" && ID.test(v) ? v : bad(`${what} without a valid id`);
   var text = (v, max = 2e3) => typeof v === "string" ? v.slice(0, max) : "";
@@ -3773,9 +4491,9 @@
     const due = date(r.due);
     const start2 = date(r.start);
     const o = r.origin;
-    const origin = isObj(o) && typeof o.listId === "string" && ID.test(o.listId) ? { listId: o.listId, lane: typeof o.lane === "string" && ID.test(o.lane) ? o.lane : lane, order: num(o.order, 0) } : null;
+    const origin = isObj2(o) && typeof o.listId === "string" && ID.test(o.listId) ? { listId: o.listId, lane: typeof o.lane === "string" && ID.test(o.lane) ? o.lane : lane, order: num(o.order, 0) } : null;
     const f = r.from;
-    const from = isObj(f) && typeof f.meetingId === "string" && ID.test(f.meetingId) && typeof f.actionId === "string" && ID.test(f.actionId) ? { meetingId: f.meetingId, actionId: f.actionId } : null;
+    const from = isObj2(f) && typeof f.meetingId === "string" && ID.test(f.meetingId) && typeof f.actionId === "string" && ID.test(f.actionId) ? { meetingId: f.meetingId, actionId: f.actionId } : null;
     const life = lifecycle(r, ctx.now);
     return {
       id: idOf(r.id, "a task"),
@@ -3787,6 +4505,7 @@
       priority: ctx.priorities.has(r.priority) ? r.priority : "none",
       tags: tagsOf(r.tags),
       subtasks: checkItems(r.subtasks, "title", "a subtask"),
+      ...typeof r.importKey === "string" && r.importKey ? { importKey: r.importKey.slice(0, 200) } : {},
       /* kept absent when absent: that is how a record written before 1.7.0 is told apart (src/sync.js) */
       ...typeof r.description === "string" ? { description: sanitize(r.description.slice(0, DESCRIPTION_MAX)) } : {},
       start: start2 && (!due || start2 <= due) ? start2 : null,
@@ -3820,7 +4539,7 @@
   }
   function cleanTranscript(r, now2) {
     const speakers = {};
-    Object.entries(isObj(r.speakers) ? r.speakers : {}).forEach(([label, name]) => {
+    Object.entries(isObj2(r.speakers) ? r.speakers : {}).forEach(([label, name]) => {
       if (!SPEAKER.test(label)) bad("a speaker label");
       speakers[label] = typeof name === "string" && name.trim() ? name.trim().slice(0, 80) : null;
     });
@@ -3841,9 +4560,9 @@
   var lines = (v) => list(v, "minutes that are not a list").filter((x) => typeof x === "string").map((x) => x.slice(0, 4e3));
   function cleanMeeting(r, i, ctx) {
     obj(r, "a meeting that is not a record");
-    const transcript = isObj(r.transcript) ? cleanTranscript(r.transcript, ctx.now) : null;
+    const transcript = isObj2(r.transcript) ? cleanTranscript(r.transcript, ctx.now) : null;
     const m = r.minutes;
-    const minutes = transcript && isObj(m) ? {
+    const minutes = transcript && isObj2(m) ? {
       summary: text(m.summary, 2e4),
       decisions: lines(m.decisions),
       openQuestions: lines(m.openQuestions),
@@ -3876,6 +4595,32 @@
       ...lifecycle(r, ctx.now)
     };
   }
+  var laneChoice = (v) => !isObj2(v) ? null : v.kind === "done" ? { kind: "done" } : (v.kind === "new" || v.kind === "lane") && text(v.name, 80).trim() ? { kind: v.kind, name: text(v.name, 80).trim() } : null;
+  var labelChoice = (v) => v === "drop" ? "drop" : isObj2(v) && typeof v.priority === "string" && ID.test(v.priority) ? { priority: v.priority } : "keep";
+  var pairs = (v, max, clean) => (Array.isArray(v) ? v : []).slice(0, max).filter((p) => Array.isArray(p) && typeof p[0] === "string" && p[0].trim()).map((p) => [p[0].slice(0, 200), clean(p[1])]).filter((p) => p[1] !== null);
+  function cleanLayouts(v) {
+    const seen = /* @__PURE__ */ new Set();
+    return (Array.isArray(v) ? v : []).slice(0, 50).flatMap((r) => {
+      if (!isObj2(r) || typeof r.id !== "string" || !ID.test(r.id) || seen.has(r.id) || typeof r.signature !== "string" || !r.signature) return [];
+      seen.add(r.id);
+      const m = isObj2(r.mapping) ? r.mapping : {};
+      return [{
+        id: r.id,
+        name: text(r.name, 80).trim() || "Import",
+        signature: r.signature.slice(0, 80),
+        columns: count(r.columns),
+        part: typeof r.part === "string" && r.part ? r.part.slice(0, 200) : null,
+        mapping: Object.fromEntries(FIELD_KEYS.map((k) => [k, typeof m[k] === "string" && m[k] ? m[k].slice(0, 200) : null])),
+        lists: pairs(r.lists, 200, laneChoice),
+        labels: pairs(r.labels, 500, labelChoice),
+        dateOrder: pick(r.dateOrder, ["dmy", "mdy"], null),
+        archived: pick(r.archived, ["leave", "archive", "active"], "leave"),
+        repeats: pick(r.repeats, ["skip", "import"], "skip"),
+        used: count(r.used),
+        lastUsedAt: time(r.lastUsedAt)
+      }];
+    });
+  }
   function cleanRecords(raw, now2 = Date.now()) {
     obj(raw, "no records");
     const settings2 = obj(raw.settings, "no settings");
@@ -3901,7 +4646,8 @@
         dateFormat: isDateFormat(settings2.dateFormat) ? settings2.dateFormat : null,
         // null: keep this device's
         priorities,
-        labels: tagsOf(settings2.labels)
+        labels: tagsOf(settings2.labels),
+        ...settings2.imports !== void 0 ? { imports: cleanLayouts(settings2.imports) } : {}
       }
     };
   }
@@ -3924,7 +4670,8 @@
       return {
         dateFormat: isDateFormat(data.dateFormat) ? data.dateFormat : null,
         priorities: unique(list(data.priorities, "priorities that are not a list").map(cleanPriority), "priorities"),
-        labels: tagsOf(data.labels)
+        labels: tagsOf(data.labels),
+        ...data.imports !== void 0 ? { imports: cleanLayouts(data.imports) } : {}
       };
     }
     return bad("an unknown kind");
@@ -3937,7 +4684,7 @@
   function slot() {
     try {
       const v = JSON.parse(localStorage.getItem(BACKUP_KEY));
-      return isObj(v) && isObj(v.doc) ? v : null;
+      return isObj2(v) && isObj2(v.doc) ? v : null;
     } catch {
       return null;
     }
@@ -3957,13 +4704,13 @@
   var dropBackup = () => localStorage.removeItem(BACKUP_KEY);
   var NOT_A_BACKUP = "This is not a Stack'd Minimalist backup. Nothing was changed.";
   function readDocument(doc2, now2 = Date.now()) {
-    if (isObj(doc2) && doc2.app === "stackd-account-export") {
+    if (isObj2(doc2) && doc2.app === "stackd-account-export") {
       throw new ImportError("not_stackd", "This is the file from Export my data. It holds the account as the server keeps it and cannot be restored here. Nothing was changed.");
     }
-    if (isObj(doc2) && doc2.format === "stackd-backup") {
+    if (isObj2(doc2) && doc2.format === "stackd-backup") {
       throw new ImportError("not_stackd", "This is a backup of Stack'd Finance, not of Stack'd Minimalist. Nothing was changed.");
     }
-    if (!isObj(doc2) || doc2.app !== FILE_APP || !Number.isInteger(doc2.format)) {
+    if (!isObj2(doc2) || doc2.app !== FILE_APP || !Number.isInteger(doc2.format)) {
       throw new ImportError("not_stackd", NOT_A_BACKUP);
     }
     if (doc2.format > FILE_FORMAT) {
@@ -4031,7 +4778,7 @@
       const { recording, jobs, lastError, ...m } = x;
       return m;
     }
-    if (kind === "settings") return { dateFormat: x.dateFormat, priorities: x.priorities, labels: x.labels };
+    if (kind === "settings") return { dateFormat: x.dateFormat, priorities: x.priorities, labels: x.labels, imports: x.importLayouts || [] };
     if (kind === "list") {
       const { share, ...l } = x;
       return l;
@@ -4308,8 +5055,16 @@
       const local = c.kind === "settings" ? null : (S[plural[c.kind]] || []).find((x) => x.id === c.id);
       const record2 = c.kind === "settings" ? clean : fromWire(c.kind, clean, local);
       if (space && c.kind === "list") record2.share = { role: share.role, ownerEmail: share.ownerEmail, members: share.members || [] };
-      const resend = c.kind === "task" && !("description" in clean) && !!local?.description;
-      if (resend) record2.description = local.description;
+      let resend = false;
+      if (c.kind === "task" && local) {
+        for (const field of ["description", "importKey"]) {
+          if (!(field in clean) && local[field]) {
+            record2[field] = local[field];
+            resend = true;
+          }
+        }
+      }
+      if (c.kind === "settings" && !("imports" in clean) && S.importLayouts?.length) resend = true;
       upserts.push({ kind: c.kind, record: record2, key, changedAt: c.changedAt, resend });
     }
     if (sp) {
@@ -4393,7 +5148,7 @@
     const history2 = [];
     const { ov, close } = overlay('<div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="step-title"></div>');
     const sheet2 = ov.querySelector(".sheet");
-    let pad3 = null;
+    let pad4 = null;
     let resendTimer = null;
     const go = (step, { back: back2 = false } = {}) => {
       if (!back2) history2.push(st.step);
@@ -4425,8 +5180,8 @@
       <h2 id="step-title" tabindex="-1">${esc(title)}</h2>`;
     }
     function draw3() {
-      pad3?.destroy();
-      pad3 = null;
+      pad4?.destroy();
+      pad4 = null;
       clearInterval(resendTimer);
       if (st.step === "age") {
         const store2 = current2()?.age;
@@ -4509,11 +5264,11 @@
       }));
       const s = st.step;
       if (s === "age") {
-        const sel = q("[data-year]"), next = q("[data-next]");
+        const sel = q("[data-year]"), next2 = q("[data-next]");
         sel?.addEventListener("change", () => {
-          next.disabled = !sel.value;
+          next2.disabled = !sel.value;
         });
-        next?.addEventListener("click", () => {
+        next2?.addEventListener("click", () => {
           if (!checkAge(sel.value)) {
             draw3();
             return;
@@ -4599,8 +5354,8 @@
         input.focus();
       }
       if (s.startsWith("pin-")) {
-        pad3 = bindPinpad(sheet2, { onComplete: (pin) => onPin(pin) });
-        pad3.focus();
+        pad4 = bindPinpad(sheet2, { onComplete: (pin) => onPin(pin) });
+        pad4.focus();
         q("[data-forgot]")?.addEventListener("click", () => go("pin-reset"));
       }
       q("[data-reset]")?.addEventListener("click", () => go("pin-reset"));
@@ -4610,7 +5365,7 @@
       const s = st.step;
       if (s === "pin-new" || s === "pin-reset") {
         if (/^(\d)\1{3}$/.test(pin) || "0123456789".includes(pin) || "9876543210".includes(pin)) {
-          pad3.error("Choose a PIN that is not four of the same digit or a straight run.");
+          pad4.error("Choose a PIN that is not four of the same digit or a straight run.");
           return;
         }
         firstPin = pin;
@@ -4625,7 +5380,7 @@
         draw3();
         return;
       }
-      pad3.disable(true);
+      pad4.disable(true);
       try {
         if (s === "pin-confirm") await register(st.email, st.ticket, pin);
         else if (s === "pin-reset-confirm") await resetPin(st.email, st.ticket, pin);
@@ -4646,8 +5401,8 @@
           go(st.known ? "pin-enter" : "age");
           return;
         }
-        pad3.disable(false);
-        pad3.error(e.message);
+        pad4.disable(false);
+        pad4.error(e.message);
         return;
       }
       close();
@@ -4749,13 +5504,13 @@
     applyShared(r.shared);
     if (accept2) await now();
   }
-  function parseEmails(text2, own = "") {
+  function parseEmails(text2, own2 = "") {
     const parts = String(text2 ?? "").split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
     if (!parts.length) return { error: "Add at least one email address." };
     if (parts.length > 9) return { error: "A shared board has at most 10 people." };
     const bad2 = parts.find((p) => !/^[^\s@<>()]+@[^\s@<>()]+\.[^\s@<>()]+$/.test(p));
     if (bad2) return { error: `“${bad2}” is not an email address.` };
-    if (own && parts.some((p) => p.toLowerCase() === own.toLowerCase())) return { error: "You are already on this board." };
+    if (own2 && parts.some((p) => p.toLowerCase() === own2.toLowerCase())) return { error: "You are already on this board." };
     return { emails: [...new Set(parts.map((p) => p.toLowerCase()))] };
   }
   var sharedBoards2 = () => S.lists.filter((l) => l.share && (l.status ?? "active") === "active");
@@ -4951,12 +5706,12 @@
     }));
   }
   function sharedSectionHTML() {
-    const boards = sharedBoards2();
-    if (!signedIn() || !boards.length) return "";
+    const boards2 = sharedBoards2();
+    if (!signedIn() || !boards2.length) return "";
     return `
       <span class="section-title list-label" id="settings-shared">Shared boards</span>
       <div class="card list-card">
-        ${boards.map((l) => {
+        ${boards2.map((l) => {
       const me = current()?.email;
       const ppl = (l.share.members || []).filter((m) => m.email !== me && m.role !== "owner").map((m) => `${m.email}${m.state === "pending" ? " (invited)" : ""}`).join(", ") || "nobody yet";
       return `
@@ -5141,7 +5896,7 @@
     await done(tx);
     return { chunks: row2.chunks + 1, sizeBytes: row2.sizeBytes + chunk.size };
   }
-  async function finish(key, durationMs) {
+  async function finish2(key, durationMs) {
     const db = await open();
     const tx = db.transaction(RECS, "readwrite");
     const row2 = await result(tx.objectStore(RECS).get(key));
@@ -5286,13 +6041,13 @@
         const resumable = (s) => s === "transcribe" && jobs[s]?.phase === "wait" && /^job_/.test(jobs[s].id || "") && ev.at - (jobs[s].startedAt || 0) < JOB_TTL_MS;
         const lost = STEPS.filter((s) => jobs[s] && !ev.inflight.includes(s) && !resumable(s));
         if (!lost.length) return null;
-        const next = { ...jobs };
+        const next2 = { ...jobs };
         lost.forEach((s) => {
-          next[s] = null;
+          next2[s] = null;
         });
         const step = lost[0];
         const message = step === "transcribe" ? "Transcribing was interrupted. Try again." : MESSAGES.interrupted;
-        return { jobs: next, lastError: { step, code: "interrupted", message, at: ev.at } };
+        return { jobs: next2, lastError: { step, code: "interrupted", message, at: ev.at } };
       }
       default:
         return null;
@@ -5606,10 +6361,10 @@
   var prices = {};
   var storeName = () => ({ ios: "App Store", android: "Google Play" })[platform2()] || "App Store or Google Play";
   var renewalLine = (price) => `${price} per month, renews automatically every month. Cancel any time in ${storeName()} settings.`;
-  function cardHTML(tier, current3) {
+  function cardHTML(tier, current4) {
     const price = prices[tier] || PLAN_PRICES[tier];
-    const isCurrent = current3 === tier;
-    const action = !available3() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : isMinor() ? `<span class="hint">${esc(MINOR_LINE)}</span>` : `<button type="button" class="btn ${current3 === "free" || current3 === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current3 === "free" || current3 === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current3) ? "Upgrade" : "Switch"}</button>`;
+    const isCurrent = current4 === tier;
+    const action = !available3() ? "" : isCurrent ? '<span class="tag tag-done">Current plan</span>' : isMinor() ? `<span class="hint">${esc(MINOR_LINE)}</span>` : `<button type="button" class="btn ${current4 === "free" || current4 === "tester" ? "btn-primary" : "btn-secondary"} btn-sm" data-buy="${tier}">${current4 === "free" || current4 === "tester" ? "Subscribe" : PAID_TIERS.indexOf(tier) > PAID_TIERS.indexOf(current4) ? "Upgrade" : "Switch"}</button>`;
     return `
   <div class="plan-card ${isCurrent ? "is-current" : ""}">
     <div class="plan-head">
@@ -5629,17 +6384,17 @@
   </div>`;
   function planSectionHTML() {
     const p = S.plan;
-    const current3 = p.tier;
-    const paid = PAID_TIERS.includes(current3);
-    const status2 = !p.checkedAt ? "Not checked yet" : current3 === "free" ? "Free · the AI steps need a plan" : current3 === "tester" ? "Tester · allowance resets daily" : `Renews ${p.renewsAt ? fmtDate(p.renewsAt, S.dateFormat) : "monthly"}`;
-    const bars = p.checkedAt && current3 !== "free" ? `
+    const current4 = p.tier;
+    const paid = PAID_TIERS.includes(current4);
+    const status2 = !p.checkedAt ? "Not checked yet" : current4 === "free" ? "Free · the AI steps need a plan" : current4 === "tester" ? "Tester · allowance resets daily" : `Renews ${p.renewsAt ? fmtDate(p.renewsAt, S.dateFormat) : "monthly"}`;
+    const bars = p.checkedAt && current4 !== "free" ? `
     ${bar("Audio", p.audioSecondsLeft, p.audioSecondsTotal, `${fmtDuration(p.audioSecondsLeft * 1e3)} of ${fmtDuration(p.audioSecondsTotal * 1e3)}`)}
     ${bar("Summaries", p.summariesLeft, p.summariesTotal, `${p.summariesLeft} of ${p.summariesTotal}`)}` : "";
     return `
   <span class="section-title list-label" id="settings-plan">Plan</span>
   <div class="card plan-current">
     <div class="plan-head">
-      <span class="plan-name">${planName(current3)}</span>
+      <span class="plan-name">${planName(current4)}</span>
       <span class="hint">${esc(status2)}</span>
     </div>
     ${bars}
@@ -5650,7 +6405,7 @@
     </div>
   </div>
   <div class="plan-cards">
-    ${PAID_TIERS.map((t) => cardHTML(t, current3)).join("")}
+    ${PAID_TIERS.map((t) => cardHTML(t, current4)).join("")}
   </div>
   <p class="hint set-hint">${available3() ? "Monthly subscriptions renew automatically until cancelled in your store account. The allowance resets on the renewal date; unused minutes and summaries do not carry over." : "Subscribe in the Stack’d app on iPhone or Android; the plan then applies there. Monthly subscriptions renew until cancelled."}
     <a href="${TERMS_URL}" target="_blank" rel="noopener">Terms</a> · <a href="${PRIVACY_URL}" target="_blank" rel="noopener">Privacy</a></p>`;
@@ -5689,9 +6444,9 @@
     root.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", () => purchase(b.dataset.buy, b)));
     if (available3() && !Object.keys(prices).length) {
       offerings().then((o) => {
-        const next = Object.fromEntries(Object.entries(o).map(([t, v]) => [t, v.price]).filter(([, v]) => v));
-        if (Object.keys(next).length) {
-          prices = next;
+        const next2 = Object.fromEntries(Object.entries(o).map(([t, v]) => [t, v.price]).filter(([, v]) => v));
+        if (Object.keys(next2).length) {
+          prices = next2;
           rerender();
         }
       });
@@ -5764,7 +6519,7 @@
   }
   function openAllowanceUsed({ step, resetsAt }) {
     const tier = S.plan.tier;
-    const next = PAID_TIERS[PAID_TIERS.indexOf(tier) + 1] || null;
+    const next2 = PAID_TIERS[PAID_TIERS.indexOf(tier) + 1] || null;
     const what = step === "summarise" ? "summaries" : "audio minutes";
     const when2 = resetsAt || S.plan.renewsAt;
     const { ov, close } = sheet(`
@@ -5775,7 +6530,7 @@
       <button class="icon-btn" data-close aria-label="Close">${icon("x")}</button>
     </div>
     <p class="plan-intro">You've used this ${tier === "tester" ? "day's" : "month's"} ${what}.${when2 ? ` Resets ${esc(fmtDate(when2, S.dateFormat))}.` : ""}</p>
-    ${next && available3() ? `<div class="plan-cards">${cardHTML(next, tier)}</div>` : ""}
+    ${next2 && available3() ? `<div class="plan-cards">${cardHTML(next2, tier)}</div>` : ""}
     <button type="button" class="btn btn-secondary btn-block" data-close>OK</button>
   </div>`);
     ov.querySelectorAll("[data-buy]").forEach((b) => b.addEventListener("click", async () => {
@@ -5932,9 +6687,564 @@
     return "handed";
   }
 
+  // src/ui/importguide.js
+  var MAX_FILE_BYTES2 = 12 * 1024 * 1024;
+  var plural3 = (n, word) => `${n.toLocaleString("en-GB")} ${word}${n === 1 ? "" : "s"}`;
+  var refuse = (message) => noticeDialog("The file was not imported", `${message} Nothing was changed.`);
+  var G = null;
+  var bare = (entries2 = []) => Object.assign(/* @__PURE__ */ Object.create(null), Object.fromEntries(entries2));
+  function decode2(buffer) {
+    const b = new Uint8Array(buffer);
+    if (b[0] === 255 && b[1] === 254) return new TextDecoder("utf-16le").decode(buffer);
+    if (b[0] === 254 && b[1] === 255) return new TextDecoder("utf-16be").decode(buffer);
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    } catch {
+      return new TextDecoder("windows-1252").decode(buffer);
+    }
+  }
+  var guideOpen = () => !!G;
+  function startImport() {
+    document.querySelectorAll("input[data-import-pick]").forEach((el) => el.remove());
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".csv,.json,text/csv,application/json";
+    input.dataset.importPick = "";
+    input.style.display = "none";
+    document.body.appendChild(input);
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (file) open2(file);
+    });
+    input.addEventListener("cancel", () => input.remove());
+    input.click();
+  }
+  async function open2(file) {
+    if (file.size > MAX_FILE_BYTES2) {
+      refuse("This file is too large to import.");
+      return;
+    }
+    let read4;
+    try {
+      read4 = readFile(file.name, decode2(await file.arrayBuffer()));
+    } catch (e) {
+      refuse(e instanceof GuideError ? e.message : "This file could not be read.");
+      return;
+    }
+    const settingsScroll = UI.settingsPage ? UI.settingsScroll : { area: app.querySelector(".scroll-area")?.scrollTop || 0, main: app.querySelector(".main")?.scrollTop || 0 };
+    G = {
+      fileName: file.name,
+      doc: null,
+      parts: null,
+      part: null,
+      table: null,
+      mapping: null,
+      facts: null,
+      layout: null,
+      trusted: false,
+      where: { mode: "new", name: file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 80) || "Imported", boardId: null },
+      lists: bare(),
+      labels: bare(),
+      dateOrder: null,
+      archived: "leave",
+      repeats: "skip",
+      step: 0
+    };
+    try {
+      if (read4.kind === "parts") {
+        G.doc = read4.doc;
+        G.parts = read4.parts;
+        if (typeof read4.doc.name === "string" && read4.doc.name.trim()) G.where.name = read4.doc.name.trim().slice(0, 80);
+        usePart(read4.suggested.path);
+      } else useTable(read4.table);
+    } catch (e) {
+      G = null;
+      refuse(e instanceof GuideError ? e.message : "This file could not be read.");
+      return;
+    }
+    UI.settingsScroll = settingsScroll;
+    UI.screen = "settings";
+    UI.settingsPage = "import";
+    show2();
+  }
+  function usePart(path) {
+    useTable(tableFromPart(G.doc, G.parts, path));
+    G.part = path;
+  }
+  function useTable(table) {
+    G.table = table;
+    const layout = S.importLayouts.find((l) => l.signature === signature(table.columns)) || null;
+    const guess = guessMapping(table);
+    const fits = !!layout && Object.values(layout.mapping).every((c) => !c || table.columns.includes(c)) && !!layout.mapping.title;
+    G.layout = fits ? layout : null;
+    G.trusted = fits;
+    G.mapping = fits ? { ...guess, ...layout.mapping } : guess;
+    G.labels = bare(fits ? layout.labels : []);
+    G.archived = fits ? layout.archived : "leave";
+    G.repeats = fits ? layout.repeats : "skip";
+    G.dateOrder = fits ? layout.dateOrder : null;
+    G.lists = bare();
+    G.facts = analyse(table, G.mapping);
+  }
+  var boards = () => activeLists().filter((l) => !l.share);
+  var targetLanes = () => G.where.mode === "board" ? lanesOf(G.where.boardId) : [];
+  var targetName = () => G.where.mode === "board" ? listById(G.where.boardId)?.name || "" : G.where.name.trim();
+  var remembered = (name) => G.layout?.lists.find(([n]) => n === name)?.[1] || null;
+  function listChoice(name) {
+    if (G.lists[name]) return G.lists[name];
+    const lanes = targetLanes();
+    const was = remembered(name);
+    if (was?.kind === "done") return { kind: "done" };
+    if (was?.kind === "lane") {
+      const lane = lanes.find((l) => l.name.trim().toLowerCase() === was.name.toLowerCase());
+      return lane ? { kind: "lane", id: lane.id } : { kind: "new", name: was.name };
+    }
+    if (was?.kind === "new") {
+      const lane = lanes.find((l) => l.name.trim().toLowerCase() === was.name.toLowerCase());
+      return lane ? { kind: "lane", id: lane.id } : { kind: "new", name: was.name };
+    }
+    return defaultListChoice(name, lanes);
+  }
+  var dateOrder = () => G.dateOrder || (G.facts.dates === "mdy" ? "mdy" : "dmy");
+  function steps() {
+    const all = !G.trusted;
+    const s = [];
+    if (G.parts && all) s.push("part");
+    if (all) s.push("columns");
+    s.push("where");
+    if (G.facts.lists.length && (all || G.facts.lists.some((l) => !remembered(l.name)))) s.push("lists");
+    if (G.facts.labels.length && (all || G.facts.labels.some((l) => !(l.name in G.labels) && !G.layout))) s.push("labels");
+    if (G.facts.dates === "ambiguous" && (all || !G.layout?.dateOrder)) s.push("dates");
+    s.push("review");
+    return s;
+  }
+  function answers() {
+    return {
+      mapping: G.mapping,
+      lists: Object.fromEntries(G.facts.lists.map((l) => [l.name, listChoice(l.name)])),
+      labels: G.labels,
+      dateOrder: dateOrder(),
+      archived: G.archived,
+      repeats: G.repeats
+    };
+  }
+  var keyPrefix = () => signature(G.table.columns);
+  function makePlan(overrides = {}) {
+    const boardId = G.where.mode === "board" ? G.where.boardId : null;
+    return plan(G.table, { ...answers(), ...overrides }, {
+      lanes: targetLanes(),
+      keyPrefix: keyPrefix(),
+      /* a link or number is looked for on every task; a title only on the board the tasks go to */
+      existing: S.tasks.filter((t) => t.status !== "deleted" && (t.importKey || boardId && t.listId === boardId && t.status === "active")).map((t) => ({ title: t.listId === boardId ? t.title : "", lane: t.lane, importKey: t.importKey || null })),
+      priorities: S.priorities
+    });
+  }
+  var chrome = (title, lead, body, primary, { disabled = false } = {}) => {
+    const all = steps();
+    return `
+  <div class="screen settings-screen set-page guide">
+    <header class="page-head detail-top">
+      <button class="icon-btn" data-guide-back aria-label="${G.step === 0 ? "Close the import" : "Back to the step before"}">${icon("chevronLeft")}</button>
+      <span class="kicker">Import</span>
+      <button class="icon-btn" data-guide-close aria-label="Close the import">${icon("x")}</button>
+    </header>
+    <div class="scroll-area">
+      <p class="guide-step">Step ${G.step + 1} of ${all.length}</p>
+      <h1 class="sub-title" tabindex="-1">${title}</h1>
+      ${lead ? `<p class="guide-lead">${lead}</p>` : ""}
+      ${body}
+    </div>
+    <div class="guide-foot"><button type="button" class="btn btn-primary btn-block" data-guide-next ${disabled ? "disabled" : ""}>${primary}</button></div>
+  </div>`;
+  };
+  var pickRow = (name, sample, value, attrs, { none = false } = {}) => `
+        <div class="guide-row">
+          <div class="guide-left"><span class="set-title">${esc(name)}</span>${sample ? `<span class="guide-sample">${esc(sample)}</span>` : ""}</div>
+          <button type="button" class="guide-pick ${none ? "none" : ""}" ${attrs} aria-haspopup="menu" aria-label="${esc(name)}: ${esc(value)}"><span>${esc(value)}</span>${icon("chevronDown", 16)}</button>
+        </div>`;
+  var sampleOf = (columnName) => {
+    const i = G.table.columns.indexOf(columnName);
+    const v = i === -1 ? "" : G.table.rows.find((r) => r[i] !== "")?.[i] || "";
+    return v.replace(/\s+/g, " ").slice(0, 60);
+  };
+  function partHTML() {
+    return chrome("Which part", `${esc(G.fileName)} holds several lists of things. Choose the one that holds your tasks; the others are used to fill in names.`, `
+      <div class="card list-card" role="radiogroup" aria-label="The part that holds the tasks">
+        ${G.parts.map((p, i) => `
+        <button type="button" class="guide-row guide-choice" role="radio" aria-checked="${p.path.join("/") === G.part.join("/")}" data-part="${i}">
+          <span class="guide-radio" aria-hidden="true"></span>
+          <span class="guide-left"><span class="set-title">${esc(partName(p))}</span><span class="guide-sample">${plural3(p.count, "item")} · ${esc(p.keys.slice(0, 4).join(", "))}</span></span>
+        </button>`).join("")}
+      </div>`, "Continue");
+  }
+  function columnsHTML() {
+    const unused = G.table.columns.length - new Set(Object.values(G.mapping).filter(Boolean)).size;
+    return chrome(
+      "Columns",
+      `${esc(G.fileName)} has ${plural3(G.table.columns.length, "column")} and ${plural3(G.table.rows.length, "row")}. Stack'd placed these by their names. Change any that are wrong.`,
+      `
+      <div class="card list-card">
+        ${FIELDS.map(([key, label]) => pickRow(label, G.mapping[key] ? sampleOf(G.mapping[key]) : "", G.mapping[key] || "Not in this file", `data-field="${key}"`, { none: !G.mapping[key] })).join("")}
+      </div>
+      <p class="hint set-hint">${unused > 0 ? `${plural3(unused, "other column")} ${unused === 1 ? "is" : "are"} not imported. ` : ""}Link or number is used to skip a card you imported before.</p>`,
+      "Continue",
+      { disabled: !G.mapping.title }
+    );
+  }
+  function whereHTML() {
+    const mine = boards();
+    const chosen = listById(G.where.boardId);
+    return chrome(
+      "Where",
+      "The tasks are added to a board. Nothing you already have changes.",
+      `
+      <div class="card list-card" role="radiogroup" aria-label="Where the tasks go">
+        <div class="guide-row">
+          <button type="button" class="guide-radio-btn" role="radio" aria-checked="${G.where.mode === "new"}" data-where="new" aria-label="A new board"><span class="guide-radio" aria-hidden="true"></span></button>
+          <div class="guide-left">
+            <label class="set-title" for="guide-board-name">A new board</label>
+            <input class="input" id="guide-board-name" data-board-name value="${esc(G.where.name)}" maxlength="80" autocomplete="off" placeholder="Board name">
+          </div>
+        </div>
+        ${mine.length ? `
+        <div class="guide-row">
+          <button type="button" class="guide-radio-btn" role="radio" aria-checked="${G.where.mode === "board"}" data-where="board" aria-label="One of my boards"><span class="guide-radio" aria-hidden="true"></span></button>
+          <div class="guide-left"><span class="set-title">One of my boards</span></div>
+          <button type="button" class="guide-pick ${chosen ? "" : "none"}" data-board-pick aria-haspopup="menu"><span>${esc(chosen ? chosen.name : "Choose")}</span>${icon("chevronDown", 16)}</button>
+        </div>` : ""}
+      </div>
+      ${G.trusted ? `
+      <p class="hint set-hint">Stack'd remembers a file with these columns: the columns, lists and labels are filled in as last time.</p>
+      <button type="button" class="btn btn-ghost btn-block set-under" data-guide-check>Check the answers</button>` : ""}`,
+      "Continue"
+    );
+  }
+  var choiceLabel = (c) => c.kind === "done" ? "Done" : c.kind === "lane" ? targetLanes().find((l) => l.id === c.id)?.name || "New lane" : "New lane";
+  function listsHTML() {
+    const n = G.facts.lists.length;
+    return chrome("Lists", `The file has ${plural3(n, "list")}. Choose the lane each one goes to on the board ${esc(targetName())}.`, `
+      <div class="card list-card">
+        ${G.facts.lists.map((l, i) => pickRow(l.name, plural3(l.count, "task"), choiceLabel(listChoice(l.name)), `data-list="${i}"`)).join("")}
+      </div>
+      <p class="hint set-hint">A new lane takes the list's name. Tasks sent to Done are marked complete.</p>`, "Continue");
+  }
+  var labelValue = (name) => {
+    const c = G.labels[name] ?? "keep";
+    return c === "drop" ? "Leave out" : c === "keep" ? "Keep as label" : `Priority: ${priorityById(c.priority)?.name || "none"}`;
+  };
+  function labelsHTML() {
+    const n = G.facts.labels.length;
+    return chrome("Labels", `The file has ${plural3(n, "label")}. Each one stays a label unless you choose otherwise.`, `
+      <div class="card list-card">
+        ${G.facts.labels.map((l, i) => pickRow(l.name, plural3(l.count, "task"), labelValue(l.name), `data-label-pick="${i}"`)).join("")}
+      </div>`, "Continue");
+  }
+  function datesHTML() {
+    const cols = [G.mapping.due, G.mapping.start].filter(Boolean).map((c) => G.table.columns.indexOf(c));
+    const sample = G.table.rows.map((r) => cols.map((i) => r[i]).find((v) => /^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}/.test(v || ""))).find(Boolean) || "";
+    const read4 = (order) => {
+      const d = parseDate(sample, order);
+      return d ? fmtDate(d.date, "ymd") : "";
+    };
+    const option = (order, label) => `
+        <button type="button" class="guide-row guide-choice" role="radio" aria-checked="${G.dateOrder === order}" data-date-order="${order}">
+          <span class="guide-radio" aria-hidden="true"></span>
+          <span class="guide-left"><span class="set-title">${label}</span><span class="guide-sample">${esc(sample)} is ${esc(read4(order))}</span></span>
+        </button>`;
+    return chrome("Dates", "The dates in this file can be read two ways. Which comes first, the day or the month?", `
+      <div class="card list-card" role="radiogroup" aria-label="How dates are written">
+        ${option("dmy", "The day comes first")}
+        ${option("mdy", "The month comes first")}
+      </div>
+      <p class="hint set-hint">The second line shows the date as year, month, day.</p>`, "Continue", { disabled: !G.dateOrder });
+  }
+  function reviewHTML() {
+    const p = makePlan();
+    const repeats = G.repeats === "import" ? makePlan({ repeats: "skip" }).skipped : p.skipped;
+    const n = p.items.length;
+    const laneOf = (it) => it.lane.name || targetLanes().find((l) => l.id === it.lane.id)?.name || (it.lane.id === DONE_LANE ? "Done" : "");
+    const bits = [
+      G.where.mode === "new" ? "a new board" : "",
+      G.where.mode === "board" && p.counts.lanes ? plural3(p.counts.lanes, "new lane") : "",
+      p.counts.labels ? plural3(p.counts.labels, "label") : "",
+      p.counts.done ? `${p.counts.done.toLocaleString("en-GB")} marked complete` : ""
+    ].filter(Boolean).join(" · ");
+    const about = (it) => [
+      laneOf(it),
+      ...it.tags.map((t) => `#${t}`),
+      it.priority !== "none" ? priorityById(it.priority)?.name : "",
+      it.due ? `due ${fmtDate(it.due, S.dateFormat)}` : "",
+      it.description ? "description" : "",
+      it.subtasks.length ? plural3(it.subtasks.length, "subtask") : ""
+    ].filter(Boolean).join(" · ");
+    const unused = G.facts.unused.sort((a, b) => b.rows - a.rows);
+    const notIn = [
+      unused.length ? `Not imported: ${unused.slice(0, 4).map((u) => `${u.column} (${plural3(u.rows, "row")})`).join(", ")}${unused.length > 4 ? ` and ${plural3(unused.length - 4, "more column")}` : ""}.` : "",
+      G.mapping.labels ? "Colours of labels are not imported." : "",
+      p.leftOut.untitled ? `${plural3(p.leftOut.untitled, "row")} with no title ${p.leftOut.untitled === 1 ? "is" : "are"} left out.` : "",
+      p.leftOut.priority ? `${plural3(p.leftOut.priority, "task")} ${p.leftOut.priority === 1 ? "has" : "have"} a priority Stack'd does not have, and get none.` : "",
+      n > importRoom() ? `There is room for ${plural3(importRoom(), "more task")} in Stack'd: this import does not fit.` : ""
+    ].filter(Boolean).join(" ");
+    return chrome(
+      "Review",
+      "Nothing has changed yet.",
+      `
+      <div class="card list-card">
+        <div class="guide-row">
+          <div class="guide-left"><span class="set-title">${plural3(n, "task")} into ${esc(targetName())}</span>${bits ? `<span class="guide-sample wrap">${esc(bits)}</span>` : ""}</div>
+        </div>
+        ${repeats ? pickRow(`${repeats.toLocaleString("en-GB")} imported before`, G.mapping.key ? "Same link or number as a task you have." : "Same lane and title as a task you have.", G.repeats === "import" ? "Import anyway" : "Skip", "data-repeats") : ""}
+        ${G.facts.archived ? pickRow(`${G.facts.archived.toLocaleString("en-GB")} archived in the file`, "", G.archived === "archive" ? "Import as archived" : G.archived === "active" ? "Import as open" : "Leave out", "data-archived") : ""}
+      </div>
+      ${n ? `
+      <span class="section-title list-label">${n === 1 ? "The task" : n === 2 ? "The two tasks" : "The first three"}</span>
+      <div class="card list-card">
+        ${p.items.slice(0, 3).map((it) => `
+        <div class="guide-row"><div class="guide-left"><span class="set-title">${esc(it.title)}</span><span class="guide-sample wrap">${esc(about(it))}</span></div></div>`).join("")}
+      </div>` : ""}
+      ${notIn ? `<p class="hint set-hint">${esc(notIn)}</p>` : ""}`,
+      n ? `Import ${plural3(n, "task")}` : "Nothing to import",
+      { disabled: !n || n > importRoom() }
+    );
+  }
+  var PAGES = { part: partHTML, columns: columnsHTML, where: whereHTML, lists: listsHTML, labels: labelsHTML, dates: datesHTML, review: reviewHTML };
+  var current3 = () => {
+    const all = steps();
+    G.step = Math.min(G.step, all.length - 1);
+    return all[G.step];
+  };
+  function guideHTML() {
+    return G ? PAGES[current3()]() : null;
+  }
+  function show2() {
+    rerender();
+    const top = (sel) => {
+      const el = app.querySelector(sel);
+      if (el) el.scrollTop = 0;
+    };
+    top(".scroll-area");
+    top(".main");
+    app.querySelector(".sub-title")?.focus({ preventScroll: true });
+  }
+  var redraw = (refocus2) => {
+    rerender();
+    if (refocus2) app.querySelector(refocus2)?.focus({ preventScroll: true });
+  };
+  function leave2() {
+    const at = UI.settingsScroll;
+    G = null;
+    UI.settingsPage = null;
+    UI.settingsScroll = null;
+    rerender();
+    const put = (sel, v) => {
+      const el = app.querySelector(sel);
+      if (el && v) el.scrollTop = v;
+    };
+    put(".scroll-area", at?.area);
+    put(".main", at?.main);
+    app.querySelector("[data-open-transfer]")?.focus({ preventScroll: true });
+  }
+  async function next() {
+    const step = current3();
+    if (step === "where") {
+      if (G.where.mode === "new") {
+        const name = G.where.name.trim();
+        if (!name) {
+          await noticeDialog("The board needs a name", "Type a name for the new board, or choose one of your boards.");
+          return;
+        }
+        if (nameTaken("board", name)) {
+          await noticeDialog("That name is taken", `You already have a board called ${name}. Choose another name, or add the tasks to that board.`);
+          return;
+        }
+      } else if (!boards().some((l) => l.id === G.where.boardId)) {
+        await noticeDialog("Choose a board", "Choose the board the tasks go to.");
+        return;
+      }
+    }
+    if (step === "review") {
+      finish3();
+      return;
+    }
+    G.step += 1;
+    show2();
+  }
+  function finish3() {
+    const p = makePlan();
+    if (!p.items.length) return;
+    const name = targetName();
+    const lanes = targetLanes();
+    const a = answers();
+    const layout = {
+      name: G.layout?.name || `${plural3(G.table.columns.length, "column")}: ${G.table.columns.slice(0, 3).join(", ")}${G.table.columns.length > 3 ? "…" : ""}`.slice(0, 80),
+      signature: signature(G.table.columns),
+      columns: G.table.columns.length,
+      part: G.part ? G.part.join("/") : null,
+      mapping: G.mapping,
+      lists: Object.entries(a.lists).map(([n, c]) => [n, c.kind === "lane" ? { kind: "lane", name: lanes.find((l) => l.id === c.id)?.name || n } : c.kind === "new" ? { kind: "new", name: c.name } : { kind: "done" }]),
+      labels: Object.keys(G.labels).map((k) => [k, G.labels[k]]).filter(([, c]) => c !== "keep"),
+      dateOrder: G.facts.dates === "ambiguous" ? G.dateOrder : null,
+      archived: G.archived,
+      repeats: G.repeats
+    };
+    const boardId = G.where.mode === "board" ? G.where.boardId : null;
+    const made = importTasks({ boardId, newBoard: name, items: p.items, show: true });
+    if (made.error) {
+      refuse(made.error === "storage" ? "There is not enough room on this device for these tasks. Empty Deleted or remove old tasks, then try again." : made.error === "too_many" ? `Stack'd holds up to 20,000 tasks, notes and meetings, and there is room for ${plural3(importRoom(), "more")}.` : "That board can no longer take them. Go back and choose another.");
+      return;
+    }
+    G = null;
+    UI.settingsScroll = null;
+    rememberImport(layout);
+    toast(`Imported ${plural3(made.taskIds.length, "task")} into ${name}`, { ms: 12e3, action: { label: "Undo", onClick: () => {
+      undoImport(made);
+      toast("Import undone");
+    } } });
+  }
+  function bindGuide() {
+    if (!G) return;
+    bindScrollShadow();
+    const q = (s) => app.querySelector(s);
+    const qa = (s) => [...app.querySelectorAll(s)];
+    q("[data-guide-close]").addEventListener("click", leave2);
+    q("[data-guide-back]").addEventListener("click", () => {
+      if (G.step === 0) leave2();
+      else {
+        G.step -= 1;
+        show2();
+      }
+    });
+    q("[data-guide-next]").addEventListener("click", next);
+    qa("[data-part]").forEach((b) => b.addEventListener("click", () => {
+      try {
+        usePart(G.parts[+b.dataset.part].path);
+      } catch (e) {
+        refuse(e instanceof GuideError ? e.message : "That part could not be read.");
+        return;
+      }
+      G.trusted = false;
+      redraw(`[data-part="${b.dataset.part}"]`);
+    }));
+    qa("[data-field]").forEach((b) => b.addEventListener("click", () => {
+      const key = b.dataset.field;
+      const set3 = (name2) => {
+        if (name2) Object.keys(G.mapping).forEach((k) => {
+          if (G.mapping[k] === name2) G.mapping[k] = null;
+        });
+        G.mapping[key] = name2;
+        G.facts = analyse(G.table, G.mapping);
+        redraw(`[data-field="${key}"]`);
+      };
+      openMenu(b, [
+        { label: "Not in this file", checked: !G.mapping[key], onClick: () => set3(null) },
+        ...G.table.columns.map((c) => ({ label: c, checked: G.mapping[key] === c, onClick: () => set3(c) }))
+      ]);
+    }));
+    const name = q("[data-board-name]");
+    if (name) {
+      name.addEventListener("input", () => {
+        G.where.name = name.value;
+      });
+      name.addEventListener("focus", () => {
+        if (G.where.mode !== "new") {
+          G.where.mode = "new";
+          G.lists = bare();
+          qa("[data-where]").forEach((r) => r.setAttribute("aria-checked", String(r.dataset.where === "new")));
+        }
+      });
+      name.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          name.blur();
+          next();
+        }
+      });
+    }
+    const pickBoard = (anchor) => openMenu(anchor, boards().map((l) => ({
+      label: l.name,
+      checked: G.where.boardId === l.id,
+      onClick: () => {
+        G.where.mode = "board";
+        G.where.boardId = l.id;
+        G.lists = bare();
+        redraw("[data-board-pick]");
+      }
+    })));
+    qa("[data-where]").forEach((r) => r.addEventListener("click", () => {
+      if (r.dataset.where === "board" && !G.where.boardId) {
+        pickBoard(q("[data-board-pick]"));
+        return;
+      }
+      G.where.mode = r.dataset.where;
+      G.lists = bare();
+      redraw(`[data-where="${r.dataset.where}"]`);
+    }));
+    q("[data-board-pick]")?.addEventListener("click", (e) => pickBoard(e.currentTarget));
+    q("[data-guide-check]")?.addEventListener("click", () => {
+      G.trusted = false;
+      G.step = 0;
+      show2();
+    });
+    qa("[data-list]").forEach((b) => b.addEventListener("click", () => {
+      const list3 = G.facts.lists[+b.dataset.list].name;
+      const now2 = listChoice(list3);
+      const set3 = (c) => {
+        G.lists[list3] = c;
+        redraw(`[data-list="${b.dataset.list}"]`);
+      };
+      openMenu(b, [
+        { label: `A new lane called ${list3}`, checked: now2.kind === "new", onClick: () => set3({ kind: "new", name: list3.slice(0, 80) }) },
+        ...targetLanes().filter((l) => l.id !== DONE_LANE).map((l) => ({ label: l.name, checked: now2.kind === "lane" && now2.id === l.id, onClick: () => set3({ kind: "lane", id: l.id }) })),
+        { label: "Done", checked: now2.kind === "done", onClick: () => set3({ kind: "done" }) }
+      ]);
+    }));
+    qa("[data-label-pick]").forEach((b) => b.addEventListener("click", () => {
+      const label = G.facts.labels[+b.dataset.labelPick].name;
+      const now2 = G.labels[label] ?? "keep";
+      const set3 = (c) => {
+        G.labels[label] = c;
+        redraw(`[data-label-pick="${b.dataset.labelPick}"]`);
+      };
+      openMenu(b, [
+        { label: "Keep as label", checked: now2 === "keep", onClick: () => set3("keep") },
+        ...S.priorities.map((p) => ({ label: `Priority: ${p.name}`, checked: now2?.priority === p.id, onClick: () => set3({ priority: p.id }) })),
+        { label: "Leave out", checked: now2 === "drop", onClick: () => set3("drop") }
+      ]);
+    }));
+    qa("[data-date-order]").forEach((b) => b.addEventListener("click", () => {
+      G.dateOrder = b.dataset.dateOrder;
+      redraw(`[data-date-order="${b.dataset.dateOrder}"]`);
+    }));
+    q("[data-repeats]")?.addEventListener("click", (e) => openMenu(e.currentTarget, [
+      { label: "Skip", checked: G.repeats !== "import", onClick: () => {
+        G.repeats = "skip";
+        redraw("[data-repeats]");
+      } },
+      { label: "Import anyway", checked: G.repeats === "import", onClick: () => {
+        G.repeats = "import";
+        redraw("[data-repeats]");
+      } }
+    ]));
+    q("[data-archived]")?.addEventListener("click", (e) => openMenu(e.currentTarget, [
+      { label: "Leave out", checked: G.archived === "leave", onClick: () => {
+        G.archived = "leave";
+        redraw("[data-archived]");
+      } },
+      { label: "Import as archived", checked: G.archived === "archive", onClick: () => {
+        G.archived = "archive";
+        redraw("[data-archived]");
+      } },
+      { label: "Import as open", checked: G.archived === "active", onClick: () => {
+        G.archived = "active";
+        redraw("[data-archived]");
+      } }
+    ]));
+  }
+
   // src/ui/data.js
-  var plural3 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-  var countLine = (c) => [plural3(c.boards, "board"), plural3(c.tasks, "task"), plural3(c.notes, "note"), plural3(c.meetings, "meeting")].join(", ");
+  var plural4 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  var countLine = (c) => [plural4(c.boards, "board"), plural4(c.tasks, "task"), plural4(c.notes, "note"), plural4(c.meetings, "meeting")].join(", ");
   var when = (ts) => `${fmtDate(ts, S.dateFormat)} at ${fmtClock(ts)}`;
   var refocus = (selector) => app.querySelector(selector)?.focus({ preventScroll: true });
   var navRow = (ic, title, sub, attrs) => `
@@ -5967,18 +7277,22 @@
       <div class="sheet-head"><span class="section-title" id="xfer-title">Import and export</span></div>
       <p class="sheet-text" id="xfer-body">Bring tasks in from a file, or send them to another app.</p>
       <div class="sheet-stack">
-        <button type="button" class="btn btn-secondary btn-block" data-import-file disabled>Import file</button>
+        <button type="button" class="btn btn-secondary btn-block" data-import-file>Import file</button>
         <button type="button" class="btn btn-secondary btn-block" data-export-file disabled>Export file</button>
         <button type="button" class="btn btn-secondary btn-block" data-cancel>Cancel</button>
       </div>
-      <p class="hint sheet-note">Import and export are being built: these two buttons switch on in the next steps of 1.7.0.</p>
+      <p class="hint sheet-note">Import reads CSV and JSON files. Export is being built: its button switches on in a later step of 1.7.0.</p>
     </div>`, { onClose: () => refocus("[data-open-transfer]") });
-    const cancel = ov.querySelector("[data-cancel]");
-    cancel.addEventListener("click", () => close());
-    cancel.focus();
+    ov.querySelector("[data-cancel]").addEventListener("click", () => close());
+    const pick2 = ov.querySelector("[data-import-file]");
+    pick2.addEventListener("click", () => {
+      close();
+      startImport();
+    });
+    pick2.focus();
   }
-  var PAGES = ["backup", "remembered"];
-  var onPage = () => !isLegacyOrigin() && PAGES.includes(UI.settingsPage) ? UI.settingsPage : null;
+  var PAGES2 = ["backup", "remembered", "import"];
+  var onPage = () => !isLegacyOrigin() && PAGES2.includes(UI.settingsPage) && (UI.settingsPage !== "import" || guideOpen()) ? UI.settingsPage : null;
   function openPage(name) {
     UI.settingsScroll = { area: app.querySelector(".scroll-area")?.scrollTop || 0, main: app.querySelector(".main")?.scrollTop || 0 };
     UI.settingsPage = name;
@@ -6044,16 +7358,61 @@
       <p class="hint set-hint">${can ? "You see what the file holds and confirm before anything changes." : "To restore a file anyway: sign out and choose Keep a copy, restore the file, then sign in again. At sign-in, Merge sends the restored versions to your account and your other devices; Use my account discards them."}</p>`);
   }
   function rememberedPageHTML() {
-    return pageHTML("Remembered imports", `
+    const rows = S.importLayouts;
+    if (!rows.length) {
+      return pageHTML("Remembered imports", `
       <p class="sub-empty">Nothing remembered yet.</p>
       <p class="hint set-hint">When you import a file, Stack'd remembers your answers here, so the next file of the same kind needs fewer questions.</p>`);
+    }
+    const placed = (l) => FIELDS.filter(([k]) => l.mapping[k]).map(([k, label]) => `${label}: ${l.mapping[k]}`).join(" · ");
+    return pageHTML("Remembered imports", `
+      <div class="card list-card">
+        ${rows.map((l) => `
+        <div class="set-row" data-layout="${esc(l.id)}">
+          <span class="lrow-icon">${icon("listDots", 18)}</span>
+          <div class="set-text">
+            <span class="set-title">${esc(l.name)}</span>
+            <span class="set-sub set-long">${plural4(l.columns, "column")} · used ${plural4(l.used, "time")}${l.lastUsedAt ? ` · last on ${esc(fmtDate(l.lastUsedAt, S.dateFormat))}` : ""}</span>
+            <span class="set-sub set-long">${esc(placed(l))}</span>
+          </div>
+          <div class="set-actions">
+            <button type="button" class="set-btn" data-layout-more aria-label="More for ${esc(l.name)}" aria-haspopup="menu">${icon("more", 18)}</button>
+          </div>
+        </div>`).join("")}
+      </div>
+      <p class="hint set-hint">A file with the same columns arrives in the import guide with these answers filled in. They are saved with your account when you are signed in, and in a backup.</p>`);
+  }
+  function bindRemembered() {
+    app.querySelectorAll("[data-layout]").forEach((row2) => {
+      const id = row2.dataset.layout;
+      const layout = S.importLayouts.find((l) => l.id === id);
+      if (!layout) return;
+      const back = () => refocus(`[data-layout="${CSS.escape(id)}"] [data-layout-more]`);
+      row2.querySelector("[data-layout-more]").addEventListener("click", (e) => openMenu(e.currentTarget, [
+        { label: "Rename", icon: "text", onClick: async () => {
+          const name = await promptDialog("Name this import", { value: layout.name, confirmLabel: "Save" });
+          if (name) renameImportLayout(id, name);
+          back();
+        } },
+        { divider: true },
+        { label: "Forget", icon: "trash", danger: true, onClick: () => {
+          const gone = deleteImportLayout(id);
+          if (gone) toast(`Forgot ${layout.name}`, { action: { label: "Undo", onClick: () => restoreImportLayout(gone) } });
+        } }
+      ]));
+    });
   }
   function settingsPageHTML() {
     const page2 = onPage();
-    return page2 === "backup" ? backupPageHTML() : page2 === "remembered" ? rememberedPageHTML() : null;
+    return page2 === "backup" ? backupPageHTML() : page2 === "remembered" ? rememberedPageHTML() : page2 === "import" ? guideHTML() : null;
   }
   function bindSettingsPage() {
     if (!onPage()) return false;
+    if (onPage() === "import") {
+      bindGuide();
+      return true;
+    }
+    bindRemembered();
     bindScrollShadow();
     app.querySelector("[data-sub-back]")?.addEventListener("click", closePage);
     app.querySelector("[data-backup-now]")?.addEventListener("click", backUpNow);
@@ -6103,9 +7462,9 @@
   async function runRestore(file) {
     try {
       const done2 = await importFile(file, {
-        confirm: async ({ counts, current: current3, recordingsLost, exportedAt }) => await choiceDialog(
+        confirm: async ({ counts, current: current4, recordingsLost, exportedAt }) => await choiceDialog(
           "Replace what is on this device?",
-          `${exportedAt ? `The backup was made on ${when(exportedAt)} and holds` : "The backup holds"} ${countLine(counts)}. It replaces the ${countLine(current3)} on this device, which cannot be undone. Archived and deleted items are counted.${recordingsLost ? ` ${plural3(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
+          `${exportedAt ? `The backup was made on ${when(exportedAt)} and holds` : "The backup holds"} ${countLine(counts)}. It replaces the ${countLine(current4)} on this device, which cannot be undone. Archived and deleted items are counted.${recordingsLost ? ` ${plural4(recordingsLost, "recording")} on this device will be deleted with ${recordingsLost === 1 ? "its meeting" : "their meetings"}.` : ""}`,
           [{ id: "replace", label: "Replace", danger: true }]
         ) === "replace"
       });
@@ -6348,7 +7707,7 @@
   }
   function askPin(title, { text: text2 = "", check: check2 }) {
     return new Promise((resolve) => {
-      let pad3;
+      let pad4;
       const { ov, close } = overlay(`
       <div class="sheet steps-sheet" role="dialog" aria-modal="true" aria-labelledby="pin-title">
         <div class="steps-head"><span></span><span></span><button type="button" class="icon-btn" data-close aria-label="Close">${icon("x")}</button></div>
@@ -6356,18 +7715,18 @@
         ${text2 ? `<p class="step-text">${esc(text2)}</p>` : ""}
         ${pinpadHTML({ label: title })}
       </div>`, { onClose: (r) => {
-        pad3?.destroy();
+        pad4?.destroy();
         resolve(typeof r === "string" ? r : null);
       } });
       ov.querySelector("[data-close]").addEventListener("click", () => close(null));
-      pad3 = bindPinpad(ov, {
+      pad4 = bindPinpad(ov, {
         onComplete: async (pin) => {
           const err = check2 ? await check2(pin) : null;
-          if (err) pad3.error(err);
+          if (err) pad4.error(err);
           else close(pin);
         }
       });
-      pad3.focus();
+      pad4.focus();
     });
   }
   var serverPin = async (pin) => {
@@ -6485,12 +7844,12 @@
       const old = await askPin("Your current PIN", {});
       if (!old) return;
       let first = null;
-      const next = await askPin("Choose a new PIN", { check: async (p) => /^(\d)\1{3}$/.test(p) || "0123456789".includes(p) || "9876543210".includes(p) ? "Choose a PIN that is not four of the same digit or a straight run." : (first = p, null) });
-      if (!next) return;
+      const next2 = await askPin("Choose a new PIN", { check: async (p) => /^(\d)\1{3}$/.test(p) || "0123456789".includes(p) || "9876543210".includes(p) ? "Choose a PIN that is not four of the same digit or a straight run." : (first = p, null) });
+      if (!next2) return;
       const again2 = await askPin("Enter it again", { check: async (p) => p === first ? null : "The two PINs were different." });
       if (!again2) return;
       try {
-        await changePin(old, next);
+        await changePin(old, next2);
         toast("PIN changed");
       } catch (e) {
         toast(e.message, { ms: 6e3 });
@@ -6534,7 +7893,7 @@
   var THEME_LABEL = { light: "Light", dark: "Dark", system: "System" };
   var THEME_ICON = { light: "sun", dark: "moon", system: "monitor" };
   var COLOR_NAME = { red: "Red", amber: "Amber", green: "Green", blue: "Blue", violet: "Violet", gray: "Gray" };
-  var plural4 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  var plural5 = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   var sameTag2 = (a, b) => a.toLowerCase() === b.toLowerCase();
   function openSettings(section) {
     UI.screen = "settings";
@@ -6549,7 +7908,7 @@
     <button class="lrow-icon pc pc-${p.color}" data-color aria-label="Colour: ${COLOR_NAME[p.color]}" title="Change colour">${icon("flag", 18)}</button>
     <div class="set-text">
       <input class="set-input" data-name value="${esc(p.name)}" maxlength="24" autocomplete="off" aria-label="Priority name">
-      <span class="set-sub">${plural4(priorityUseCount(p.id), "task")}</span>
+      <span class="set-sub">${plural5(priorityUseCount(p.id), "task")}</span>
     </div>
     <div class="set-actions">
       <button class="set-btn" data-move="-1" aria-label="Move ${esc(p.name)} up" ${i === 0 ? "disabled" : ""}>${icon("chevronUp", 18)}</button>
@@ -6560,7 +7919,7 @@
   }
   function labelRowHTML(name) {
     const use = tagUseCounts(name);
-    const sub = use.notes ? `${plural4(use.tasks, "task")} · ${plural4(use.notes, "note")}` : plural4(use.tasks, "task");
+    const sub = use.notes ? `${plural5(use.tasks, "task")} · ${plural5(use.notes, "note")}` : plural5(use.tasks, "task");
     return `
   <div class="set-row" data-label="${esc(name)}">
     <span class="lrow-icon">${icon("tag", 18)}</span>
@@ -6759,7 +8118,7 @@
       row2.querySelectorAll("[data-move]").forEach((b) => b.addEventListener("click", () => movePriority(id, +b.dataset.move)));
       row2.querySelector("[data-delete]").addEventListener("click", async () => {
         const used = priorityUseCount(id);
-        if (used && !await confirmDialog(`Delete “${p.name}”?`, `${plural4(used, "task")} will have no priority.`, { confirmLabel: "Delete", danger: true })) return;
+        if (used && !await confirmDialog(`Delete “${p.name}”?`, `${plural5(used, "task")} will have no priority.`, { confirmLabel: "Delete", danger: true })) return;
         deletePriority(id);
       });
     });
@@ -6772,17 +8131,17 @@
     });
     app.querySelectorAll("[data-label]").forEach((row2) => {
       const name = row2.dataset.label;
-      bindName(row2.querySelector("[data-name]"), async (next) => {
-        const target = allTags().find((x) => sameTag2(x, next) && !sameTag2(x, name));
+      bindName(row2.querySelector("[data-name]"), async (next2) => {
+        const target = allTags().find((x) => sameTag2(x, next2) && !sameTag2(x, name));
         if (target && !await confirmDialog(`Merge #${name} into #${target}?`, `Every task with #${name} gets #${target} instead.`, { confirmLabel: "Merge" })) {
           rerender();
           return;
         }
-        renameLabel(name, target || next);
+        renameLabel(name, target || next2);
       });
       row2.querySelector("[data-delete]").addEventListener("click", async () => {
         const used = tagUseCount(name);
-        if (used && !await confirmDialog(`Delete #${name}?`, `It is removed from ${plural4(used, "task")}.`, { confirmLabel: "Delete", danger: true })) return;
+        if (used && !await confirmDialog(`Delete #${name}?`, `It is removed from ${plural5(used, "task")}.`, { confirmLabel: "Delete", danger: true })) return;
         deleteLabel(name);
       });
     });
@@ -7231,7 +8590,7 @@
     input.setAttribute("aria-label", "Lane name");
     btn.replaceWith(input);
     let closed = false;
-    const finish3 = (save2) => {
+    const finish5 = (save2) => {
       if (closed) return;
       closed = true;
       const name = input.value.trim();
@@ -7250,13 +8609,13 @@
       if (board) board.scrollLeft = x;
     };
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") finish3(true);
+      if (e.key === "Enter") finish5(true);
       else if (e.key === "Escape") {
         e.stopPropagation();
-        finish3(false);
+        finish5(false);
       }
     });
-    input.addEventListener("blur", () => finish3(true));
+    input.addEventListener("blur", () => finish5(true));
     input.focus();
     input.select();
   }
@@ -7848,14 +9207,14 @@
         } });
       });
       q('[data-tool="color"]').addEventListener("click", (e) => {
-        const current3 = get2().color;
+        const current4 = get2().color;
         const pick2 = (color) => {
           set3({ color });
           render2("body");
         };
         openMenu(e.currentTarget, [
-          { label: "None", swatch: "none", checked: !current3, onClick: () => pick2(null) },
-          ...NOTE_COLORS.map((c) => ({ label: COLOR_NAME2[c], swatch: c, checked: current3 === c, onClick: () => pick2(c) }))
+          { label: "None", swatch: "none", checked: !current4, onClick: () => pick2(null) },
+          ...NOTE_COLORS.map((c) => ({ label: COLOR_NAME2[c], swatch: c, checked: current4 === c, onClick: () => pick2(c) }))
         ]);
       });
       q('[data-tool="checklist"]').addEventListener("click", async () => {
@@ -8350,7 +9709,7 @@
       const at = Date.now() - session.startedAt;
       session.chunkQueue = session.chunkQueue.then(() => append(key, e.data, at)).catch((err) => console.error("recording: write failed", err));
     });
-    rec.addEventListener("stop", () => finish2());
+    rec.addEventListener("stop", () => finish4());
     rec.addEventListener("error", (e) => {
       console.error("recording", e.error || e);
       stopRecording();
@@ -8365,10 +9724,10 @@
     try {
       session.rec.stop();
     } catch {
-      finish2();
+      finish4();
     }
   }
-  async function finish2() {
+  async function finish4() {
     const s = session;
     if (!s) return;
     s.stream.getTracks().forEach((t) => t.stop());
@@ -8382,7 +9741,7 @@
     });
     await s.chunkQueue;
     const durationMs = s.durationMs || Date.now() - s.startedAt;
-    const row2 = await finish(s.key, durationMs);
+    const row2 = await finish2(s.key, durationMs);
     session = null;
     UI.recorder = null;
     const m = meetingById(s.meetingId);
@@ -8563,7 +9922,7 @@
     const s = session;
     const live_ = () => live.querySelector("[data-rec-live]");
     const canvas = live.querySelector("[data-level]");
-    const clock = live.querySelector("[data-clock]");
+    const clock2 = live.querySelector("[data-clock]");
     live.querySelector("[data-stop]").addEventListener("click", () => {
       buzz("MEDIUM");
       stopRecording();
@@ -8583,7 +9942,7 @@
     const tick = () => {
       if (!session) return;
       const ms = Date.now() - s.startedAt;
-      if (clock) clock.firstChild.textContent = `${fmtDuration(ms)} `;
+      if (clock2) clock2.firstChild.textContent = `${fmtDuration(ms)} `;
       if (ms % 3e4 < 500) {
         const live2 = live_();
         if (live2) live2.textContent = `Recording, ${fmtDuration(ms)}`;
@@ -8897,14 +10256,14 @@
     unlisten?.();
     const merged = mergeAdjacent(m.transcript.segments).filter((s) => s.startMs !== null && s.startMs !== void 0);
     unlisten = onPlayerTime((ms, playing) => {
-      let current3 = null;
+      let current4 = null;
       merged.forEach((s) => {
-        if (s.startMs <= ms + 50) current3 = s.id;
+        if (s.startMs <= ms + 50) current4 = s.id;
       });
       root.querySelectorAll(".tseg.playing").forEach((el) => {
-        if (!playing || el.dataset.seg !== current3) el.classList.remove("playing");
+        if (!playing || el.dataset.seg !== current4) el.classList.remove("playing");
       });
-      if (playing && current3) root.querySelector(`.tseg[data-seg="${current3}"]`)?.classList.add("playing");
+      if (playing && current4) root.querySelector(`.tseg[data-seg="${current4}"]`)?.classList.add("playing");
     });
     root.querySelectorAll("[data-edit]").forEach((p) => {
       const original = p.textContent;
@@ -8934,9 +10293,9 @@
     });
     root.querySelectorAll("[data-speaker]").forEach((b) => b.addEventListener("click", async () => {
       const label = b.dataset.speaker;
-      const current3 = m.transcript.speakers[label] || "";
+      const current4 = m.transcript.speakers[label] || "";
       const name = await promptDialog(`Name for ${speakerName(m.transcript, label)}`, {
-        value: current3,
+        value: current4,
         placeholder: speakerName({ speakers: {} }, label),
         confirmLabel: "Rename",
         allowEmpty: true
@@ -9276,7 +10635,7 @@
         onError("That file is too large to be a transcript.");
         return;
       }
-      const finish3 = (text2) => {
+      const finish5 = (text2) => {
         const parsed = parseByName(ext === "docx" ? "x.txt" : file.name, text2);
         if (!parsed.segments.length) {
           onError("Couldn't read this file: it has no text.");
@@ -9291,13 +10650,13 @@
         }
         file.arrayBuffer().then((buf) => readDocumentXml(buf)).then((xml) => {
           if (xml === null) throw new Error("not a Word file");
-          finish3(parseDocxXml(xml));
+          finish5(parseDocxXml(xml));
         }).catch(() => onError("Couldn't read this file: it is not a Word document."));
         return;
       }
       const reader = new FileReader();
       reader.onerror = () => onError("Couldn't read this file.");
-      reader.onload = () => finish3(String(reader.result || ""));
+      reader.onload = () => finish5(String(reader.result || ""));
       reader.readAsText(file);
     });
     input.click();
@@ -9880,17 +11239,17 @@
       input2.focus();
       input2.select();
       let finished = false;
-      const finish3 = (save2) => {
+      const finish5 = (save2) => {
         if (finished) return;
         finished = true;
         if (save2 && input2.value.trim() && input2.value.trim() !== t.title) setTitle(t.id, input2.value);
         else rerender();
       };
       input2.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") finish3(true);
-        if (e.key === "Escape") finish3(false);
+        if (e.key === "Enter") finish5(true);
+        if (e.key === "Escape") finish5(false);
       });
-      input2.addEventListener("blur", () => finish3(true));
+      input2.addEventListener("blur", () => finish5(true));
     };
     h1.addEventListener("click", editTitle);
     h1.addEventListener("keydown", (e) => {
@@ -10099,9 +11458,9 @@
   var KINDS = { tasks: "tasks", notes: "notes", meetings: "meetings", boards: "boards" };
   function foldersHTML() {
     const tab = UI.folder, kind = KINDS[UI.folderKind] || "tasks";
-    const tasks = folderTasks(tab), notes = folderNotes(tab), meetings = folderMeetings(tab), boards = folderBoards(tab);
-    const total = tasks.length + notes.length + meetings.length + boards.length;
-    const rows = kind === "notes" ? notes.map((n) => noteRowHTML2(n, tab)) : kind === "meetings" ? meetings.map((m) => meetingRowHTML2(m, tab)) : kind === "boards" ? boards.map((l) => boardRowHTML(l, tab)) : tasks.map((t) => taskRowHTML(t, tab));
+    const tasks = folderTasks(tab), notes = folderNotes(tab), meetings = folderMeetings(tab), boards2 = folderBoards(tab);
+    const total = tasks.length + notes.length + meetings.length + boards2.length;
+    const rows = kind === "notes" ? notes.map((n) => noteRowHTML2(n, tab)) : kind === "meetings" ? meetings.map((m) => meetingRowHTML2(m, tab)) : kind === "boards" ? boards2.map((l) => boardRowHTML(l, tab)) : tasks.map((t) => taskRowHTML(t, tab));
     const disclaimer = `Tasks, notes, meetings and boards stay here for ${RETENTION_DAYS} days, then they are removed permanently.`;
     const empty2 = tab === "archived" ? `Nothing archived yet. Archive ${kind} you are done with but want to keep.` : kind === "tasks" ? "Nothing in Deleted." : `No deleted ${kind}.`;
     const seg = (k, label, n) => `<button class="seg ${kind === k ? "active" : ""}" data-kind="${k}" role="tab" aria-selected="${kind === k}">${label} · ${n}</button>`;
@@ -10116,7 +11475,7 @@
         ${seg("tasks", "Tasks", tasks.length)}
         ${seg("notes", "Notes", notes.length)}
         ${seg("meetings", "Meetings", meetings.length)}
-        ${seg("boards", "Boards", boards.length)}
+        ${seg("boards", "Boards", boards2.length)}
       </div>
     </header>
     <div class="scroll-area">
@@ -10570,25 +11929,25 @@
   }
   var waitTimer = null;
   function bindLock() {
-    const pad3 = bindPinpad(app, {
+    const pad4 = bindPinpad(app, {
       onComplete: async (pin) => {
         const r = await unlockWithPin(pin);
         if (r.ok) return;
         if (r.code === "wait" && r.waitMs) {
-          pad3.error(r.message);
-          pad3.disable(true);
+          pad4.error(r.message);
+          pad4.disable(true);
           clearTimeout(waitTimer);
           waitTimer = setTimeout(() => {
-            pad3.disable(false);
-            pad3.error("");
+            pad4.disable(false);
+            pad4.error("");
           }, r.waitMs);
           return;
         }
-        pad3.error(r.message);
+        pad4.error(r.message);
         if (r.code === "pin_locked") app.querySelector("[data-forgot]").textContent = "Reset your PIN with an email code";
       }
     });
-    pad3.focus();
+    pad4.focus();
     app.querySelector("[data-forgot]").addEventListener("click", async () => {
       const ok = await confirmDialog("Reset your PIN?", "We send a code to your email. After the reset, your other devices are signed out.", { confirmLabel: "Send a code" });
       if (ok) openSignIn({ mode: "signin" });
@@ -10675,7 +12034,7 @@
   function screenHTML() {
     return UI.screen === "lists" ? listsMenuHTML() : UI.screen === "detail" ? detailHTML() : UI.screen === "folders" ? foldersHTML() : UI.screen === "settings" ? settingsHTML() : UI.screen === "notes" ? notesHTML() : UI.screen === "note" ? noteDetailHTML() : UI.screen === "meeting" ? meetingHTML() : UI.screen === "meetings" ? meetingsHTML() : mobileListHTML();
   }
-  var withNav = () => !["detail", "note", "meeting"].includes(UI.screen) && !(UI.screen === "notes" && UI.composer.expanded);
+  var withNav = () => !["detail", "note", "meeting"].includes(UI.screen) && !(UI.screen === "notes" && UI.composer.expanded) && !(UI.screen === "settings" && UI.settingsPage === "import");
   function draw2() {
     applyTheme();
     dropWaiting();
@@ -10840,7 +12199,7 @@
     }
   });
   var ITEMS = ".row, .kcard, .lane, .board, .card, .set-row, .lrow, .chip-row, .search-row, .invite-card, .notice";
-  var FIELDS = 'input, textarea, select, [contenteditable="true"], [data-editor]';
+  var FIELDS2 = 'input, textarea, select, [contenteditable="true"], [data-editor]';
   function asScreen(screen, build) {
     const was = { screen: UI.screen, slide: UI.menuSlide };
     UI.screen = screen;
@@ -10919,12 +12278,12 @@
         layer.style.transform = at(p);
         dim.style.opacity = String(p);
       },
-      settle: (open2) => {
-        if (open2) app.querySelectorAll(".bottom-nav [data-nav]").forEach((b) => b.classList.toggle("active", b.dataset.nav === "lists"));
+      settle: (open3) => {
+        if (open3) app.querySelectorAll(".bottom-nav [data-nav]").forEach((b) => b.classList.toggle("active", b.dataset.nav === "lists"));
         dim.style.transition = "opacity 220ms ease";
-        dim.style.opacity = open2 ? "1" : "0";
-        slideTo(layer, at(open2 ? 1 : 0), () => {
-          if (open2) {
+        dim.style.opacity = open3 ? "1" : "0";
+        slideTo(layer, at(open3 ? 1 : 0), () => {
+          if (open3) {
             UI.menuSlide = false;
             UI.screen = "lists";
             rerender();
@@ -10948,15 +12307,15 @@
         under.style.transform = behind(p);
         shade.style.opacity = String(1 - p);
       },
-      settle: (open2) => {
+      settle: (open3) => {
         under.style.transition = "transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)";
-        under.style.transform = behind(open2 ? 1 : 0);
+        under.style.transform = behind(open3 ? 1 : 0);
         shade.style.transition = "opacity 220ms ease";
-        shade.style.opacity = open2 ? "0" : "1";
-        slideTo(app, at(open2 ? 1 : 0), () => {
+        shade.style.opacity = open3 ? "0" : "1";
+        slideTo(app, at(open3 ? 1 : 0), () => {
           app.style.transform = "";
           app.classList.remove("is-peeking");
-          if (open2) {
+          if (open3) {
             if (to === "folders") UI.detailId = null;
             UI.screen = to;
             rerender();
@@ -10980,13 +12339,13 @@
         if (m) m.style.transform = at(p);
         dim.style.opacity = String(1 - p);
       },
-      settle: (open2) => {
-        if (open2) app.querySelectorAll(".bottom-nav [data-nav]").forEach((b) => b.classList.toggle("active", b.dataset.nav === to));
+      settle: (open3) => {
+        if (open3) app.querySelectorAll(".bottom-nav [data-nav]").forEach((b) => b.classList.toggle("active", b.dataset.nav === to));
         dim.style.transition = "opacity 220ms ease";
-        dim.style.opacity = open2 ? "0" : "1";
+        dim.style.opacity = open3 ? "0" : "1";
         const done2 = () => {
           app.classList.remove("is-leaving");
-          if (open2 && UI.screen === "lists") {
+          if (open3 && UI.screen === "lists") {
             UI.screen = to;
             rerender();
             if (sameAsLeft()) putScroll(app, cameFrom.scroll);
@@ -10997,7 +12356,7 @@
           endPeek(peek);
         };
         const m = menu();
-        if (m) slideTo(m, at(open2 ? 1 : 0), done2);
+        if (m) slideTo(m, at(open3 ? 1 : 0), done2);
         else done2();
       }
     };
@@ -11005,7 +12364,7 @@
   bindSwipeLeft(app, {
     canStart: (target) => {
       if (isDesktop.matches || !S.onboarded || locked() || isRecording()) return false;
-      if (peeking || document.querySelector(".overlay") || target.closest(`.bottom-nav, .hold-bar, ${FIELDS}`)) return false;
+      if (peeking || document.querySelector(".overlay") || target.closest(`.bottom-nav, .hold-bar, ${FIELDS2}`)) return false;
       return UI.screen === "lists" && !!cameFrom;
     },
     prepare: preparePeek,
@@ -11015,7 +12374,7 @@
   bindSwipeRight(app, {
     canStart: (target, x, edge) => {
       if (isDesktop.matches || !S.onboarded || locked() || isRecording()) return false;
-      if (peeking || document.querySelector(".overlay") || target.closest(`.bottom-nav, ${FIELDS}`)) return false;
+      if (peeking || document.querySelector(".overlay") || target.closest(`.bottom-nav, ${FIELDS2}`)) return false;
       if (UI.screen === "detail") return edge || !target.closest(".subrow, .chip-row");
       if (!TOP_LEVEL.includes(UI.screen) || UI.screen === "notes" && UI.composer.expanded) return false;
       return edge || !target.closest(ITEMS);

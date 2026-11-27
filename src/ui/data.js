@@ -15,14 +15,16 @@
    (decision 42). The pages draw everything from the store on every
    render and keep nothing in the DOM. */
 
-import { S, UI, noteFileBackup, rerender } from '../store.js';
+import { S, UI, noteFileBackup, renameImportLayout, deleteImportLayout, restoreImportLayout, rerender } from '../store.js';
 import { canImport, importFile, makeBackup, sharedBoards } from '../backup.js';
 import { saveFile } from '../files.js';
 import { isLegacyOrigin } from '../legal.js';
 import { fmtDate, fmtClock } from '../dates.js';
 import { esc, app } from '../util.js';
 import { icon } from './icons.js';
-import { overlay, choiceDialog, noticeDialog, toast } from './primitives.js';
+import { overlay, choiceDialog, noticeDialog, promptDialog, openMenu, toast } from './primitives.js';
+import { FIELDS } from '../importer.js';
+import { startImport, guideOpen, guideHTML, bindGuide } from './importguide.js';
 import { bindScrollShadow } from './board.js';
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -65,11 +67,11 @@ export function bindDataSection() {
 
 /* ── Import and export: the sheet ────────────────────────────────────── */
 
-/* Three buttons, as in Stack'd Finance. The pages behind Import file and
-   Export file are built in phases 5 and 7 of 1.7.0: until then the two
-   buttons are shown switched off (decision 35), and the line under them
-   says why. NOT FOR RELEASE as it is: the line and both `disabled` go when
-   those phases land. */
+/* Three buttons, as in Stack'd Finance. Import file opens the system's
+   file picker and then the guide (ui/importguide.js). The pages behind
+   Export file are built in phase 7 of 1.7.0: until then that button is shown
+   switched off (decision 35), and the line under it says why. NOT FOR
+   RELEASE as it is: the line and the `disabled` go when that phase lands. */
 function openTransferSheet() {
   const { ov, close } = overlay(`
     <div class="sheet" role="dialog" aria-labelledby="xfer-title" aria-describedby="xfer-body">
@@ -77,21 +79,24 @@ function openTransferSheet() {
       <div class="sheet-head"><span class="section-title" id="xfer-title">Import and export</span></div>
       <p class="sheet-text" id="xfer-body">Bring tasks in from a file, or send them to another app.</p>
       <div class="sheet-stack">
-        <button type="button" class="btn btn-secondary btn-block" data-import-file disabled>Import file</button>
+        <button type="button" class="btn btn-secondary btn-block" data-import-file>Import file</button>
         <button type="button" class="btn btn-secondary btn-block" data-export-file disabled>Export file</button>
         <button type="button" class="btn btn-secondary btn-block" data-cancel>Cancel</button>
       </div>
-      <p class="hint sheet-note">Import and export are being built: these two buttons switch on in the next steps of 1.7.0.</p>
+      <p class="hint sheet-note">Import reads CSV and JSON files. Export is being built: its button switches on in a later step of 1.7.0.</p>
     </div>`, { onClose: () => refocus('[data-open-transfer]') });
-  const cancel = ov.querySelector('[data-cancel]');
-  cancel.addEventListener('click', () => close());
-  cancel.focus();
+  ov.querySelector('[data-cancel]').addEventListener('click', () => close());
+  /* the picker opens inside this tap, or the phone keeps it shut */
+  const pick = ov.querySelector('[data-import-file]');
+  pick.addEventListener('click', () => { close(); startImport(); });
+  pick.focus();
 }
 
 /* ── Pages under Settings ────────────────────────────────────────────── */
 
-const PAGES = ['backup', 'remembered'];
-const onPage = () => (!isLegacyOrigin() && PAGES.includes(UI.settingsPage) ? UI.settingsPage : null);
+const PAGES = ['backup', 'remembered', 'import'];
+/* the guide is a page only while it holds a file: after a reload there is none */
+const onPage = () => (!isLegacyOrigin() && PAGES.includes(UI.settingsPage) && (UI.settingsPage !== 'import' || guideOpen()) ? UI.settingsPage : null);
 
 function openPage(name) {
   UI.settingsScroll = { area: app.querySelector('.scroll-area')?.scrollTop || 0, main: app.querySelector('.main')?.scrollTop || 0 };
@@ -154,22 +159,67 @@ function backupPageHTML() {
         : 'To restore a file anyway: sign out and choose Keep a copy, restore the file, then sign in again. At sign-in, Merge sends the restored versions to your account and your other devices; Use my account discards them.'}</p>`);
 }
 
-/* The list is filled by the import guide (phase 5 of 1.7.0); until a file has been imported there is nothing to show. */
+/* What the guide learned (PRD §06.4): one row per file layout, with where
+   its columns went. A row can be renamed or forgotten; the guide adds and
+   updates them by itself. A name comes from a file, so it is escaped. */
 function rememberedPageHTML() {
-  return pageHTML('Remembered imports', `
+  const rows = S.importLayouts;
+  if (!rows.length) {
+    return pageHTML('Remembered imports', `
       <p class="sub-empty">Nothing remembered yet.</p>
       <p class="hint set-hint">When you import a file, Stack'd remembers your answers here, so the next file of the same kind needs fewer questions.</p>`);
+  }
+  const placed = (l) => FIELDS.filter(([k]) => l.mapping[k]).map(([k, label]) => `${label}: ${l.mapping[k]}`).join(' · ');
+  return pageHTML('Remembered imports', `
+      <div class="card list-card">
+        ${rows.map((l) => `
+        <div class="set-row" data-layout="${esc(l.id)}">
+          <span class="lrow-icon">${icon('listDots', 18)}</span>
+          <div class="set-text">
+            <span class="set-title">${esc(l.name)}</span>
+            <span class="set-sub set-long">${plural(l.columns, 'column')} · used ${plural(l.used, 'time')}${l.lastUsedAt ? ` · last on ${esc(fmtDate(l.lastUsedAt, S.dateFormat))}` : ''}</span>
+            <span class="set-sub set-long">${esc(placed(l))}</span>
+          </div>
+          <div class="set-actions">
+            <button type="button" class="set-btn" data-layout-more aria-label="More for ${esc(l.name)}" aria-haspopup="menu">${icon('more', 18)}</button>
+          </div>
+        </div>`).join('')}
+      </div>
+      <p class="hint set-hint">A file with the same columns arrives in the import guide with these answers filled in. They are saved with your account when you are signed in, and in a backup.</p>`);
+}
+
+function bindRemembered() {
+  app.querySelectorAll('[data-layout]').forEach((row) => {
+    const id = row.dataset.layout;
+    const layout = S.importLayouts.find((l) => l.id === id);
+    if (!layout) return;
+    const back = () => refocus(`[data-layout="${CSS.escape(id)}"] [data-layout-more]`);
+    row.querySelector('[data-layout-more]').addEventListener('click', (e) => openMenu(e.currentTarget, [
+      { label: 'Rename', icon: 'text', onClick: async () => {
+        const name = await promptDialog('Name this import', { value: layout.name, confirmLabel: 'Save' });
+        if (name) renameImportLayout(id, name);
+        back();
+      } },
+      { divider: true },
+      { label: 'Forget', icon: 'trash', danger: true, onClick: () => {
+        const gone = deleteImportLayout(id);
+        if (gone) toast(`Forgot ${layout.name}`, { action: { label: 'Undo', onClick: () => restoreImportLayout(gone) } });
+      } },
+    ]));
+  });
 }
 
 /** The page to draw in place of Settings, or null for Settings itself. */
 export function settingsPageHTML() {
   const page = onPage();
-  return page === 'backup' ? backupPageHTML() : page === 'remembered' ? rememberedPageHTML() : null;
+  return page === 'backup' ? backupPageHTML() : page === 'remembered' ? rememberedPageHTML() : page === 'import' ? guideHTML() : null;
 }
 
 /** Binds the page on show. False when Settings itself is on show. */
 export function bindSettingsPage() {
   if (!onPage()) return false;
+  if (onPage() === 'import') { bindGuide(); return true; }
+  bindRemembered();
   bindScrollShadow();
   app.querySelector('[data-sub-back]')?.addEventListener('click', closePage);
   app.querySelector('[data-backup-now]')?.addEventListener('click', backUpNow);
