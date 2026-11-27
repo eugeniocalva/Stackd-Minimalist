@@ -1,7 +1,7 @@
 # PRD: Stack'd Minimalist 1.7.0 — swipe back, a tidier Settings, import and export
 
 Status: **in progress, 2026-11-27.** Phases 1 to 7 of 8 are done and
-agreed. Fifty-six decisions taken by the owner (§02). The decisions
+agreed; phase 8 is under way. Sixty-one decisions taken by the owner (§02). The decisions
 still to take are listed by phase in §11 and are
 asked when their phase starts; each answer is recorded in §02. Branch:
 `release/1.7.0`, cut from `release/1.6.0` at `602b94c`.
@@ -82,6 +82,11 @@ the exported files) are done by the owner on one TestFlight build at the end.
 | 54 | Boards shared with the person | Offered in the export, marked "shared with you" and not ticked at first. Export only reads |
 | 55 | Name of the exported file | One board: its name and the day, "Work 2026-11-27.xlsx". Several: "stackd-tasks 2026-11-27.xlsx" |
 | 56 | Phase 7, export as built | Agreed on 2026-11-27 from the pictures of the pages and one file of each format, with: Excel chosen at first and the last choices kept until the app closes; the import and export pages' button bar fixed to the foot of the window on wide screens; a ' in front of a CSV cell that would run as a formula, taken off again on import; and the things known and left (a due time of 00:00, a comma CSV in a semicolon language). Numbers, Pages, Google Sheets and Docs and Preview are checked by the owner on TestFlight |
+| 57 | 1.6.0 and 1.7.0 | Asked on 2026-11-27 when phase 8 started: one release, 1.7.0, which holds all of 1.6.0 (accounts and sync). One security review, one version bump, one set of release notes. `release/1.6.0` is left as it is |
+| 58 | Order of phase 8 | TestFlight first: saving in the native apps, then a TestFlight build of `release/1.7.0` (still numbered 1.5.0, a new build number) for the owner's phone test of phases 1 to 7. The email provider, the security review, version 1.7.0 and the release notes come after, with a final build. Claude starts the builds with `gh`: a dry run, then the upload |
+| 59 | The legal pages' gaps | As Stack'd Finance: the controller is Stack'd Development Studio, contact hi@stackdplatform.com, with no postal address; the data protection authority is not named ("the one where you live"); no copyright agent line |
+| 60 | Email for sign-in codes | Stack'd Finance sends no email to its users, so there was none to reuse. Brevo, for the whole Stack'd family: a French company, data kept in the EU, a free plan of 300 emails a day. Added to the server before the version bump; the owner creates the account and sets its key in the Cloudflare dashboard |
+| 61 | The account emails' sender and foot | From "Stack'd <account@stackdplatform.com>", replies to hi@stackdplatform.com; the foot of each message says "Stack'd Development Studio · hi@stackdplatform.com" |
 
 ---
 
@@ -696,7 +701,7 @@ Each phase: options shown → owner agrees → built → shown → owner agrees.
 | 5 | D: Import guide for CSV and JSON, files made of several parts, Remembered imports. **Done and agreed** (decisions 45 to 49) | The guide, step by step, on made-up files |
 | 6 | D: Import of Excel and XML. **Done and agreed** (decisions 50 and 51) | The same files in those formats |
 | 7 | D: Export, six formats. **Done and agreed** (decisions 52 to 56) | The pages, and one file of each format to open |
-| 8 | iPhone saving, QA, security review, version, release notes. QA includes: no switched-off button and no "being built" line left in the Import and export sheet | TestFlight build |
+| 8 | iPhone saving, QA, security review, version, release notes. QA includes: no switched-off button and no "being built" line left in the Import and export sheet (done in phase 7). **Under way** (decisions 57 to 60): saving in the native apps and the legal pages are done; TestFlight build 20 (1.5.0) is uploaded for the phone test; Brevo is in the server (decision 61), waiting for the owner's Brevo account, DNS and key; then turning accounts on, the security review, version 1.7.0 and the release notes | TestFlight build |
 
 ## 11. Still to decide, asked when the phase starts
 

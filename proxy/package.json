@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
-    "test": "node test/run.mjs && node --disable-warning=ExperimentalWarning test/accounts.mjs && node --disable-warning=ExperimentalWarning test/sharing.mjs",
+    "test": "node test/run.mjs && node test/mail.mjs && node --disable-warning=ExperimentalWarning test/accounts.mjs && node --disable-warning=ExperimentalWarning test/sharing.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "benchmark": "node benchmark/run.mjs"

@@ -125,7 +125,10 @@ rules). No network.
 `/v1/auth/*`, `/v1/account*` and `/v1/sync*` (docs/architecture.md §30, §45)
 answer `503 misconfigured` until the database, the two peppers, the
 document versions and a mail provider are set; the routes above are not
-affected. Setup is listed at the top of `wrangler.toml`. Tests:
+affected. Setup is listed at the top of `wrangler.toml`. Mail goes through
+Brevo (`src/mail/index.js`): the secret `BREVO_API_KEY` and the `MAIL_FROM`
+sender, an address at stackdplatform.com, whose domain Brevo has checked
+(SPF, DKIM, DMARC). `test/mail.mjs` checks the request without sending. Tests:
 `npm test` runs `test/accounts.mjs` on `node:sqlite` with the real SQL.
 
 Local run of sign-in and sync, with a local database and the mail stub:

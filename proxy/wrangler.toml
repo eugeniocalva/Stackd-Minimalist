@@ -30,6 +30,14 @@ id = "5db8ec1359f04d0281e126e1d0948147"
 #   npx wrangler secret put PIN_PEPPER                   # 32+ random characters
 #   npx wrangler secret put CODE_PEPPER                  # 32+ random characters, different
 #   set TERMS_VERSION, PRIVACY_VERSION, OWNER_FOOTER and MAIL_PROVIDER in [vars]
+# Mail (decision 60 of PRD 1.7.0): Brevo, for the whole Stack'd family.
+#   in Brevo: add the domain stackdplatform.com under Senders, Domains and
+#     IPs, and put the SPF, DKIM and DMARC records it shows in Cloudflare DNS
+#   in Brevo: create an API key (SMTP & API > API keys)
+#   in the Cloudflare dashboard (Workers > this Worker > Settings >
+#     Variables and Secrets): add the secret BREVO_API_KEY
+#   [vars] below already hold MAIL_PROVIDER, MAIL_FROM, MAIL_REPLY_TO and OWNER_FOOTER
+# Accounts stay off (503) until the key and a stackdplatform.com sender are there.
 # [[d1_databases]]
 # binding = "DB"
 # database_name = "stackd"
@@ -40,6 +48,13 @@ id = "5db8ec1359f04d0281e126e1d0948147"
 # crons = ["17 3 * * *"]   # the daily clean-up (src/retention.js)
 
 [vars]
+# Account emails (PRD-accounts US-09; PRD 1.7.0 decision 60 and the sender
+# chosen with it): Brevo, from account@, replies to hi@, the studio's name
+# and contact at the foot of each message. Unused until accounts are on.
+MAIL_PROVIDER = "brevo"
+MAIL_FROM = "Stack'd <account@stackdplatform.com>"
+MAIL_REPLY_TO = "hi@stackdplatform.com"
+OWNER_FOOTER = "Stack'd Development Studio · hi@stackdplatform.com"
 # Origins the web app is served from: the new address (1.6.0) and the old
 # GitHub Pages one, which keeps working for one release (PRD-accounts
 # AC-12.2). The shells send capacitor://localhost (iOS) and
